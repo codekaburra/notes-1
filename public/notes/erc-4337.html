@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>帳戶抽象：ERC-4337 與 EIP-7702</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="帳戶抽象：ERC-4337 與 EIP-7702" data-title-en="Account Abstraction: ERC-4337 & EIP-7702">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>帳戶抽象：ERC-4337 與 EIP-7702</h1>
+    <p class="meta">2026-09-06 · 以太坊</p>
+
+    <h2>要解的問題</h2>
+    <p>EOA 的驗證邏輯寫死在協議裡——一組 secp256k1 簽章，沒得改。所以沒有多簽、沒有 passkey、沒有社交恢復；沒 ETH 就什麼都動不了；一次只能做一件事。合約帳戶其實沒這些限制，但合約不能自己發起交易。</p>
+
+    <h2>兩條路線</h2>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>ERC-4337</th><th>EIP-7702</th></tr></thead>
+      <tbody>
+        <tr><td>做法</td><td>不改協議，另開替代 mempool</td><td>隨 Pectra 進協議（2025-05）</td></tr>
+        <tr><td>帳戶</td><td>你部署的新合約</td><td>既有 EOA 原地升級，地址不變</td></tr>
+        <tr><td>解的事</td><td>代送交易、代付 gas</td><td>上億個現存 EOA 不用遷移</td></tr>
+      </tbody>
+    </table></div>
+    <p>一句話：<strong>7702 讓帳戶變聰明，4337 讓聰明的帳戶有人幫忙送交易跟付 gas。</strong></p>
+
+    <h2>4337 的流程</h2>
+    <p>使用者送的是 <code>UserOperation</code>（9 個欄位）而不是交易 → Bundler 從替代 mempool 收集 → 打包成一筆 <code>handleOps()</code> 送給鏈上單例 <strong>EntryPoint</strong> → EntryPoint 先跑完整批的<em>驗證迴圈</em>，再跑<em>執行迴圈</em>。</p>
+    <p>你的帳戶只需要實作一個函式：</p>
+<pre><code>function validateUserOp(
+    PackedUserOperation calldata userOp,
+    bytes32 userOpHash,
+    uint256 missingAccountFunds
+) external returns (uint256 validationData);
+// 0 = 通過，1 = 簽章錯（回傳 1，不要 revert）</code></pre>
+    <p>簽章格式完全由這個函式自己定義——這就是「抽象」的所在。</p>
+
+    <h2>7702 的機制</h2>
+    <p>新交易型別 <code>0x04</code>，帶 <code>authorization_list</code>，每筆是 <code>[chain_id, address, nonce, y_parity, r, s]</code>。通過後協議把 23 bytes 寫進 EOA 的 code 欄位：</p>
+<pre><code>0xef0100 ‖ 實作合約地址</code></pre>
+    <p>地址不變、私鑰照樣能用。簽 <code>address(0)</code> 可以撤銷。</p>
+
+    <h2>三個會咬人的坑</h2>
+    <ol>
+      <li><strong>委派合約要自己做重放保護。</strong>協議只保證授權本身不被重放，不管你的 <code>execute()</code>。</li>
+      <li><strong>初始化不是原子的。</strong>7702 沒有 constructor，設定 owner 必須靠 <code>ecrecover</code> 驗簽，否則會被搶跑。</li>
+      <li><strong>「Bundler 拒收但合約邏輯正確」</strong>通常是撞到 ERC-7562 的驗證範圍規則：禁用 <code>TIMESTAMP</code>、<code>BLOCKHASH</code>、<code>BALANCE</code>，且限制驗證階段能讀的 storage。</li>
+    </ol>
+
+    <h2>EntryPoint 地址</h2>
+    <p>三版並存，整合前先確認 Bundler 支援哪一版——這是最常卡住的地方。</p>
+    <div class="scroll"><table>
+      <tbody>
+        <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td></tr>
+      </tbody>
+    </table></div>
+    <p>v0.7 生態支援最廣；v0.8 原生支援 7702，UserOp hash 改用 EIP-712。</p>
+
+    <h2>原始規格</h2>
+    <ul>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-4337">EIP-4337</a>／<a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a>／<a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a></li>
+    </ul>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Account Abstraction: ERC-4337 &amp; EIP-7702</h1>
+    <p class="meta">2026-09-06 · Ethereum</p>
+
+    <h2>The problem</h2>
+    <p>An EOA's validation logic is hardcoded into the protocol — one secp256k1 signature, take it or leave it. No multisig, no passkeys, no social recovery. No ETH means nothing moves. One action per transaction. Contract accounts have none of these limits, but a contract can't initiate a transaction.</p>
+
+    <h2>Two approaches</h2>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>ERC-4337</th><th>EIP-7702</th></tr></thead>
+      <tbody>
+        <tr><td>Method</td><td>No protocol change; alt mempool</td><td>Shipped in Pectra (May 2025)</td></tr>
+        <tr><td>Account</td><td>A new contract you deploy</td><td>Existing EOA, upgraded in place</td></tr>
+        <tr><td>Solves</td><td>Relaying and gas sponsorship</td><td>Migrating hundreds of millions of EOAs</td></tr>
+      </tbody>
+    </table></div>
+    <p>In one line: <strong>7702 makes the account smart; 4337 gets that smart account relayed and its gas paid.</strong></p>
+
+    <h2>The 4337 flow</h2>
+    <p>The user submits a <code>UserOperation</code> (nine fields), not a transaction → a Bundler picks it up from the alt mempool → packs it into one <code>handleOps()</code> call to the on-chain singleton <strong>EntryPoint</strong> → EntryPoint runs the whole <em>validation loop</em> first, then the <em>execution loop</em>.</p>
+    <p>Your account implements exactly one function:</p>
+<pre><code>function validateUserOp(
+    PackedUserOperation calldata userOp,
+    bytes32 userOpHash,
+    uint256 missingAccountFunds
+) external returns (uint256 validationData);
+// 0 = valid, 1 = SIG_VALIDATION_FAILED (return 1, don't revert)</code></pre>
+    <p>The signature format is entirely up to that function. That is the abstraction.</p>
+
+    <h2>How 7702 works</h2>
+    <p>A new transaction type <code>0x04</code> carries an <code>authorization_list</code>; each entry is <code>[chain_id, address, nonce, y_parity, r, s]</code>. Once valid, the protocol writes 23 bytes into the EOA's code field:</p>
+<pre><code>0xef0100 ‖ implementation address</code></pre>
+    <p>Same address, same private key, still works as a plain EOA. Sign <code>address(0)</code> to revoke.</p>
+
+    <h2>Three traps</h2>
+    <ol>
+      <li><strong>The delegate must implement its own replay protection.</strong> The protocol only guards the authorization, not your <code>execute()</code>.</li>
+      <li><strong>Initialization isn't atomic.</strong> There's no constructor, so setting an owner must go through <code>ecrecover</code>, or it gets front-run.</li>
+      <li><strong>"Bundler rejects it but my logic is fine"</strong> almost always means ERC-7562 validation scope rules: no <code>TIMESTAMP</code>, <code>BLOCKHASH</code>, <code>BALANCE</code>, and limited storage access during validation.</li>
+    </ol>
+
+    <h2>EntryPoint addresses</h2>
+    <p>Three versions coexist. Check which one your Bundler supports before integrating — that's the usual snag.</p>
+    <div class="scroll"><table>
+      <tbody>
+        <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td></tr>
+      </tbody>
+    </table></div>
+    <p>v0.7 has the widest tooling support; v0.8 adds native 7702 and EIP-712 UserOp hashing.</p>
+
+    <h2>Specs</h2>
+    <ul>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-4337">EIP-4337</a> / <a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a> / <a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a></li>
+    </ul>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

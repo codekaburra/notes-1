@@ -1,0 +1,93 @@
+:root{
+  --bg:#F6F7F8; --surface:#FFFFFF; --ink:#191D1F; --muted:#5F686C;
+  --line:#E0E4E6; --accent:#2F6088; --accent-soft:#E7EEF4; --code-bg:#EFF1F3;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#111517; --surface:#181D20; --ink:#E3E8EA; --muted:#939DA2;
+    --line:#272E32; --accent:#6FAAD6; --accent-soft:#16242E; --code-bg:#1E2529;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111517; --surface:#181D20; --ink:#E3E8EA; --muted:#939DA2;
+  --line:#272E32; --accent:#6FAAD6; --accent-soft:#16242E; --code-bg:#1E2529;
+}
+
+/* 語言切換：只顯示目前語言的內容 */
+html[data-lang="zh"] [data-l="en"]{display:none}
+html[data-lang="en"] [data-l="zh"]{display:none}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--sans); font-size:17px; line-height:1.85;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:44rem; margin:0 auto; padding:0 1.5rem 5rem}
+:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:3px}
+
+/* 頁首 */
+.top{
+  display:flex; align-items:center; justify-content:space-between; gap:1rem;
+  flex-wrap:wrap; padding:1.75rem 0 1.5rem; margin-bottom:2.5rem;
+  border-bottom:1px solid var(--line);
+}
+.brand{font-weight:600; font-size:1.02rem; text-decoration:none; color:var(--ink)}
+.brand:hover{color:var(--accent)}
+
+/* 語言按鈕 */
+.langbar{display:flex; gap:0; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--surface)}
+.langbar button{
+  font:inherit; font-size:.82rem; font-weight:500;
+  padding:.4rem .85rem; border:0; background:transparent; color:var(--muted);
+  cursor:pointer; transition:background .12s, color .12s;
+}
+.langbar button + button{border-left:1px solid var(--line)}
+.langbar button:hover{color:var(--ink)}
+.langbar button[aria-pressed="true"]{background:var(--accent-soft); color:var(--accent); font-weight:600}
+
+/* 內容 */
+h1{font-size:1.9rem; line-height:1.3; margin:0 0 .6rem; letter-spacing:-.01em; text-wrap:balance}
+h2{font-size:1.28rem; line-height:1.45; margin:2.4rem 0 .7rem; text-wrap:balance}
+h3{font-size:1.06rem; margin:1.9rem 0 .5rem}
+p{margin:0 0 1.1rem; text-wrap:pretty}
+a{color:var(--accent); text-underline-offset:3px}
+ul,ol{padding-left:1.35rem; margin:0 0 1.1rem}
+li{margin:0 0 .45rem}
+li::marker{color:var(--muted)}
+hr{border:0; border-top:1px solid var(--line); margin:2.5rem 0}
+code{font-family:var(--mono); font-size:.86em; background:var(--code-bg); padding:.12em .35em; border-radius:3px; word-break:break-word}
+pre{
+  font-family:var(--mono); font-size:.82rem; line-height:1.7;
+  background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  padding:1rem 1.1rem; overflow-x:auto; margin:1.3rem 0;
+}
+pre code{background:none; padding:0; font-size:1em}
+blockquote{margin:1.3rem 0; padding:.1rem 0 .1rem 1.1rem; border-left:3px solid var(--accent); color:var(--muted)}
+blockquote p:last-child{margin:0}
+table{border-collapse:collapse; width:100%; font-size:.92rem; margin:1.3rem 0}
+th,td{text-align:left; padding:.6rem .8rem .6rem 0; border-bottom:1px solid var(--line); vertical-align:top}
+th{font-size:.76rem; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600}
+.scroll{overflow-x:auto}
+
+.meta{font-family:var(--mono); font-size:.76rem; color:var(--muted); margin:0 0 2.2rem}
+
+/* 筆記列表 */
+.notes{list-style:none; padding:0; margin:0}
+.notes li{margin:0; border-bottom:1px solid var(--line)}
+.notes a{
+  display:block; padding:1.05rem 0; text-decoration:none; color:var(--ink);
+}
+.notes a:hover .n-title{color:var(--accent); text-decoration:underline}
+.n-title{font-weight:600; font-size:1.02rem; display:block; margin-bottom:.15rem}
+.n-desc{font-size:.9rem; color:var(--muted); line-height:1.65; display:block}
+.n-date{font-family:var(--mono); font-size:.72rem; color:var(--muted); display:block; margin-top:.35rem}
+
+.back{display:inline-block; font-size:.86rem; margin-bottom:1.75rem; text-decoration:none}
+.back:hover{text-decoration:underline}
+
+footer{margin-top:4rem; padding-top:1.5rem; border-top:1px solid var(--line); font-size:.8rem; color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

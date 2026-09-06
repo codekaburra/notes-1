@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>找不到這一頁</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="./assets/style.css">
+</head>
+<body data-title-zh="找不到這一頁" data-title-en="Page not found">
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <div data-l="zh">
+    <h1>找不到這一頁</h1>
+    <p>網址可能打錯了，或這則筆記還沒寫。</p>
+    <p><a href="./index.html">← 回筆記列表</a></p>
+  </div>
+  <div data-l="en">
+    <h1>Page not found</h1>
+    <p>The URL may be wrong, or this note hasn't been written yet.</p>
+    <p><a href="./index.html">← Back to all notes</a></p>
+  </div>
+</div>
+<script src="./assets/app.js"></script>
+</body>
+</html>

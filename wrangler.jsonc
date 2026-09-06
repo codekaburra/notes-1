@@ -1,0 +1,12 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "notes",
+	"compatibility_date": "2026-09-06",
+	"assets": {
+		"directory": "./public/",
+		// /notes/foo 會自動對應到 /notes/foo.html
+		"html_handling": "auto-trailing-slash",
+		// 找不到的路徑會回傳 public/404.html
+		"not_found_handling": "404-page"
+	}
+}

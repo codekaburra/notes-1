@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>這個站怎麼運作、怎麼部署</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="這個站怎麼運作、怎麼部署" data-title-en="How this site works and ships">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>這個站怎麼運作、怎麼部署</h1>
+    <p class="meta">2026-09-06</p>
+
+    <h2>語言切換</h2>
+    <p>兩種語言的內容<strong>都在同一份 HTML 裡</strong>，用 <code>data-l="zh"</code> 跟 <code>data-l="en"</code> 標記，靠 CSS 藏掉另一邊：</p>
+<pre><code>html[data-lang="zh"] [data-l="en"] { display: none; }
+html[data-lang="en"] [data-l="zh"] { display: none; }</code></pre>
+    <p>按鈕做的事只有一件：改 <code>&lt;html&gt;</code> 上的 <code>data-lang</code>，然後寫進 <code>localStorage</code>，換頁時會記得。</p>
+    <p>另外在 <code>&lt;head&gt;</code> 裡有一小段 inline script，在畫面繪製<em>之前</em>就把 <code>data-lang</code> 設好。沒有這段的話，載入瞬間會先閃一下預設語言才跳走。</p>
+
+    <h2>加一則新筆記</h2>
+    <ol>
+      <li>複製這個檔案到 <code>public/notes/新名字.html</code>。</li>
+      <li>改掉 <code>&lt;title&gt;</code> 跟 <code>&lt;body&gt;</code> 上的 <code>data-title-zh</code> / <code>data-title-en</code>。</li>
+      <li>兩個 <code>data-l</code> 區塊各寫一種語言。</li>
+      <li>回到 <code>public/index.html</code>，在 <code>&lt;ul class="notes"&gt;</code> 加一個 <code>&lt;li&gt;</code>。</li>
+    </ol>
+
+    <h2>部署到 GitHub Pages</h2>
+    <p>推上 <code>main</code> 就會自動發布，設定在 <code>.github/workflows/pages.yml</code>。首次要去 repo 的 <strong>Settings → Pages → Source</strong> 選 <strong>GitHub Actions</strong>。</p>
+    <blockquote><p>注意：repo 要設成 public 才免費。private repo 的 Pages 需要付費方案。而且就算 repo 是 private，發布出去的網站本身仍然是公開可存取的。</p></blockquote>
+
+    <h2>部署到 Cloudflare Workers</h2>
+<pre><code>npx wrangler login   # 只要做一次
+npx wrangler deploy</code></pre>
+    <p>設定在 <code>wrangler.jsonc</code>，靜態站不需要 Worker 程式碼，只要指定 <code>assets.directory</code> 就好。</p>
+
+    <h2>為什麼路徑都是相對的</h2>
+    <p>GitHub Pages 的專案站掛在 <code>使用者名稱.github.io/repo名/</code> 這種<strong>子路徑</strong>下。所以 <code>/assets/style.css</code> 這種絕對路徑會全部 404。全部寫成 <code>./assets/…</code> 或 <code>../assets/…</code>，兩邊才都能跑。</p>
+    <p>同理，連結一律帶 <code>.html</code> 副檔名。Cloudflare 可以省略，GitHub Pages 不行。</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>How this site works and ships</h1>
+    <p class="meta">2026-09-06</p>
+
+    <h2>The language toggle</h2>
+    <p>Both languages live in <strong>the same HTML file</strong>, tagged with <code>data-l="zh"</code> and <code>data-l="en"</code>. CSS hides the other one:</p>
+<pre><code>html[data-lang="zh"] [data-l="en"] { display: none; }
+html[data-lang="en"] [data-l="zh"] { display: none; }</code></pre>
+    <p>The buttons do exactly one thing: set <code>data-lang</code> on <code>&lt;html&gt;</code> and save it to <code>localStorage</code>, so the choice survives navigation.</p>
+    <p>A small inline script in <code>&lt;head&gt;</code> sets <code>data-lang</code> <em>before</em> first paint. Without it you'd see a flash of the wrong language on every load.</p>
+
+    <h2>Adding a note</h2>
+    <ol>
+      <li>Copy this file to <code>public/notes/your-name.html</code>.</li>
+      <li>Update <code>&lt;title&gt;</code> and the <code>data-title-zh</code> / <code>data-title-en</code> attributes on <code>&lt;body&gt;</code>.</li>
+      <li>Write one language in each <code>data-l</code> block.</li>
+      <li>Add an <code>&lt;li&gt;</code> to <code>&lt;ul class="notes"&gt;</code> in <code>public/index.html</code>.</li>
+    </ol>
+
+    <h2>Deploying to GitHub Pages</h2>
+    <p>Pushing to <code>main</code> publishes automatically via <code>.github/workflows/pages.yml</code>. Once, in the repo: <strong>Settings → Pages → Source → GitHub Actions</strong>.</p>
+    <blockquote><p>The repo must be public to stay free. Pages from a private repo needs a paid plan — and the published site is still publicly reachable either way.</p></blockquote>
+
+    <h2>Deploying to Cloudflare Workers</h2>
+<pre><code>npx wrangler login   # once
+npx wrangler deploy</code></pre>
+    <p>Config lives in <code>wrangler.jsonc</code>. A static site needs no Worker script at all — just <code>assets.directory</code>.</p>
+
+    <h2>Why every path is relative</h2>
+    <p>GitHub Pages project sites are served from a <strong>subpath</strong>: <code>username.github.io/repo/</code>. Absolute paths like <code>/assets/style.css</code> 404 there. Using <code>./assets/…</code> and <code>../assets/…</code> keeps the same files working on both hosts.</p>
+    <p>Same reason links always carry the <code>.html</code> extension: Cloudflare can drop it, GitHub Pages can't.</p>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>筆記</title>
+<script>
+  // 在畫面繪製前就決定語言，避免載入瞬間閃到另一種語言
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="./assets/style.css">
+</head>
+<body data-title-zh="筆記" data-title-en="Notes">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="./index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <div data-l="zh">
+    <h1>筆記</h1>
+    <p class="meta">純靜態 · 無資料庫 · 中英雙語</p>
+  </div>
+  <div data-l="en">
+    <h1>Notes</h1>
+    <p class="meta">Static only · No database · Bilingual</p>
+  </div>
+
+  <ul class="notes">
+    <li>
+      <a href="./notes/erc-4337.html">
+        <span class="n-title" data-l="zh">帳戶抽象：ERC-4337 與 EIP-7702</span>
+        <span class="n-title" data-l="en">Account Abstraction: ERC-4337 &amp; EIP-7702</span>
+        <span class="n-desc" data-l="zh">兩條路線的機制、欄位與陷阱。</span>
+        <span class="n-desc" data-l="en">How both approaches work, field by field, plus the traps.</span>
+        <span class="n-date">2026-09-06</span>
+      </a>
+    </li>
+    <li>
+      <a href="./notes/deploy.html">
+        <span class="n-title" data-l="zh">這個站怎麼運作、怎麼部署</span>
+        <span class="n-title" data-l="en">How this site works and ships</span>
+        <span class="n-desc" data-l="zh">雙語切換的做法，以及 GitHub Pages 與 Cloudflare Workers 兩種部署。</span>
+        <span class="n-desc" data-l="en">The language toggle, and deploying to GitHub Pages or Cloudflare Workers.</span>
+        <span class="n-date">2026-09-06</span>
+      </a>
+    </li>
+  </ul>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="./assets/app.js"></script>
+</body>
+</html>
