@@ -34,69 +34,237 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Hyperliquid 架構</h1>
-    <p class="meta">2026-09-09 · 永續合約 DEX · 內容截至 2026-01，變動快，落地前請再查證</p>
+    <p class="meta">2026-09-09 · 永續合約 DEX · 開發者視角 · 變動快，落地前請再查證</p>
 
-    <p>Hyperliquid 並非一般的 DEX，而是一條<strong>為永續合約而生的 L1 區塊鏈</strong>。理解它，關鍵在於幾項與其他鏈上永續交易所的根本差異。</p>
+    <p>Hyperliquid 不是一般 DEX，而是一條<strong>為永續合約而生的 L1</strong>。對開發者而言，關鍵在於它把系統切成兩層、並用 precompile 與 CoreWriter 把兩層縫在一起——這是本則三個重點（連動、Solidity、風險）的核心。</p>
 
-    <h2>鏈上中央限價訂單簿（CLOB）</h2>
-    <p>多數鏈上永續 DEX 或以預言機定價（如 GMX），或將訂單簿置於鏈下（如早期的 dYdX）。Hyperliquid 將整個訂單簿放上鏈，並以自有的共識機制（HyperBFT）支撐低延遲撮合。這是它最核心的取捨：追求接近中心化交易所的交易體驗，同時維持鏈上的透明與可驗證。</p>
-
-    <h2>兩層架構</h2>
+    <h2>設計理念：CLOB + 雙層</h2>
+    <p>多數鏈上永續 DEX 用預言機定價（GMX）或把訂單簿放鏈下（早期 dYdX）。Hyperliquid 反其道而行：<strong>整個中央限價訂單簿（CLOB）放上鏈</strong>，以自有共識 HyperBFT 撐低延遲，追求接近中心化交易所的體驗但保留鏈上可驗證。系統分兩層：</p>
     <div class="scroll"><table>
-      <thead><tr><th>層</th><th>職責</th></tr></thead>
+      <thead><tr><th>層</th><th>職責</th><th>你怎麼碰它</th></tr></thead>
       <tbody>
-        <tr><td><strong>HyperCore</strong></td><td>原生層，負責訂單簿、撮合、清算與永續合約邏輯</td></tr>
-        <tr><td><strong>HyperEVM</strong></td><td>相容 EVM 的通用合約層，可部署一般智慧合約</td></tr>
+        <tr><td><strong>HyperCore</strong></td><td>原生層：訂單簿、撮合、清算、永續邏輯</td><td>鏈下用簽名 API 下單；鏈上用 precompile／CoreWriter</td></tr>
+        <tr><td><strong>HyperEVM</strong></td><td>相容 EVM 的通用合約層</td><td>照常部署 Solidity 合約</td></tr>
       </tbody>
     </table></div>
-    <p>兩者共享狀態，因此 HyperEVM 上的合約可以直接與 HyperCore 的訂單簿互動——這是一般「EVM 鏈 + 外掛交易所」架構做不到的整合程度。</p>
+    <p>兩層共享狀態，因此 HyperEVM 的合約能<strong>直接讀 HyperCore 的價格與部位、也能把動作寫回去</strong>——不需外部預言機。這正是它跟「一般 EVM 鏈 + 外掛交易所」最大的不同。</p>
 
-    <h2>HLP 與代幣</h2>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="HyperEVM 合約與 HyperCore 的連動：HyperEVM 以起於 0x800 的讀取 precompile 同步讀取價格與部位，並透過 0x3333 的 CoreWriter 合約寫回動作，但寫入為非同步、不與本筆 EVM 交易原子成立。">
+          <defs>
+            <marker id="h1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="h1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="30" y="60" width="200" height="90" rx="10"></rect>
+          <text class="svg-nlabel" x="130" y="98" text-anchor="middle">HyperEVM 合約</text>
+          <text class="svg-ncode" x="130" y="120" text-anchor="middle">你的 Solidity</text>
+          <rect class="svg-node-a" x="530" y="60" width="200" height="90" rx="10"></rect>
+          <text class="svg-nlabel" x="630" y="94" text-anchor="middle">HyperCore</text>
+          <text class="svg-ncode" x="630" y="116" text-anchor="middle">訂單簿 · 永續 · 餘額</text>
+          <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#h1)"></line>
+          <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① 讀 precompile　0x…0800（同步）</text>
+          <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#h1)"></line>
+          <text class="svg-flowlabel" x="379" y="118" text-anchor="middle">回傳：價格／部位／餘額</text>
+          <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#h1a)"></line>
+          <text class="svg-step" x="379" y="152" text-anchor="middle">② CoreWriter 0x3333… .sendRawAction()</text>
+          <rect class="svg-node-dash" x="30" y="196" width="700" height="70" rx="12"></rect>
+          <text class="svg-mono-a" x="50" y="226">⚠ 寫入是「非同步」的</text>
+          <text class="svg-ncode" x="50" y="248">CoreWriter 只發出動作、排入 HyperCore 佇列，稍後才執行；不與本筆 EVM 交易原子成立。</text>
+        </svg>
+      </div>
+      <figcaption>讀取（①）是同步的：precompile 像一次 <code>staticcall</code>，當下就拿到 HyperCore 的價格與部位，可直接用於合約邏輯。寫入（②）則是非同步：CoreWriter 發出動作後排隊，稍後才在 HyperCore 生效——<strong>不能假設「送出＝已成交」</strong>，這是最常見的踩雷點。</figcaption>
+    </figure>
+
+    <h2>Solidity：讀狀態、寫動作</h2>
+    <p><strong>讀取</strong>——以 <code>staticcall</code> 打讀取類 precompile（起於 <code>0x…0800</code>，各查詢有各自位址，實際請對照官方文件或 <code>hyper-evm-lib</code>）：</p>
+<pre><code><span class="c">// 讀取類 precompile 由 0x…0800 起；此處示意讀取某 index 的價格</span>
+address constant PX_PRECOMPILE = 0x0000000000000000000000000000000000000807;
+
+function markPx(uint32 index) public view returns (uint64) {
+    (bool ok, bytes memory ret) = PX_PRECOMPILE.staticcall(abi.encode(index));
+    require(ok, "precompile failed");
+    return abi.decode(ret, (uint64));          <span class="c">// 同步取得，可直接用於下游邏輯</span>
+}</code></pre>
+    <p><strong>寫入</strong>——透過 <code>CoreWriter</code>（<code>0x3333…3333</code>）的唯一函式 <code>sendRawAction(bytes)</code>。動作以「版本位元組 + action id + abi 編碼參數」組成。以下為官方文件的 USD class transfer 範例：</p>
+<pre><code>interface ICoreWriter { function sendRawAction(bytes calldata data) external; }
+ICoreWriter constant CW = ICoreWriter(0x3333333333333333333333333333333333333333);
+
+function usdClassTransfer(uint64 ntl, bool toPerp) external {
+    bytes memory action = abi.encode(ntl, toPerp);
+    bytes memory data = new bytes(4 + action.length);
+    data[0] = 0x01; data[1] = 0x00; data[2] = 0x00; data[3] = 0x07;   <span class="c">// 版本 + action id</span>
+    for (uint256 i = 0; i &lt; action.length; i++) data[4 + i] = action[i];
+    CW.sendRawAction(data);                     <span class="c">// 只是「發出」動作——非同步！</span>
+}</code></pre>
+
+    <h2>鏈下：交易 API 與簽名</h2>
+    <p>高頻交易（下單、撤單、改槓桿）走鏈下 REST／WebSocket，不走 HyperEVM。簽名機制特殊——稱為 <strong>phantom agent</strong>：</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Hyperliquid 鏈下下單流程：客戶端組動作並以 msgpack 序列化，算出 keccak256 的 connectionId，對 phantom agent 以 EIP-712（chainId 1337）簽名，再 POST 到 /exchange 進入 HyperCore 訂單簿。">
+          <defs>
+            <marker id="h2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="70" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="109" y="100" text-anchor="middle">客戶端 / bot</text>
+          <text class="svg-ncode" x="109" y="120" text-anchor="middle">組動作 → msgpack</text>
+          <rect class="svg-node-a" x="300" y="70" width="180" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="100" text-anchor="middle">phantom agent</text>
+          <text class="svg-ncode" x="390" y="120" text-anchor="middle">EIP-712 · chainId 1337</text>
+          <rect class="svg-node" x="586" y="70" width="150" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="661" y="100" text-anchor="middle">POST /exchange</text>
+          <text class="svg-ncode" x="661" y="120" text-anchor="middle">→ HyperCore 訂單簿</text>
+          <line class="svg-flow" x1="194" y1="105" x2="298" y2="105" marker-end="url(#h2)"></line>
+          <text class="svg-flowlabel" x="246" y="96" text-anchor="middle">簽名</text>
+          <line class="svg-flow" x1="480" y1="105" x2="584" y2="105" marker-end="url(#h2)"></line>
+          <text class="svg-flowlabel" x="532" y="96" text-anchor="middle">送出</text>
+        </svg>
+      </div>
+      <figcaption>動作先以 msgpack 序列化，接上 nonce 與 vault 位址後 <code>keccak256</code> 得到 <code>connectionId</code>；再把 <code>{ source, connectionId }</code> 當成一個臨時「agent」物件，以 EIP-712（L1 action 用 chainId 1337）簽名。建議用 <code>approveAgent</code> 授權的 <strong>agent 金鑰</strong>簽名——它無資金、只能簽 L1 動作，主私鑰外洩風險較低。實作請直接用官方 SDK，別手刻。</figcaption>
+    </figure>
+
+    <h2>智慧合約安全風險（開發者）</h2>
     <ul>
-      <li><strong>HLP</strong>：社群可存入資金的做市與清算金庫，賺取價差與清算收益，等同於讓散戶成為造市者與清算對手方的資金池。</li>
-      <li><strong>HYPE</strong>：原生代幣。</li>
+      <li><strong>寫入非同步是頭號陷阱。</strong>CoreWriter 送出後不代表已成交；同一筆 EVM 交易內「先下單、再讀部位確認」是行不通的，狀態要等後續區塊才更新。</li>
+      <li><strong>precompile 是可信價源，但別誤用。</strong>它讀的是 HyperCore 的真實狀態（不像現貨池價可被閃電貸操縱），但仍要處理回傳解碼、gas，以及索引／市場對映錯誤。</li>
+      <li><strong>動作編碼要逐位元正確。</strong>版本位元組與 action id 錯一格，行為就不同；用經驗證的函式庫（<code>hyper-evm-lib</code>）而非自行拼 bytes。</li>
+      <li><strong>HyperEVM 仍是新環境。</strong>雙區塊（小／大 block）、gas 模型、precompile 行為都與主流 EVM 有差異；上線前在測試網把邊界跑過。</li>
     </ul>
 
-    <h2>建議的學習路徑</h2>
-    <ol>
-      <li>先理解「為何鏈上訂單簿難以實現，Hyperliquid 如何解決」。</li>
-      <li>再看 HyperCore 與 HyperEVM 的分層與共享狀態。</li>
-      <li>最後研究 HLP 與 vault 的經濟設計。</li>
-    </ol>
+    <h2>使用者投資風險</h2>
+    <p>永續合約的風險遠高於現貨，務必先懂再進場：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>槓桿清算</strong></td><td>永續是槓桿商品，價格反向到維持保證金以下即被強制平倉，本金可能歸零。</td></tr>
+        <tr><td><strong>資金費率</strong></td><td>多空失衡時要持續支付對手方，長抱單邊會被費率慢慢侵蝕。</td></tr>
+        <tr><td><strong>HLP 金庫回撤</strong></td><td>存入 HLP 等於當造市／清算對手方；極端行情或大額清算時，金庫可能承受可觀虧損，並非穩賺。</td></tr>
+        <tr><td><strong>自動減倉（ADL）</strong></td><td>對手方爆倉且保險金不足時，你的獲利部位可能被強制部分平倉。</td></tr>
+        <tr><td><strong>預言機／標記價</strong></td><td>清算依標記價而非最新成交價；標記價異常會觸發非預期清算。</td></tr>
+        <tr><td><strong>合約與橋風險</strong></td><td>HyperEVM 上的借貸、LST 等協議各有智慧合約風險；跨鏈資產還有橋的風險。</td></tr>
+        <tr><td><strong>代幣解鎖／集中度</strong></td><td>HYPE 等代幣的解鎖排程與持有集中度會影響價格波動。</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>一句話：現貨的敵人是「幣價跌」；永續多了「被清算」「付資金費」「被 ADL」——時間與槓桿都會咬人。</p></blockquote>
   </div>
 
   <!-- ================= English ================= -->
   <div data-l="en">
     <h1>Hyperliquid Architecture</h1>
-    <p class="meta">2026-09-09 · Perp DEX · As of 2026-01; moves fast, re-verify before building</p>
+    <p class="meta">2026-09-09 · Perp DEX · Developer view · Moves fast, re-verify before building</p>
 
-    <p>Hyperliquid is not an ordinary DEX but an <strong>L1 blockchain purpose-built for perpetual futures</strong>. To understand it, focus on a few fundamental differences from other on-chain perp exchanges.</p>
+    <p>Hyperliquid is not an ordinary DEX but an <strong>L1 purpose-built for perpetuals</strong>. For developers the key is that it splits the system into two layers and stitches them together with precompiles and CoreWriter — the core of this note's three themes (interconnection, Solidity, risk).</p>
 
-    <h2>On-chain central limit order book (CLOB)</h2>
-    <p>Most on-chain perp DEXs either price via an oracle (e.g. GMX) or keep the order book off-chain (e.g. early dYdX). Hyperliquid puts the entire order book on-chain and uses its own consensus (HyperBFT) to sustain low-latency matching. This is its core trade-off: aim for a near-CEX trading experience while keeping on-chain transparency and verifiability.</p>
-
-    <h2>Two-layer architecture</h2>
+    <h2>Design idea: CLOB + two layers</h2>
+    <p>Most on-chain perp DEXs price via an oracle (GMX) or keep the book off-chain (early dYdX). Hyperliquid does the opposite: <strong>the whole central limit order book (CLOB) lives on-chain</strong>, with its own HyperBFT consensus for low latency — aiming for a CEX-like experience while staying verifiable. Two layers:</p>
     <div class="scroll"><table>
-      <thead><tr><th>Layer</th><th>Responsibility</th></tr></thead>
+      <thead><tr><th>Layer</th><th>Responsibility</th><th>How you touch it</th></tr></thead>
       <tbody>
-        <tr><td><strong>HyperCore</strong></td><td>The native layer: order book, matching, liquidations, perp logic</td></tr>
-        <tr><td><strong>HyperEVM</strong></td><td>An EVM-compatible general contract layer for ordinary smart contracts</td></tr>
+        <tr><td><strong>HyperCore</strong></td><td>Native: order book, matching, liquidation, perp logic</td><td>Off-chain via signed API; on-chain via precompiles / CoreWriter</td></tr>
+        <tr><td><strong>HyperEVM</strong></td><td>EVM-compatible general contract layer</td><td>Deploy Solidity as usual</td></tr>
       </tbody>
     </table></div>
-    <p>The two share state, so contracts on HyperEVM can interact directly with HyperCore's order book — an integration the usual "EVM chain plus bolted-on exchange" architecture cannot match.</p>
+    <p>The two share state, so HyperEVM contracts can <strong>read HyperCore's prices and positions directly, and write actions back</strong> — no external oracle needed. That is the biggest difference from an "ordinary EVM chain plus a bolted-on exchange."</p>
 
-    <h2>HLP and the token</h2>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="How a HyperEVM contract interconnects with HyperCore: HyperEVM reads prices and positions synchronously via read precompiles starting at 0x800, and writes actions back through the CoreWriter contract at 0x3333, but writes are asynchronous and not atomic with the EVM transaction.">
+          <defs>
+            <marker id="e1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="e1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="30" y="60" width="200" height="90" rx="10"></rect>
+          <text class="svg-nlabel" x="130" y="98" text-anchor="middle">HyperEVM contract</text>
+          <text class="svg-ncode" x="130" y="120" text-anchor="middle">your Solidity</text>
+          <rect class="svg-node-a" x="530" y="60" width="200" height="90" rx="10"></rect>
+          <text class="svg-nlabel" x="630" y="94" text-anchor="middle">HyperCore</text>
+          <text class="svg-ncode" x="630" y="116" text-anchor="middle">book · perps · balances</text>
+          <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#e1)"></line>
+          <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① read precompile  0x…0800 (sync)</text>
+          <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#e1)"></line>
+          <text class="svg-flowlabel" x="379" y="118" text-anchor="middle">returns: price / position / balance</text>
+          <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#e1a)"></line>
+          <text class="svg-step" x="379" y="152" text-anchor="middle">② CoreWriter 0x3333… .sendRawAction()</text>
+          <rect class="svg-node-dash" x="30" y="196" width="700" height="70" rx="12"></rect>
+          <text class="svg-mono-a" x="50" y="226">⚠ writes are ASYNC</text>
+          <text class="svg-ncode" x="50" y="248">CoreWriter only emits the action into HyperCore's queue; it runs later, not atomically with this EVM tx.</text>
+        </svg>
+      </div>
+      <figcaption>Reads (①) are synchronous: a precompile behaves like a <code>staticcall</code> and returns HyperCore's price or position right away, usable in contract logic. Writes (②) are asynchronous: CoreWriter queues the action to run later on HyperCore — <strong>never assume "sent == filled"</strong>, the single most common pitfall.</figcaption>
+    </figure>
+
+    <h2>Solidity: read state, write actions</h2>
+    <p><strong>Reading</strong> — <code>staticcall</code> a read precompile (starting at <code>0x…0800</code>; each query has its own address, confirm against the official docs or <code>hyper-evm-lib</code>):</p>
+<pre><code><span class="c">// read precompiles start at 0x…0800; here, reading a price for some index</span>
+address constant PX_PRECOMPILE = 0x0000000000000000000000000000000000000807;
+
+function markPx(uint32 index) public view returns (uint64) {
+    (bool ok, bytes memory ret) = PX_PRECOMPILE.staticcall(abi.encode(index));
+    require(ok, "precompile failed");
+    return abi.decode(ret, (uint64));          <span class="c">// synchronous, usable downstream</span>
+}</code></pre>
+    <p><strong>Writing</strong> — via <code>CoreWriter</code> (<code>0x3333…3333</code>) and its single function <code>sendRawAction(bytes)</code>. An action is "version byte + action id + abi-encoded params". Here is the official docs' USD class transfer example:</p>
+<pre><code>interface ICoreWriter { function sendRawAction(bytes calldata data) external; }
+ICoreWriter constant CW = ICoreWriter(0x3333333333333333333333333333333333333333);
+
+function usdClassTransfer(uint64 ntl, bool toPerp) external {
+    bytes memory action = abi.encode(ntl, toPerp);
+    bytes memory data = new bytes(4 + action.length);
+    data[0] = 0x01; data[1] = 0x00; data[2] = 0x00; data[3] = 0x07;   <span class="c">// version + action id</span>
+    for (uint256 i = 0; i &lt; action.length; i++) data[4 + i] = action[i];
+    CW.sendRawAction(data);                     <span class="c">// only EMITS the action — async!</span>
+}</code></pre>
+
+    <h2>Off-chain: the trading API and signing</h2>
+    <p>High-frequency actions (orders, cancels, leverage changes) go over off-chain REST / WebSocket, not HyperEVM. The signing scheme is unusual — the <strong>phantom agent</strong>:</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Hyperliquid off-chain order flow: the client builds an action and msgpack-serialises it, derives a keccak256 connectionId, signs a phantom agent via EIP-712 with chainId 1337, then POSTs to /exchange into the HyperCore order book.">
+          <defs>
+            <marker id="e2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="70" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="109" y="100" text-anchor="middle">client / bot</text>
+          <text class="svg-ncode" x="109" y="120" text-anchor="middle">build action → msgpack</text>
+          <rect class="svg-node-a" x="300" y="70" width="180" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="100" text-anchor="middle">phantom agent</text>
+          <text class="svg-ncode" x="390" y="120" text-anchor="middle">EIP-712 · chainId 1337</text>
+          <rect class="svg-node" x="586" y="70" width="150" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="661" y="100" text-anchor="middle">POST /exchange</text>
+          <text class="svg-ncode" x="661" y="120" text-anchor="middle">→ HyperCore book</text>
+          <line class="svg-flow" x1="194" y1="105" x2="298" y2="105" marker-end="url(#e2)"></line>
+          <text class="svg-flowlabel" x="246" y="96" text-anchor="middle">sign</text>
+          <line class="svg-flow" x1="480" y1="105" x2="584" y2="105" marker-end="url(#e2)"></line>
+          <text class="svg-flowlabel" x="532" y="96" text-anchor="middle">submit</text>
+        </svg>
+      </div>
+      <figcaption>The action is msgpack-serialised, appended with nonce and vault address, then <code>keccak256</code>-hashed into a <code>connectionId</code>; the object <code>{ source, connectionId }</code> is treated as a temporary "agent" and signed via EIP-712 (L1 actions use chainId 1337). Prefer an <strong>agent key</strong> authorised via <code>approveAgent</code> — it holds no funds and can only sign L1 actions, limiting exposure of your main key. Use the official SDK rather than hand-rolling it.</figcaption>
+    </figure>
+
+    <h2>Smart-contract security (for developers)</h2>
     <ul>
-      <li><strong>HLP</strong>: a market-making and liquidation vault the community can deposit into, earning spread and liquidation revenue — a pool that lets retail act as market maker and liquidation counterparty.</li>
-      <li><strong>HYPE</strong>: the native token.</li>
+      <li><strong>Async writes are the number-one trap.</strong> A CoreWriter send does not mean filled; "place an order then read the position to confirm" within one EVM tx does not work — state updates only in later blocks.</li>
+      <li><strong>Precompiles are a trusted price source, but don't misuse them.</strong> They read HyperCore's real state (unlike a spot pool price a flash loan can push), but you still must handle decoding, gas, and index/market mapping errors.</li>
+      <li><strong>Action encoding must be byte-exact.</strong> A wrong version byte or action id changes behaviour; use a vetted library (<code>hyper-evm-lib</code>) rather than assembling bytes by hand.</li>
+      <li><strong>HyperEVM is still a new environment.</strong> Dual blocks (small/large), the gas model and precompile behaviour differ from mainstream EVM; exercise the edges on testnet before shipping.</li>
     </ul>
 
-    <h2>Suggested learning path</h2>
-    <ol>
-      <li>First understand why an on-chain order book is hard, and how Hyperliquid solves it.</li>
-      <li>Then study the HyperCore / HyperEVM split and their shared state.</li>
-      <li>Finally, examine the economics of HLP and the vaults.</li>
-    </ol>
+    <h2>User investment risk</h2>
+    <p>Perpetuals carry far more risk than spot; understand them before entering:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Leverage liquidation</strong></td><td>Perps are leveraged; move against you past maintenance margin and you're force-closed — principal can go to zero.</td></tr>
+        <tr><td><strong>Funding rate</strong></td><td>When longs and shorts are imbalanced you continually pay the other side; holding one side long is eroded by funding.</td></tr>
+        <tr><td><strong>HLP vault drawdown</strong></td><td>Depositing into HLP makes you the market-maker / liquidation counterparty; in extreme moves or large liquidations the vault can take real losses — not guaranteed yield.</td></tr>
+        <tr><td><strong>Auto-deleveraging (ADL)</strong></td><td>If a counterparty blows up and the insurance fund is short, your winning position may be partially force-closed.</td></tr>
+        <tr><td><strong>Oracle / mark price</strong></td><td>Liquidation uses the mark price, not the last trade; an abnormal mark can trigger unexpected liquidation.</td></tr>
+        <tr><td><strong>Contract and bridge risk</strong></td><td>Lending, LSTs and other HyperEVM protocols each carry smart-contract risk; cross-chain assets add bridge risk.</td></tr>
+        <tr><td><strong>Token unlocks / concentration</strong></td><td>HYPE and other tokens' unlock schedules and holder concentration affect price volatility.</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>In short: spot's enemy is "price falls"; perps add "getting liquidated," "paying funding," and "being ADL'd" — time and leverage both bite.</p></blockquote>
   </div>
 
   <footer>

@@ -14,7 +14,7 @@
 </script>
 <link rel="stylesheet" href="../assets/style.css">
 </head>
-<body data-title-zh="Smart Account 全貌" data-title-en="What a Smart Account Is">
+<body data-title-zh="Smart Account 全貌" data-title-en="Smart Accounts, End to End">
 <div class="wrap">
 
   <header class="top">
@@ -34,75 +34,317 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Smart Account 全貌</h1>
-    <p class="meta">2026-09-09 · 以太坊 / 帳戶抽象</p>
+    <p class="meta">2026-09-09 · 帳戶抽象 · 開發者視角</p>
 
-    <p>ERC-4337 說明的是「如何讓智慧帳戶送出交易」，而智慧帳戶本身是更廣的概念：<strong>以一個智慧合約作為使用者的錢包與帳戶，取代 EOA</strong>。合約持有資產，合約之內寫明「誰有權動用、依何種規則動用」。</p>
+    <p>smart account 就是「用一個合約當錢包」取代 EOA：合約持有資產，合約裡寫明誰有權動、依何規則動。本則從整合者角度講清楚三件事——UserOperation 怎麼在各合約間流動、帳戶合約要實作什麼、以及模組化怎麼運作。</p>
 
-    <h2>四項基本能力</h2>
+    <h2>設計理念：不改協議，另開一條路</h2>
+    <p>EOA 的驗證邏輯寫死在協議裡（一組 secp256k1 簽章）。要突破它有兩條路，<a href="./erc-4337.html">另一則筆記</a>談 EIP-7702；本則談 <strong>ERC-4337</strong>：完全不改以太坊，改在鏈下開一條<strong>替代 mempool</strong>，讓使用者送出的不是交易，而是 <code>UserOperation</code>，由 Bundler 打包成真正的交易，經鏈上單例 <strong>EntryPoint</strong> 驗證與執行。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 400" role="img" aria-label="UserOperation 生命週期：錢包送 UserOperation 給 Bundler 的替代 mempool，Bundler 呼叫 EntryPoint 的 handleOps；EntryPoint 在驗證迴圈呼叫帳戶的 validateUserOp 與 Paymaster 的 validatePaymasterUserOp，在執行迴圈執行 callData 呼叫目標合約並呼叫 Paymaster 的 postOp，最後把 gas 退還給 Bundler。">
+          <defs>
+            <marker id="sa1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="sa1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="30" y="34" width="180" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="120" y="60" text-anchor="middle">錢包 / dApp</text>
+          <text class="svg-ncode" x="120" y="78" text-anchor="middle">組出 UserOperation</text>
+          <rect class="svg-node" x="430" y="34" width="200" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="530" y="60" text-anchor="middle">Bundler</text>
+          <text class="svg-ncode" x="530" y="78" text-anchor="middle">替代 mempool · 模擬</text>
+          <line class="svg-flow" x1="210" y1="61" x2="428" y2="61" marker-end="url(#sa1)"></line>
+          <text class="svg-flowlabel" x="319" y="52" text-anchor="middle">① eth_sendUserOperation</text>
+          <line x1="20" y1="106" x2="760" y2="106" stroke="currentColor" stroke-width="1" stroke-dasharray="2 5" opacity=".4"></line>
+          <text class="svg-ncode" x="758" y="100" text-anchor="end">鏈下</text>
+          <text class="svg-ncode" x="758" y="122" text-anchor="end">鏈上</text>
+          <rect class="svg-node-a" x="40" y="168" width="210" height="110" rx="10"></rect>
+          <text class="svg-nlabel" x="145" y="212" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="145" y="234" text-anchor="middle">singleton</text>
+          <text class="svg-ncode" x="145" y="252" text-anchor="middle">⑧ 退還 gas → bundler</text>
+          <line class="svg-flow" x1="505" y1="88" x2="200" y2="166" marker-end="url(#sa1)"></line>
+          <text class="svg-flowlabel" x="392" y="132" text-anchor="middle">② handleOps()</text>
+          <rect class="svg-node" x="560" y="150" width="200" height="52" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="172" text-anchor="middle">Smart Account</text>
+          <text class="svg-ncode" x="660" y="190" text-anchor="middle">IAccount + modules</text>
+          <rect class="svg-node" x="560" y="234" width="200" height="50" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="263" text-anchor="middle">Paymaster</text>
+          <rect class="svg-node" x="560" y="318" width="200" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="345" text-anchor="middle">Target 合約</text>
+          <text class="svg-step" x="405" y="176" text-anchor="middle">— 驗證迴圈 —</text>
+          <line class="svg-flow-a" x1="250" y1="188" x2="558" y2="172" marker-end="url(#sa1a)"></line>
+          <text class="svg-flowlabel" x="404" y="196" text-anchor="middle">③ validateUserOp()</text>
+          <line class="svg-flow-a" x1="250" y1="212" x2="558" y2="252" marker-end="url(#sa1a)"></line>
+          <text class="svg-flowlabel" x="404" y="232" text-anchor="middle">④ validatePaymasterUserOp()</text>
+          <text class="svg-step" x="405" y="298" text-anchor="middle">— 執行迴圈 —</text>
+          <line class="svg-flow" x1="250" y1="252" x2="558" y2="190" marker-end="url(#sa1)"></line>
+          <text class="svg-flowlabel" x="404" y="316" text-anchor="middle">⑤ 執行 callData</text>
+          <line class="svg-flow" x1="660" y1="202" x2="660" y2="316" marker-end="url(#sa1)"></line>
+          <text class="svg-flowlabel" x="700" y="262" text-anchor="middle">⑥ call</text>
+          <line class="svg-flow" x1="250" y1="264" x2="558" y2="270" marker-end="url(#sa1)"></line>
+          <text class="svg-flowlabel" x="404" y="336" text-anchor="middle">⑦ postOp()</text>
+        </svg>
+      </div>
+      <figcaption>EntryPoint 是唯一入口，分兩階段：<strong>驗證迴圈</strong>先把整批的 <code>validateUserOp</code>（③）與 <code>validatePaymasterUserOp</code>（④）跑完，<strong>執行迴圈</strong>才真正執行 callData（⑤⑥）並呼叫 <code>postOp</code>（⑦），最後把墊付的 gas 退還給 Bundler（⑧）。虛線元件（Paymaster）是選用的：沒有它就由帳戶自己付 gas。</figcaption>
+    </figure>
+
+    <h2>帳戶合約要實作什麼</h2>
+    <p>只有一個必要函式。EntryPoint 這樣呼叫你，你只需回傳「這筆算不算數」：</p>
+<pre><code>function validateUserOp(PackedUserOperation calldata op, bytes32 opHash, uint256 missingFunds)
+    external returns (uint256 validationData)
+{
+    require(msg.sender == ENTRY_POINT, "only EntryPoint");
+    bool ok = _checkSig(opHash, op.signature);   <span class="c">// 換成 ECDSA / P256 / 多簽都在這</span>
+
+    <span class="c">// 回傳 0 = 通過；1 = 簽章失敗（用回傳值，別 revert，bundler 才能分辨）</span>
+    <span class="c">// 高位還能打包時效：validationData = authorizer | (validUntil &lt;&lt; 160) | (validAfter &lt;&lt; 208)</span>
+    if (missingFunds &gt; 0) { (bool s,) = msg.sender.call{value: missingFunds}(""); s; }
+    return ok ? 0 : 1;
+}</code></pre>
+    <p>另一個關鍵介面是 <strong>ERC-1271</strong>：合約沒有私鑰，dApp 要驗「這個合約帳戶的簽名」時，會呼叫它、期待拿到一個 magic value。缺了它，smart account 無法登入 dApp、簽 permit：</p>
+<pre><code>bytes4 constant MAGIC = 0x1626ba7e;              <span class="c">// isValidSignature 的 selector</span>
+function isValidSignature(bytes32 hash, bytes calldata sig) external view returns (bytes4) {
+    return _checkSig(hash, sig) ? MAGIC : bytes4(0xffffffff);
+}</code></pre>
+
+    <h2>模組化：ERC-7579</h2>
+    <p>與其把邏輯寫死，不如做成可插拔模組。ERC-7579 定義四種型別，都實作 <code>onInstall</code> / <code>onUninstall</code> / <code>isModuleType</code>：</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="ERC-7579 模組化帳戶：中央的帳戶核心透過 onInstall 安裝四種模組——型別 1 驗證器、型別 2 執行器、型別 3 fallback、型別 4 hook。">
+          <defs>
+            <marker id="sa2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="290" y="112" width="180" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="146" text-anchor="middle">帳戶核心</text>
+          <text class="svg-ncode" x="380" y="166" text-anchor="middle">account core</text>
+          <rect class="svg-node" x="40" y="30" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="54" text-anchor="middle">Validator（型別 1）</text>
+          <text class="svg-ncode" x="140" y="72" text-anchor="middle">驗簽 → validateUserOp</text>
+          <rect class="svg-node" x="520" y="30" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="620" y="54" text-anchor="middle">Executor（型別 2）</text>
+          <text class="svg-ncode" x="620" y="72" text-anchor="middle">代表帳戶執行</text>
+          <rect class="svg-node" x="40" y="214" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="238" text-anchor="middle">Fallback（型別 3）</text>
+          <text class="svg-ncode" x="140" y="256" text-anchor="middle">補充回呼介面</text>
+          <rect class="svg-node" x="520" y="214" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="620" y="238" text-anchor="middle">Hook（型別 4）</text>
+          <text class="svg-ncode" x="620" y="256" text-anchor="middle">執行前後攔截</text>
+          <line class="svg-flow" x1="290" y1="130" x2="242" y2="72" marker-end="url(#sa2)"></line>
+          <line class="svg-flow" x1="470" y1="130" x2="518" y2="72" marker-end="url(#sa2)"></line>
+          <line class="svg-flow" x1="290" y1="170" x2="242" y2="228" marker-end="url(#sa2)"></line>
+          <line class="svg-flow" x1="470" y1="170" x2="518" y2="228" marker-end="url(#sa2)"></line>
+          <text class="svg-flowlabel" x="250" y="104" text-anchor="middle">onInstall()</text>
+          <text class="svg-flowlabel" x="512" y="104" text-anchor="middle">onInstall()</text>
+        </svg>
+      </div>
+      <figcaption>型別 id：<code>1</code> validator（在 4337 驗證流程中判斷交易是否有效）、<code>2</code> executor（可代表帳戶發起交易）、<code>3</code> fallback handler、<code>4</code> hook。升級模組＝先 <code>onUninstall</code> 舊的、再 <code>onInstall</code> 新的。一個模組可同時屬多種型別。</figcaption>
+    </figure>
+<pre><code><span class="c">// 每個模組都要有這三個函式</span>
+function onInstall(bytes calldata data) external;        <span class="c">// 種入初始狀態</span>
+function onUninstall(bytes calldata data) external;      <span class="c">// 清除狀態</span>
+function isModuleType(uint256 t) external pure returns (bool);   <span class="c">// 1/2/3/4</span></code></pre>
+    <p>常見成熟實作：<strong>Safe</strong>、<strong>Kernel</strong>（ZeroDev）、<strong>Coinbase Smart Wallet</strong>、<strong>Alchemy Modular Account</strong>、<strong>Biconomy Nexus</strong>。別自己從零寫。</p>
+
+    <h2>前端：用 viem 送 UserOperation</h2>
+    <p>viem 自 2.18 起內建帳戶抽象，Bundler 互動直接用它（permissionless.js 的 bundler client 已淘汰）：</p>
+<pre><code>import { createBundlerClient } from "viem/account-abstraction";
+
+const bundler = createBundlerClient({ client: publicClient, transport: http(BUNDLER_URL) });
+
+<span class="c">// calls 可以一次多筆 → 這就是「批次交易」的來源</span>
+const opHash = await bundler.sendUserOperation({
+  account,                                   <span class="c">// 你的 smart account 物件</span>
+  calls: [{ to: token, data: approveData }, { to: dex, data: swapData }],
+  <span class="c">// paymaster: {...}   // 要代付 gas 就帶 paymaster</span>
+});
+const receipt = await bundler.waitForUserOperationReceipt({ hash: opHash });</code></pre>
+
+    <h2>EntryPoint 版本</h2>
+    <p>三版並存；整合前先確認 Bundler 支援哪一版（可呼叫 <code>eth_supportedEntryPoints</code> 問）：</p>
     <div class="scroll"><table>
-      <thead><tr><th>能力</th><th>作用</th><th>對應介面</th></tr></thead>
       <tbody>
-        <tr><td><strong>保管</strong></td><td>資產存放於合約，而非私鑰之下</td><td>—</td></tr>
-        <tr><td><strong>授權邏輯</strong></td><td>驗證方式可任意定義：多簽、passkey、session key、每日上限</td><td><code>validateUserOp</code>（4337）</td></tr>
-        <tr><td><strong>執行</strong></td><td>代帳戶對外呼叫合約，且可一次執行多筆</td><td><code>execute()</code> / <code>executeBatch()</code></td></tr>
-        <tr><td><strong>簽章驗證</strong></td><td>使 dApp 能驗證此合約帳戶的簽名</td><td><code>isValidSignature</code>（ERC-1271）</td></tr>
+        <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032（支援最廣）</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108（原生 7702、EIP-712 hash）</td></tr>
       </tbody>
     </table></div>
 
-    <p>其中 <strong>ERC-1271</strong> 常被忽略卻十分關鍵。EOA 的簽章任何人皆可驗證，但合約沒有私鑰，因此須由 dApp 呼叫合約的 <code>isValidSignature</code>，詢問「此簽名是否有效」。缺少此介面，智慧帳戶便無法登入 OpenSea、簽署 permit 等離線簽名情境。</p>
-
-    <h2>模組化：ERC-7579 與 ERC-6900</h2>
-    <p>模組化是 2024 至 2025 年的主線。與其將所有邏輯寫死於帳戶之內，不如做成可插拔的模組：</p>
+    <h2>安全風險</h2>
+    <p><strong>開發者：</strong></p>
     <ul>
-      <li><strong>validator</strong>：定義驗簽方式</li>
-      <li><strong>executor</strong>：定義執行策略</li>
-      <li><strong>hook</strong>：於執行前後攔截</li>
+      <li><code>validateUserOp</code> 必須 <code>require(msg.sender == entryPoint)</code>，且簽章錯要回傳 <code>1</code> 而非 revert。</li>
+      <li>驗證階段受 <strong>ERC-7562</strong> 範圍規則限制（禁 <code>TIMESTAMP</code>／<code>BALANCE</code> 等、限制讀 storage）；踩到會被 Bundler 拒收，症狀是「邏輯對但收不進去」。</li>
+      <li>Paymaster 的 <code>postOp</code> 即使主流程 revert 仍會被呼叫（mode = opReverted），代付方仍要付錢——常見漏洞。</li>
     </ul>
-    <p>兩套標準相互競爭：<strong>ERC-7579</strong>（較輕量，目前較被看好）與 <strong>ERC-6900</strong>。</p>
-
-    <h2>常見實作</h2>
-    <p>實務上不會自行撰寫，而是選用經過審計的成熟方案：<strong>Safe</strong>（老牌多簽）、<strong>Kernel</strong>（ZeroDev）、<strong>Coinbase Smart Wallet</strong>、<strong>Alchemy Modular Account</strong>、<strong>Biconomy Nexus</strong>。</p>
+    <p><strong>使用者（資產安全，非投資風險）：</strong></p>
+    <ul>
+      <li><strong>安裝模組＝授予權力。</strong>一個惡意或有 bug 的 validator／executor 模組，等於把帳戶整個交出去。只裝來源可信、經審計的模組。</li>
+      <li><strong>盲簽。</strong>smart account 常一次簽批次動作；看不懂內容就簽，等於簽空白支票。</li>
+      <li><strong>恢復設定。</strong>social recovery 的守護者名單設錯或被攻陷，帳戶可能被他人奪走。</li>
+    </ul>
 
     <h2>三層關係</h2>
-    <blockquote><p><strong>smart account</strong> 是合約錢包本身 → <strong>ERC-4337</strong> 讓它能被代送交易 → <strong>ERC-7579 / 6900</strong> 讓它的功能可如插件般拼裝。</p></blockquote>
-    <p>延伸閱讀：本站〈帳戶抽象：ERC-4337 與 EIP-7702〉一則，說明智慧帳戶如何實際送出交易，以及 EIP-7702 如何讓既有的 EOA 原地升級為智慧帳戶。</p>
+    <blockquote><p><strong>smart account</strong> 是合約錢包本身 → <strong>ERC-4337</strong> 讓它能被代送交易與代付 gas → <strong>ERC-7579</strong> 讓它的功能可如插件般拼裝。</p></blockquote>
   </div>
 
   <!-- ================= English ================= -->
   <div data-l="en">
-    <h1>What a Smart Account Is</h1>
-    <p class="meta">2026-09-09 · Ethereum / Account Abstraction</p>
+    <h1>Smart Accounts, End to End</h1>
+    <p class="meta">2026-09-09 · Account Abstraction · Developer view</p>
 
-    <p>ERC-4337 describes <em>how</em> a smart account gets its transactions sent; the smart account itself is the broader idea: <strong>using a smart contract as the user's wallet and account, in place of an EOA</strong>. The contract holds the assets, and inside it is written who may move them and under what rules.</p>
+    <p>A smart account is "a contract as your wallet" in place of an EOA: the contract holds the assets and encodes who may move them and under what rules. This note covers three things from an integrator's angle — how a UserOperation flows between contracts, what the account contract must implement, and how modularity works.</p>
 
-    <h2>Four basic capabilities</h2>
+    <h2>Design idea: don't change the protocol, open a new lane</h2>
+    <p>An EOA's validation is hardcoded into the protocol (one secp256k1 signature). There are two ways past it; <a href="./erc-4337.html">another note</a> covers EIP-7702, this one covers <strong>ERC-4337</strong>: change Ethereum not at all, and instead open an off-chain <strong>alternative mempool</strong> where users submit a <code>UserOperation</code> rather than a transaction, which a Bundler packs into a real transaction, validated and executed by the on-chain singleton <strong>EntryPoint</strong>.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 400" role="img" aria-label="UserOperation lifecycle: the wallet sends a UserOperation to the Bundler's alt mempool, the Bundler calls EntryPoint.handleOps; in the validation loop EntryPoint calls the account's validateUserOp and the paymaster's validatePaymasterUserOp, in the execution loop it runs the callData to the target contract and calls the paymaster's postOp, then refunds gas to the Bundler.">
+          <defs>
+            <marker id="sb1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="sb1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="30" y="34" width="180" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="120" y="60" text-anchor="middle">Wallet / dApp</text>
+          <text class="svg-ncode" x="120" y="78" text-anchor="middle">builds UserOperation</text>
+          <rect class="svg-node" x="430" y="34" width="200" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="530" y="60" text-anchor="middle">Bundler</text>
+          <text class="svg-ncode" x="530" y="78" text-anchor="middle">alt mempool · simulates</text>
+          <line class="svg-flow" x1="210" y1="61" x2="428" y2="61" marker-end="url(#sb1)"></line>
+          <text class="svg-flowlabel" x="319" y="52" text-anchor="middle">① eth_sendUserOperation</text>
+          <line x1="20" y1="106" x2="760" y2="106" stroke="currentColor" stroke-width="1" stroke-dasharray="2 5" opacity=".4"></line>
+          <text class="svg-ncode" x="758" y="100" text-anchor="end">off-chain</text>
+          <text class="svg-ncode" x="758" y="122" text-anchor="end">on-chain</text>
+          <rect class="svg-node-a" x="40" y="168" width="210" height="110" rx="10"></rect>
+          <text class="svg-nlabel" x="145" y="212" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="145" y="234" text-anchor="middle">singleton</text>
+          <text class="svg-ncode" x="145" y="252" text-anchor="middle">⑧ refund gas → bundler</text>
+          <line class="svg-flow" x1="505" y1="88" x2="200" y2="166" marker-end="url(#sb1)"></line>
+          <text class="svg-flowlabel" x="392" y="132" text-anchor="middle">② handleOps()</text>
+          <rect class="svg-node" x="560" y="150" width="200" height="52" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="172" text-anchor="middle">Smart Account</text>
+          <text class="svg-ncode" x="660" y="190" text-anchor="middle">IAccount + modules</text>
+          <rect class="svg-node" x="560" y="234" width="200" height="50" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="263" text-anchor="middle">Paymaster</text>
+          <rect class="svg-node" x="560" y="318" width="200" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="345" text-anchor="middle">Target contract</text>
+          <text class="svg-step" x="405" y="176" text-anchor="middle">— validation loop —</text>
+          <line class="svg-flow-a" x1="250" y1="188" x2="558" y2="172" marker-end="url(#sb1a)"></line>
+          <text class="svg-flowlabel" x="404" y="196" text-anchor="middle">③ validateUserOp()</text>
+          <line class="svg-flow-a" x1="250" y1="212" x2="558" y2="252" marker-end="url(#sb1a)"></line>
+          <text class="svg-flowlabel" x="404" y="232" text-anchor="middle">④ validatePaymasterUserOp()</text>
+          <text class="svg-step" x="405" y="298" text-anchor="middle">— execution loop —</text>
+          <line class="svg-flow" x1="250" y1="252" x2="558" y2="190" marker-end="url(#sb1)"></line>
+          <text class="svg-flowlabel" x="404" y="316" text-anchor="middle">⑤ run callData</text>
+          <line class="svg-flow" x1="660" y1="202" x2="660" y2="316" marker-end="url(#sb1)"></line>
+          <text class="svg-flowlabel" x="700" y="262" text-anchor="middle">⑥ call</text>
+          <line class="svg-flow" x1="250" y1="264" x2="558" y2="270" marker-end="url(#sb1)"></line>
+          <text class="svg-flowlabel" x="404" y="336" text-anchor="middle">⑦ postOp()</text>
+        </svg>
+      </div>
+      <figcaption>EntryPoint is the single entry, in two phases: the <strong>validation loop</strong> runs the whole batch's <code>validateUserOp</code> (③) and <code>validatePaymasterUserOp</code> (④) first, then the <strong>execution loop</strong> actually runs the callData (⑤⑥) and calls <code>postOp</code> (⑦), finally refunding the gas it fronted to the Bundler (⑧). The Paymaster is optional: without it the account pays its own gas.</figcaption>
+    </figure>
+
+    <h2>What the account contract implements</h2>
+    <p>Just one required function. EntryPoint calls you like this; you only return "does this op count":</p>
+<pre><code>function validateUserOp(PackedUserOperation calldata op, bytes32 opHash, uint256 missingFunds)
+    external returns (uint256 validationData)
+{
+    require(msg.sender == ENTRY_POINT, "only EntryPoint");
+    bool ok = _checkSig(opHash, op.signature);   <span class="c">// swap in ECDSA / P256 / multisig here</span>
+
+    <span class="c">// return 0 = valid; 1 = bad signature (return it, don't revert — bundlers rely on this)</span>
+    <span class="c">// the high bits also pack time bounds: validationData = authorizer | (validUntil &lt;&lt; 160) | (validAfter &lt;&lt; 208)</span>
+    if (missingFunds &gt; 0) { (bool s,) = msg.sender.call{value: missingFunds}(""); s; }
+    return ok ? 0 : 1;
+}</code></pre>
+    <p>The other key interface is <strong>ERC-1271</strong>: a contract has no private key, so when a dApp verifies "this contract account's signature" it calls this and expects a magic value. Without it, a smart account cannot sign into dApps or sign a permit:</p>
+<pre><code>bytes4 constant MAGIC = 0x1626ba7e;              <span class="c">// the isValidSignature selector</span>
+function isValidSignature(bytes32 hash, bytes calldata sig) external view returns (bytes4) {
+    return _checkSig(hash, sig) ? MAGIC : bytes4(0xffffffff);
+}</code></pre>
+
+    <h2>Modularity: ERC-7579</h2>
+    <p>Rather than hardcoding logic, make it pluggable. ERC-7579 defines four module types, all implementing <code>onInstall</code> / <code>onUninstall</code> / <code>isModuleType</code>:</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="ERC-7579 modular account: a central account core installs four module types via onInstall — type 1 validator, type 2 executor, type 3 fallback, type 4 hook.">
+          <defs>
+            <marker id="sb2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="290" y="112" width="180" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="146" text-anchor="middle">Account core</text>
+          <text class="svg-ncode" x="380" y="166" text-anchor="middle">the wallet contract</text>
+          <rect class="svg-node" x="40" y="30" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="54" text-anchor="middle">Validator (type 1)</text>
+          <text class="svg-ncode" x="140" y="72" text-anchor="middle">signature → validateUserOp</text>
+          <rect class="svg-node" x="520" y="30" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="620" y="54" text-anchor="middle">Executor (type 2)</text>
+          <text class="svg-ncode" x="620" y="72" text-anchor="middle">acts for the account</text>
+          <rect class="svg-node" x="40" y="214" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="238" text-anchor="middle">Fallback (type 3)</text>
+          <text class="svg-ncode" x="140" y="256" text-anchor="middle">extra callback surface</text>
+          <rect class="svg-node" x="520" y="214" width="200" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="620" y="238" text-anchor="middle">Hook (type 4)</text>
+          <text class="svg-ncode" x="620" y="256" text-anchor="middle">pre/post interception</text>
+          <line class="svg-flow" x1="290" y1="130" x2="242" y2="72" marker-end="url(#sb2)"></line>
+          <line class="svg-flow" x1="470" y1="130" x2="518" y2="72" marker-end="url(#sb2)"></line>
+          <line class="svg-flow" x1="290" y1="170" x2="242" y2="228" marker-end="url(#sb2)"></line>
+          <line class="svg-flow" x1="470" y1="170" x2="518" y2="228" marker-end="url(#sb2)"></line>
+          <text class="svg-flowlabel" x="250" y="104" text-anchor="middle">onInstall()</text>
+          <text class="svg-flowlabel" x="512" y="104" text-anchor="middle">onInstall()</text>
+        </svg>
+      </div>
+      <figcaption>Type ids: <code>1</code> validator (decides in the 4337 validation flow whether an op is valid), <code>2</code> executor (can initiate transactions for the account), <code>3</code> fallback handler, <code>4</code> hook. Upgrading a module = <code>onUninstall</code> the old, <code>onInstall</code> the new. One module may be several types at once.</figcaption>
+    </figure>
+<pre><code><span class="c">// every module implements these three</span>
+function onInstall(bytes calldata data) external;        <span class="c">// seed initial state</span>
+function onUninstall(bytes calldata data) external;      <span class="c">// clean up state</span>
+function isModuleType(uint256 t) external pure returns (bool);   <span class="c">// 1/2/3/4</span></code></pre>
+    <p>Common mature implementations: <strong>Safe</strong>, <strong>Kernel</strong> (ZeroDev), <strong>Coinbase Smart Wallet</strong>, <strong>Alchemy Modular Account</strong>, <strong>Biconomy Nexus</strong>. Don't roll your own.</p>
+
+    <h2>Front end: sending a UserOperation with viem</h2>
+    <p>viem has native account abstraction since 2.18, so bundler interaction goes straight through it (permissionless.js's bundler client is deprecated):</p>
+<pre><code>import { createBundlerClient } from "viem/account-abstraction";
+
+const bundler = createBundlerClient({ client: publicClient, transport: http(BUNDLER_URL) });
+
+<span class="c">// calls can be several at once → this is where "batched transactions" come from</span>
+const opHash = await bundler.sendUserOperation({
+  account,                                   <span class="c">// your smart account object</span>
+  calls: [{ to: token, data: approveData }, { to: dex, data: swapData }],
+  <span class="c">// paymaster: {...}   // add a paymaster to sponsor gas</span>
+});
+const receipt = await bundler.waitForUserOperationReceipt({ hash: opHash });</code></pre>
+
+    <h2>EntryPoint versions</h2>
+    <p>Three coexist; check which your Bundler supports before integrating (ask via <code>eth_supportedEntryPoints</code>):</p>
     <div class="scroll"><table>
-      <thead><tr><th>Capability</th><th>What it does</th><th>Interface</th></tr></thead>
       <tbody>
-        <tr><td><strong>Custody</strong></td><td>Assets live in the contract, not under a private key</td><td>—</td></tr>
-        <tr><td><strong>Authorisation</strong></td><td>Any validation logic: multisig, passkey, session keys, daily caps</td><td><code>validateUserOp</code> (4337)</td></tr>
-        <tr><td><strong>Execution</strong></td><td>Calls other contracts on the account's behalf, several at once</td><td><code>execute()</code> / <code>executeBatch()</code></td></tr>
-        <tr><td><strong>Signature check</strong></td><td>Lets a dApp verify this contract account's signature</td><td><code>isValidSignature</code> (ERC-1271)</td></tr>
+        <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032 (widest support)</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108 (native 7702, EIP-712 hash)</td></tr>
       </tbody>
     </table></div>
 
-    <p><strong>ERC-1271</strong> is often overlooked yet essential. Anyone can verify an EOA's signature, but a contract has no private key, so a dApp must call the contract's <code>isValidSignature</code> to ask "is this signature valid?". Without it, a smart account cannot sign into OpenSea, sign a permit, or handle other off-chain signing flows.</p>
-
-    <h2>Modularity: ERC-7579 and ERC-6900</h2>
-    <p>Modularity was the main theme of 2024–2025. Rather than hardcoding all logic into the account, make it pluggable:</p>
+    <h2>Security risk</h2>
+    <p><strong>Developers:</strong></p>
     <ul>
-      <li><strong>validator</strong>: defines how signatures are checked</li>
-      <li><strong>executor</strong>: defines execution strategy</li>
-      <li><strong>hook</strong>: intercepts before and after execution</li>
+      <li><code>validateUserOp</code> must <code>require(msg.sender == entryPoint)</code>, and return <code>1</code> on a bad signature rather than revert.</li>
+      <li>Validation is bound by <strong>ERC-7562</strong> scope rules (no <code>TIMESTAMP</code>/<code>BALANCE</code> etc., limited storage reads); breaking them makes the Bundler reject the op — the "logic is right but it won't go in" symptom.</li>
+      <li>A paymaster's <code>postOp</code> is called even if the main flow reverts (mode = opReverted); the sponsor still pays — a common bug.</li>
     </ul>
-    <p>Two standards compete: <strong>ERC-7579</strong> (lighter, currently favoured) and <strong>ERC-6900</strong>.</p>
-
-    <h2>Common implementations</h2>
-    <p>In practice you do not write your own; you pick an audited, mature one: <strong>Safe</strong> (the veteran multisig), <strong>Kernel</strong> (ZeroDev), <strong>Coinbase Smart Wallet</strong>, <strong>Alchemy Modular Account</strong>, <strong>Biconomy Nexus</strong>.</p>
+    <p><strong>Users (asset safety, not investment risk):</strong></p>
+    <ul>
+      <li><strong>Installing a module grants power.</strong> A malicious or buggy validator/executor module hands over the whole account. Install only trusted, audited modules.</li>
+      <li><strong>Blind signing.</strong> Smart accounts often sign a batch at once; signing what you can't read is a blank cheque.</li>
+      <li><strong>Recovery config.</strong> A mis-set or compromised social-recovery guardian list can let someone take the account.</li>
+    </ul>
 
     <h2>Three layers</h2>
-    <blockquote><p>A <strong>smart account</strong> is the contract wallet itself → <strong>ERC-4337</strong> gets its transactions relayed → <strong>ERC-7579 / 6900</strong> let its features be assembled like plugins.</p></blockquote>
-    <p>See also the note "Account Abstraction: ERC-4337 &amp; EIP-7702" on this site, on how a smart account actually sends transactions and how EIP-7702 upgrades an existing EOA into one in place.</p>
+    <blockquote><p>A <strong>smart account</strong> is the contract wallet itself → <strong>ERC-4337</strong> gets it relayed and its gas sponsored → <strong>ERC-7579</strong> lets its features be assembled like plugins.</p></blockquote>
   </div>
 
   <footer>
