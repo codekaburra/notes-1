@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uniswap v3 與 v4</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Uniswap v3 與 v4" data-title-en="Uniswap v3 & v4">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Uniswap v3 與 v4</h1>
+    <p class="meta">2026-09-09 · DeFi / AMM</p>
+
+    <p>v3 與 v4 是整個 Uniswap 家族中概念跳躍最大的兩代，因為兩者各自解決的是完全不同層面的問題。以下分別說明，最後以一句話區分。</p>
+
+    <h2>v3 —— 集中流動性</h2>
+    <p>v2 到 v3 只有一個核心思想，其餘皆為其衍生結果。</p>
+    <p><strong>v2</strong>：流動性平均攤在 <code>0 → ∞</code> 的整條價格曲線上（<code>x·y=k</code>）。然而交易僅發生在現價附近，因此大部分資金停留在永遠不會成交的價位，形同閒置。</p>
+    <p><strong>v3</strong>：流動性提供者（LP）自行選定一段<strong>價格區間</strong> <code>[Pa, Pb]</code>，將資金集中投入。在區間之內，其部位等同於一個深度極高的 v2 池；一旦價格離開此區間，部位即轉為單一資產，且不再賺取任何手續費。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 720 300" role="img" aria-label="兩張並排的流動性分佈圖：v2 的流動性以一條低矮而寬的長條攤在整個價格範圍上；v3 的流動性以一條高而窄的長條集中在現價附近的選定區間，兩塊面積相同代表相同資金量。">
+          <!-- Panel A: v2 -->
+          <text class="svg-label" x="45" y="40">v2</text>
+          <text class="svg-cap" x="82" y="40">流動性攤平</text>
+          <line class="svg-axis" x1="45" y1="250" x2="345" y2="250"></line>
+          <rect class="svg-liq" x="48" y="214" width="294" height="36" rx="3"></rect>
+          <line class="svg-price" x1="196" y1="72" x2="196" y2="260"></line>
+          <text class="svg-mono" x="196" y="64" text-anchor="middle">現價</text>
+          <text class="svg-mono" x="345" y="272" text-anchor="end">價格 →</text>
+
+          <!-- Panel B: v3 -->
+          <text class="svg-label" x="400" y="40">v3</text>
+          <text class="svg-cap" x="437" y="40">流動性集中</text>
+          <line class="svg-axis" x1="400" y1="250" x2="700" y2="250"></line>
+          <rect class="svg-liq-strong" x="518" y="128" width="64" height="122" rx="3"></rect>
+          <line class="svg-price" x1="550" y1="72" x2="550" y2="260"></line>
+          <text class="svg-mono" x="550" y="64" text-anchor="middle">現價</text>
+          <text class="svg-mono" x="700" y="272" text-anchor="end">價格 →</text>
+          <!-- range bracket -->
+          <line class="svg-range" x1="518" y1="266" x2="582" y2="266"></line>
+          <line class="svg-range" x1="518" y1="261" x2="518" y2="271"></line>
+          <line class="svg-range" x1="582" y1="261" x2="582" y2="271"></line>
+          <text class="svg-mono-a" x="550" y="288" text-anchor="middle">LP 選定區間 [Pa, Pb]</text>
+        </svg>
+      </div>
+      <figcaption>兩塊長條的面積相同，代表投入相同的資金。v2 將資金攤在整條價格曲線上，v3 則集中於現價附近的窄區間，因而在該區間內提供遠更深的流動性。縱軸為流動性深度，橫軸為價格。</figcaption>
+    </figure>
+
+    <p>此一改動連帶產生四個結果：</p>
+    <ul>
+      <li><strong>Tick（刻度）</strong>：價格空間被切分為離散的 tick，<code>price = 1.0001^tick</code>，每個 tick 相差 0.01%。流動性掛在相鄰兩個 tick 之間；價格每跨越一個 tick，便有一批流動性被啟用或退出。</li>
+      <li><strong>部位成為 NFT</strong>：v2 的 LP 代幣可互換（ERC-20），因所有部位相同；v3 每個部位的區間不同，因此改以 ERC-721 表示，各自獨立。</li>
+      <li><strong>多個費率層</strong>：0.01% / 0.05% / 0.30% / 1.00%，每個費率為獨立的池。同一交易對可能同時存在數個 v3 池。</li>
+      <li><strong>由被動轉為主動</strong>：集中意味著資本效率提升，但價格離開區間即停止收益，且無常損失被放大。v3 的 LP 需持續監控並調整區間，因此專業造市者取得了多數的 v3 流動性。</li>
+    </ul>
+    <blockquote><p>將區間設定得極窄（近乎一個價位），v3 的 LP 部位即近似一張限價單——此為 v2 無法達成之功能。</p></blockquote>
+
+    <h2>v4 —— Hooks 與架構重寫</h2>
+    <p>v4 的定價數學（集中流動性、tick）大致直接繼承自 v3。v4 改變的並非「如何定價」，而是三件事：如何部署、代幣如何流動、能否注入自訂邏輯。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>改動</th><th>v3</th><th>v4</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Hooks</strong></td><td>無，邏輯寫死</td><td>每個池可掛載一個 hook 合約，於 <code>beforeSwap</code>、<code>afterSwap</code>、<code>beforeAddLiquidity</code> 等生命週期節點執行自訂程式碼</td></tr>
+        <tr><td><strong>Singleton</strong></td><td>每個池為一個獨立部署的合約</td><td>所有池共用單一 <code>PoolManager</code> 合約</td></tr>
+        <tr><td><strong>Flash accounting</strong></td><td>每一步皆實際轉入、轉出代幣</td><td>一筆交易內僅記帳（採 EIP-1153 暫時性儲存），最終只結算淨額</td></tr>
+        <tr><td><strong>原生 ETH</strong></td><td>須先包裝為 WETH</td><td>直接使用 ETH</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Hooks 為 v4 的核心。</strong>hook 是一個合約，於建池時指定。此後該池每次交易，<code>PoolManager</code> 會在成交前後回呼此 hook。因此動態費率、鏈上限價單、TWAMM、自訂曲線、MEV 內化等機制，過去需另建一整條 DEX，如今僅需數百行的 hook 即可實現，無須分叉 Uniswap。</p>
+    <p><strong>Singleton</strong> 使建立新池從「部署合約」變為「一次狀態更新」，gas 成本大幅下降，且多跳交易無須在合約之間搬移代幣。<strong>Flash accounting</strong> 則讓複雜路由的多跳交易顯著更便宜。</p>
+
+    <h2>一句話區分</h2>
+    <blockquote><p><strong>v3</strong> 解決「資本效率」——將流動性集中於現價附近，代價是 LP 需主動管理。<strong>v4</strong> 保留 v3 的定價機制不變，再疊加「可程式化（hooks）」與「更省 gas 的架構（singleton 與 flash accounting）」。</p></blockquote>
+    <p>若以比喻表示：v3 將 AMM 由「灑水器」改為「精準噴頭」；v4 則將整套機器變為「可安裝外掛的作業系統」。</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Uniswap v3 &amp; v4</h1>
+    <p class="meta">2026-09-09 · DeFi / AMM</p>
+
+    <p>v3 and v4 are the two biggest conceptual leaps in the Uniswap family, because each solves a problem at a completely different layer. Here is each in turn, with a one-line distinction at the end.</p>
+
+    <h2>v3 — Concentrated liquidity</h2>
+    <p>There is a single core idea from v2 to v3; everything else follows from it.</p>
+    <p><strong>v2</strong>: liquidity is spread evenly across the entire price curve, <code>0 → ∞</code> (<code>x·y=k</code>). But trading only happens near the current price, so most capital sits at prices that never trade — effectively idle.</p>
+    <p><strong>v3</strong>: a liquidity provider (LP) chooses a <strong>price range</strong> <code>[Pa, Pb]</code> and concentrates capital within it. Inside the range the position behaves like a very deep v2 pool; once price leaves the range, the position becomes a single asset and earns no fees.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 720 300" role="img" aria-label="Two liquidity-distribution charts side by side: v2 spreads liquidity as a low, wide bar across the whole price range; v3 concentrates it as a tall, narrow bar around the current price within a chosen range, the two areas equal to show the same amount of capital.">
+          <text class="svg-label" x="45" y="40">v2</text>
+          <text class="svg-cap" x="82" y="40">spread thin</text>
+          <line class="svg-axis" x1="45" y1="250" x2="345" y2="250"></line>
+          <rect class="svg-liq" x="48" y="214" width="294" height="36" rx="3"></rect>
+          <line class="svg-price" x1="196" y1="72" x2="196" y2="260"></line>
+          <text class="svg-mono" x="196" y="64" text-anchor="middle">price now</text>
+          <text class="svg-mono" x="345" y="272" text-anchor="end">price →</text>
+
+          <text class="svg-label" x="400" y="40">v3</text>
+          <text class="svg-cap" x="437" y="40">concentrated</text>
+          <line class="svg-axis" x1="400" y1="250" x2="700" y2="250"></line>
+          <rect class="svg-liq-strong" x="518" y="128" width="64" height="122" rx="3"></rect>
+          <line class="svg-price" x1="550" y1="72" x2="550" y2="260"></line>
+          <text class="svg-mono" x="550" y="64" text-anchor="middle">price now</text>
+          <text class="svg-mono" x="700" y="272" text-anchor="end">price →</text>
+          <line class="svg-range" x1="518" y1="266" x2="582" y2="266"></line>
+          <line class="svg-range" x1="518" y1="261" x2="518" y2="271"></line>
+          <line class="svg-range" x1="582" y1="261" x2="582" y2="271"></line>
+          <text class="svg-mono-a" x="550" y="288" text-anchor="middle">LP range [Pa, Pb]</text>
+        </svg>
+      </div>
+      <figcaption>The two bars have equal area — the same amount of capital. v2 spreads it across the whole curve; v3 concentrates it in a narrow band around the current price, giving far deeper liquidity there. The vertical axis is liquidity depth, the horizontal axis is price.</figcaption>
+    </figure>
+
+    <p>Four consequences follow:</p>
+    <ul>
+      <li><strong>Ticks</strong>: price space is discretised into ticks, <code>price = 1.0001^tick</code>, each tick 0.01% apart. Liquidity sits between two adjacent ticks; each time price crosses a tick, a batch of liquidity is activated or retired.</li>
+      <li><strong>Positions become NFTs</strong>: v2 LP tokens are fungible (ERC-20) because all positions are identical; each v3 position has a different range, so they are ERC-721, each unique.</li>
+      <li><strong>Multiple fee tiers</strong>: 0.01% / 0.05% / 0.30% / 1.00%, each a separate pool. One pair may have several v3 pools at once.</li>
+      <li><strong>Passive becomes active</strong>: concentration raises capital efficiency, but earnings stop once price leaves the range, and impermanent loss is amplified. v3 LPs must monitor and re-adjust, which is why professional market makers hold most v3 liquidity.</li>
+    </ul>
+    <blockquote><p>Set the range extremely narrow (nearly a single price) and a v3 position approximates a limit order — something v2 cannot do.</p></blockquote>
+
+    <h2>v4 — Hooks and an architectural rewrite</h2>
+    <p>v4's pricing maths (concentrated liquidity, ticks) is largely inherited directly from v3. What v4 changes is not <em>how it prices</em>, but three things: how it deploys, how tokens move, and whether custom logic can be injected.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Change</th><th>v3</th><th>v4</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Hooks</strong></td><td>none; logic is fixed</td><td>each pool can attach a hook contract that runs custom code at lifecycle points: <code>beforeSwap</code>, <code>afterSwap</code>, <code>beforeAddLiquidity</code>, etc.</td></tr>
+        <tr><td><strong>Singleton</strong></td><td>each pool is a separately deployed contract</td><td>all pools share one <code>PoolManager</code> contract</td></tr>
+        <tr><td><strong>Flash accounting</strong></td><td>tokens actually transferred in/out at every step</td><td>only bookkeeping within a transaction (via EIP-1153 transient storage); only the net is settled at the end</td></tr>
+        <tr><td><strong>Native ETH</strong></td><td>must wrap to WETH</td><td>uses ETH directly</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Hooks are the heart of v4.</strong> A hook is a contract specified at pool creation. Thereafter, on every swap, the <code>PoolManager</code> calls back into the hook before and after execution. Dynamic fees, on-chain limit orders, TWAMM, custom curves, MEV internalisation — mechanisms that once required building an entire new DEX — now take a few hundred lines of hook, without forking Uniswap.</p>
+    <p><strong>Singleton</strong> turns creating a pool from "deploying a contract" into "one state update," cutting gas sharply and letting multi-hop swaps avoid moving tokens between contracts. <strong>Flash accounting</strong> makes complex multi-hop routes markedly cheaper.</p>
+
+    <h2>One-line distinction</h2>
+    <blockquote><p><strong>v3</strong> solves <em>capital efficiency</em> — concentrating liquidity near the current price, at the cost of active LP management. <strong>v4</strong> keeps v3's pricing unchanged and layers on <em>programmability</em> (hooks) and a <em>cheaper architecture</em> (singleton and flash accounting).</p></blockquote>
+    <p>By analogy: v3 turned the AMM from a sprinkler into a precision nozzle; v4 turns the whole machine into an operating system you can install plugins on.</p>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

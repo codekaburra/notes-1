@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperliquid 架構</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Hyperliquid 架構" data-title-en="Hyperliquid Architecture">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Hyperliquid 架構</h1>
+    <p class="meta">2026-09-09 · 永續合約 DEX · 內容截至 2026-01，變動快，落地前請再查證</p>
+
+    <p>Hyperliquid 並非一般的 DEX，而是一條<strong>為永續合約而生的 L1 區塊鏈</strong>。理解它，關鍵在於幾項與其他鏈上永續交易所的根本差異。</p>
+
+    <h2>鏈上中央限價訂單簿（CLOB）</h2>
+    <p>多數鏈上永續 DEX 或以預言機定價（如 GMX），或將訂單簿置於鏈下（如早期的 dYdX）。Hyperliquid 將整個訂單簿放上鏈，並以自有的共識機制（HyperBFT）支撐低延遲撮合。這是它最核心的取捨：追求接近中心化交易所的交易體驗，同時維持鏈上的透明與可驗證。</p>
+
+    <h2>兩層架構</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>層</th><th>職責</th></tr></thead>
+      <tbody>
+        <tr><td><strong>HyperCore</strong></td><td>原生層，負責訂單簿、撮合、清算與永續合約邏輯</td></tr>
+        <tr><td><strong>HyperEVM</strong></td><td>相容 EVM 的通用合約層，可部署一般智慧合約</td></tr>
+      </tbody>
+    </table></div>
+    <p>兩者共享狀態，因此 HyperEVM 上的合約可以直接與 HyperCore 的訂單簿互動——這是一般「EVM 鏈 + 外掛交易所」架構做不到的整合程度。</p>
+
+    <h2>HLP 與代幣</h2>
+    <ul>
+      <li><strong>HLP</strong>：社群可存入資金的做市與清算金庫，賺取價差與清算收益，等同於讓散戶成為造市者與清算對手方的資金池。</li>
+      <li><strong>HYPE</strong>：原生代幣。</li>
+    </ul>
+
+    <h2>建議的學習路徑</h2>
+    <ol>
+      <li>先理解「為何鏈上訂單簿難以實現，Hyperliquid 如何解決」。</li>
+      <li>再看 HyperCore 與 HyperEVM 的分層與共享狀態。</li>
+      <li>最後研究 HLP 與 vault 的經濟設計。</li>
+    </ol>
+
+    <blockquote><p>關於 evedex：此協議尚待查證，暫不列入本則，以免提供不準確的內容。查證後將另立一則，並與 Hyperliquid 的訂單簿模式作對照。</p></blockquote>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Hyperliquid Architecture</h1>
+    <p class="meta">2026-09-09 · Perp DEX · As of 2026-01; moves fast, re-verify before building</p>
+
+    <p>Hyperliquid is not an ordinary DEX but an <strong>L1 blockchain purpose-built for perpetual futures</strong>. To understand it, focus on a few fundamental differences from other on-chain perp exchanges.</p>
+
+    <h2>On-chain central limit order book (CLOB)</h2>
+    <p>Most on-chain perp DEXs either price via an oracle (e.g. GMX) or keep the order book off-chain (e.g. early dYdX). Hyperliquid puts the entire order book on-chain and uses its own consensus (HyperBFT) to sustain low-latency matching. This is its core trade-off: aim for a near-CEX trading experience while keeping on-chain transparency and verifiability.</p>
+
+    <h2>Two-layer architecture</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Layer</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><strong>HyperCore</strong></td><td>The native layer: order book, matching, liquidations, perp logic</td></tr>
+        <tr><td><strong>HyperEVM</strong></td><td>An EVM-compatible general contract layer for ordinary smart contracts</td></tr>
+      </tbody>
+    </table></div>
+    <p>The two share state, so contracts on HyperEVM can interact directly with HyperCore's order book — an integration the usual "EVM chain plus bolted-on exchange" architecture cannot match.</p>
+
+    <h2>HLP and the token</h2>
+    <ul>
+      <li><strong>HLP</strong>: a market-making and liquidation vault the community can deposit into, earning spread and liquidation revenue — a pool that lets retail act as market maker and liquidation counterparty.</li>
+      <li><strong>HYPE</strong>: the native token.</li>
+    </ul>
+
+    <h2>Suggested learning path</h2>
+    <ol>
+      <li>First understand why an on-chain order book is hard, and how Hyperliquid solves it.</li>
+      <li>Then study the HyperCore / HyperEVM split and their shared state.</li>
+      <li>Finally, examine the economics of HLP and the vaults.</li>
+    </ol>
+
+    <blockquote><p>On evedex: this protocol is still to be verified and is left out of this note for now, to avoid inaccurate content. Once verified it will get its own note, contrasted with Hyperliquid's order-book model.</p></blockquote>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

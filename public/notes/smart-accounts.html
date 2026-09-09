@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Account 全貌</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Smart Account 全貌" data-title-en="What a Smart Account Is">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Smart Account 全貌</h1>
+    <p class="meta">2026-09-09 · 以太坊 / 帳戶抽象</p>
+
+    <p>ERC-4337 說明的是「如何讓智慧帳戶送出交易」，而智慧帳戶本身是更廣的概念：<strong>以一個智慧合約作為使用者的錢包與帳戶，取代 EOA</strong>。合約持有資產，合約之內寫明「誰有權動用、依何種規則動用」。</p>
+
+    <h2>四項基本能力</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>能力</th><th>作用</th><th>對應介面</th></tr></thead>
+      <tbody>
+        <tr><td><strong>保管</strong></td><td>資產存放於合約，而非私鑰之下</td><td>—</td></tr>
+        <tr><td><strong>授權邏輯</strong></td><td>驗證方式可任意定義：多簽、passkey、session key、每日上限</td><td><code>validateUserOp</code>（4337）</td></tr>
+        <tr><td><strong>執行</strong></td><td>代帳戶對外呼叫合約，且可一次執行多筆</td><td><code>execute()</code> / <code>executeBatch()</code></td></tr>
+        <tr><td><strong>簽章驗證</strong></td><td>使 dApp 能驗證此合約帳戶的簽名</td><td><code>isValidSignature</code>（ERC-1271）</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>其中 <strong>ERC-1271</strong> 常被忽略卻十分關鍵。EOA 的簽章任何人皆可驗證，但合約沒有私鑰，因此須由 dApp 呼叫合約的 <code>isValidSignature</code>，詢問「此簽名是否有效」。缺少此介面，智慧帳戶便無法登入 OpenSea、簽署 permit 等離線簽名情境。</p>
+
+    <h2>模組化：ERC-7579 與 ERC-6900</h2>
+    <p>模組化是 2024 至 2025 年的主線。與其將所有邏輯寫死於帳戶之內，不如做成可插拔的模組：</p>
+    <ul>
+      <li><strong>validator</strong>：定義驗簽方式</li>
+      <li><strong>executor</strong>：定義執行策略</li>
+      <li><strong>hook</strong>：於執行前後攔截</li>
+    </ul>
+    <p>兩套標準相互競爭：<strong>ERC-7579</strong>（較輕量，目前較被看好）與 <strong>ERC-6900</strong>。</p>
+
+    <h2>常見實作</h2>
+    <p>實務上不會自行撰寫，而是選用經過審計的成熟方案：<strong>Safe</strong>（老牌多簽）、<strong>Kernel</strong>（ZeroDev）、<strong>Coinbase Smart Wallet</strong>、<strong>Alchemy Modular Account</strong>、<strong>Biconomy Nexus</strong>。</p>
+
+    <h2>三層關係</h2>
+    <blockquote><p><strong>smart account</strong> 是合約錢包本身 → <strong>ERC-4337</strong> 讓它能被代送交易 → <strong>ERC-7579 / 6900</strong> 讓它的功能可如插件般拼裝。</p></blockquote>
+    <p>延伸閱讀：本站〈帳戶抽象：ERC-4337 與 EIP-7702〉一則，說明智慧帳戶如何實際送出交易，以及 EIP-7702 如何讓既有的 EOA 原地升級為智慧帳戶。</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>What a Smart Account Is</h1>
+    <p class="meta">2026-09-09 · Ethereum / Account Abstraction</p>
+
+    <p>ERC-4337 describes <em>how</em> a smart account gets its transactions sent; the smart account itself is the broader idea: <strong>using a smart contract as the user's wallet and account, in place of an EOA</strong>. The contract holds the assets, and inside it is written who may move them and under what rules.</p>
+
+    <h2>Four basic capabilities</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Capability</th><th>What it does</th><th>Interface</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Custody</strong></td><td>Assets live in the contract, not under a private key</td><td>—</td></tr>
+        <tr><td><strong>Authorisation</strong></td><td>Any validation logic: multisig, passkey, session keys, daily caps</td><td><code>validateUserOp</code> (4337)</td></tr>
+        <tr><td><strong>Execution</strong></td><td>Calls other contracts on the account's behalf, several at once</td><td><code>execute()</code> / <code>executeBatch()</code></td></tr>
+        <tr><td><strong>Signature check</strong></td><td>Lets a dApp verify this contract account's signature</td><td><code>isValidSignature</code> (ERC-1271)</td></tr>
+      </tbody>
+    </table></div>
+
+    <p><strong>ERC-1271</strong> is often overlooked yet essential. Anyone can verify an EOA's signature, but a contract has no private key, so a dApp must call the contract's <code>isValidSignature</code> to ask "is this signature valid?". Without it, a smart account cannot sign into OpenSea, sign a permit, or handle other off-chain signing flows.</p>
+
+    <h2>Modularity: ERC-7579 and ERC-6900</h2>
+    <p>Modularity was the main theme of 2024–2025. Rather than hardcoding all logic into the account, make it pluggable:</p>
+    <ul>
+      <li><strong>validator</strong>: defines how signatures are checked</li>
+      <li><strong>executor</strong>: defines execution strategy</li>
+      <li><strong>hook</strong>: intercepts before and after execution</li>
+    </ul>
+    <p>Two standards compete: <strong>ERC-7579</strong> (lighter, currently favoured) and <strong>ERC-6900</strong>.</p>
+
+    <h2>Common implementations</h2>
+    <p>In practice you do not write your own; you pick an audited, mature one: <strong>Safe</strong> (the veteran multisig), <strong>Kernel</strong> (ZeroDev), <strong>Coinbase Smart Wallet</strong>, <strong>Alchemy Modular Account</strong>, <strong>Biconomy Nexus</strong>.</p>
+
+    <h2>Three layers</h2>
+    <blockquote><p>A <strong>smart account</strong> is the contract wallet itself → <strong>ERC-4337</strong> gets its transactions relayed → <strong>ERC-7579 / 6900</strong> let its features be assembled like plugins.</p></blockquote>
+    <p>See also the note "Account Abstraction: ERC-4337 &amp; EIP-7702" on this site, on how a smart account actually sends transactions and how EIP-7702 upgrades an existing EOA into one in place.</p>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

@@ -180,3 +180,21 @@ footer{margin-top:5rem; padding-top:1.5rem; border-top:1px solid var(--line); fo
   th,td{padding:.68rem .72rem}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* 圖表 */
+figure{margin:1.9rem 0}
+figure svg{display:block; width:100%; height:auto; color:var(--ink)}
+.figbox{
+  padding:1.4rem 1.5rem; background:var(--surface); border:1px solid var(--line);
+  border-radius:16px; box-shadow:0 10px 28px rgba(29,48,87,.06); overflow-x:auto;
+}
+figcaption{margin-top:.95rem; font-size:.85rem; line-height:1.65; color:var(--muted)}
+.svg-axis{stroke:var(--line); stroke-width:1.5}
+.svg-liq{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.6}
+.svg-liq-strong{fill:var(--accent); stroke:var(--accent-strong); stroke-width:1.6; opacity:.9}
+.svg-label{fill:var(--ink); font-family:var(--sans); font-size:14px; font-weight:750}
+.svg-cap{fill:var(--muted); font-family:var(--sans); font-size:12px}
+.svg-mono{fill:var(--muted); font-family:var(--mono); font-size:11px}
+.svg-mono-a{fill:var(--accent); font-family:var(--mono); font-size:11px; font-weight:600}
+.svg-price{stroke:var(--ink); stroke-width:1.3; stroke-dasharray:3 3; opacity:.5}
+.svg-range{stroke:var(--accent); stroke-width:1.6}
