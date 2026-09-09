@@ -242,6 +242,55 @@ const { request, result } = await publicClient.simulateContract({
 const hash = await walletClient.writeContract(request);</code></pre>
     <p>v4 因為要走 <code>unlock</code> → callback，前端通常不直接對 PoolManager 下單，而是呼叫官方的 <code>UniversalRouter</code> / <code>V4Router</code>，由它在鏈上完成 unlock 與結算。</p>
 
+    <h2>設計理念與取捨</h2>
+    <p>每一代都是一次刻意的取捨；看懂取捨，才看得懂 API 為何長這樣。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>版本</th><th>換到什麼</th><th>付出的代價</th></tr></thead>
+      <tbody>
+        <tr><td><strong>v2</strong></td><td>極簡、被動、部位可互換（ERC-20）</td><td>資本效率極低，資金大多閒置</td></tr>
+        <tr><td><strong>v3</strong></td><td>資本效率（集中流動性）</td><td>需主動管理；部位變 NFT、不可互換；無常損失放大</td></tr>
+        <tr><td><strong>v4</strong></td><td>省 gas（singleton + flash accounting）＋ 可程式化（hooks）</td><td>整合更複雜；池的安全取決於它掛的 hook</td></tr>
+      </tbody>
+    </table></div>
+    <p>hooks 的威力用「動態費率」最能說明——平時收 0.05%，波動大時自動調高：</p>
+<pre><code><span class="c">// 需在 getHookPermissions 開 beforeSwap，且池以 DYNAMIC_FEE_FLAG 建立</span>
+function _beforeSwap(address, PoolKey calldata, SwapParams calldata, bytes calldata)
+    internal override returns (bytes4, BeforeSwapDelta, uint24)
+{
+    uint24 fee = _isVolatile() ? 10_000 : 500;              <span class="c">// 1% / 0.05%</span>
+    uint24 withFlag = fee | LPFeeLibrary.OVERRIDE_FEE_FLAG;  <span class="c">// 告訴池「這筆用這個費率」</span>
+    return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, withFlag);
+}</code></pre>
+
+    <h2>智慧合約安全風險（開發者）</h2>
+    <p><strong>回呼一定要驗證呼叫者。</strong>v3 的 callback 與 v4 的 unlockCallback 都是 external 函式，忘了綁定合法來源，任何人都能直接呼叫、把你合約的代幣搬走：</p>
+<pre><code><span class="c">// ✗ 危險：沒驗證來源，任何人都能觸發、掏空本合約</span>
+function uniswapV3SwapCallback(int256 a0, int256 a1, bytes calldata) external {
+    IERC20(token0).transfer(msg.sender, uint256(a0));
+}
+<span class="c">// ✓ 正確：只認事先算好的那個 pool</span>
+require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
+    <ul>
+      <li><strong>不要拿現貨池價格當預言機。</strong><code>slot0</code> 的即時價可被閃電貸在單一區塊內拉動；要用 TWAP 或外部預言機（Chainlink）。</li>
+      <li><strong>滑點與時效。</strong><code>amountOutMinimum</code>、<code>deadline</code> 一定要設；設 0 等於任人宰割。</li>
+      <li><strong>fee-on-transfer / rebasing 代幣</strong>會打破「收到＝預期」的假設，實務上多半直接不支援。</li>
+      <li><strong>v4 特有：</strong>hook 可重入、可透過 <code>beforeSwapReturnsDelta</code> 改變金額；settle／take 記帳寫錯會讓整筆 revert 或資金卡住。只整合可信、經審計的 hook。</li>
+    </ul>
+
+    <h2>使用者投資風險</h2>
+    <p>當 LP（提供流動性）不是無風險收租，尤其在 v3：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>無常損失</strong></td><td>兩資產價格背離時，LP 的價值低於單純持有；v3 因集中而<strong>放大</strong>。</td></tr>
+        <tr><td><strong>區間外歸零收益</strong></td><td>價格離開你選的 <code>[Pa, Pb]</code> 就停止賺費，且部位變成 100% 較弱的那一側。</td></tr>
+        <tr><td><strong>JIT 流動性</strong></td><td>專業者在大單前一刻注入、成交後立刻撤走，吃走本該屬於被動 LP 的手續費。</td></tr>
+        <tr><td><strong>MEV／三明治</strong></td><td>你的 swap 會被搶跑夾擊；務必設滑點，或走私有 mempool。</td></tr>
+        <tr><td><strong>v4 hook 風險</strong></td><td>惡意或有 bug 的 hook 可擋單、額外抽費、甚至鎖死池子。進池前務必確認 hook 是誰、是否審計。</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>一句話：v2／v3 當 LP 的主要敵人是<strong>無常損失</strong>與<strong>MEV</strong>；v4 多了一個——<strong>你信不信任這個池的 hook</strong>。</p></blockquote>
+
     <h2>一句話區分</h2>
     <blockquote><p><strong>v3</strong> 解決資本效率——集中流動性，並用「池回呼 caller」的模式收款。<strong>v4</strong> 沿用 v3 定價，改成單一 PoolManager + 「unlock 一次、只結算淨額」的 flash accounting，並開放 hooks 讓任何人把邏輯插進池的生命週期。</p></blockquote>
   </div>
@@ -456,6 +505,55 @@ const { request, result } = await publicClient.simulateContract({
 <span class="c">// 2) Only send once the simulation passed</span>
 const hash = await walletClient.writeContract(request);</code></pre>
     <p>Because v4 goes through <code>unlock</code> → callback, front ends rarely hit PoolManager directly; they call the official <code>UniversalRouter</code> / <code>V4Router</code>, which performs the unlock and settlement on-chain.</p>
+
+    <h2>Design ideas and trade-offs</h2>
+    <p>Each version is a deliberate trade-off; grasp the trade-off and the API shape makes sense.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Version</th><th>Gains</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td><strong>v2</strong></td><td>Dead simple, passive, fungible positions (ERC-20)</td><td>Very low capital efficiency; most funds idle</td></tr>
+        <tr><td><strong>v3</strong></td><td>Capital efficiency (concentrated liquidity)</td><td>Active management; positions become non-fungible NFTs; amplified impermanent loss</td></tr>
+        <tr><td><strong>v4</strong></td><td>Gas (singleton + flash accounting) and programmability (hooks)</td><td>More complex to integrate; a pool's safety depends on its hook</td></tr>
+      </tbody>
+    </table></div>
+    <p>The power of hooks is clearest with a dynamic fee — 0.05% normally, higher when volatile:</p>
+<pre><code><span class="c">// requires beforeSwap in getHookPermissions and a pool built with DYNAMIC_FEE_FLAG</span>
+function _beforeSwap(address, PoolKey calldata, SwapParams calldata, bytes calldata)
+    internal override returns (bytes4, BeforeSwapDelta, uint24)
+{
+    uint24 fee = _isVolatile() ? 10_000 : 500;              <span class="c">// 1% / 0.05%</span>
+    uint24 withFlag = fee | LPFeeLibrary.OVERRIDE_FEE_FLAG;  <span class="c">// tell the pool "use this fee now"</span>
+    return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, withFlag);
+}</code></pre>
+
+    <h2>Smart-contract security (for developers)</h2>
+    <p><strong>Always authenticate the callback.</strong> Both v3's callback and v4's unlockCallback are external functions; forget to bind the legitimate caller and anyone can invoke them and drain your contract:</p>
+<pre><code><span class="c">// x Dangerous: no source check — anyone can trigger this and drain the contract</span>
+function uniswapV3SwapCallback(int256 a0, int256 a1, bytes calldata) external {
+    IERC20(token0).transfer(msg.sender, uint256(a0));
+}
+<span class="c">// OK Correct: accept only the pool you computed in advance</span>
+require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
+    <ul>
+      <li><strong>Never use spot pool price as an oracle.</strong> <code>slot0</code> can be pushed within a single block by a flash loan; use a TWAP or an external oracle (Chainlink).</li>
+      <li><strong>Slippage and deadline.</strong> Always set <code>amountOutMinimum</code> and <code>deadline</code>; zero leaves you at anyone's mercy.</li>
+      <li><strong>Fee-on-transfer / rebasing tokens</strong> break the "received == expected" assumption; most integrations simply refuse them.</li>
+      <li><strong>v4-specific:</strong> a hook can re-enter and can change amounts via <code>beforeSwapReturnsDelta</code>; a settle/take bookkeeping mistake reverts the whole call or strands funds. Integrate only trusted, audited hooks.</li>
+    </ul>
+
+    <h2>User investment risk</h2>
+    <p>Being an LP is not risk-free rent, especially in v3:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Impermanent loss</strong></td><td>When the two assets diverge in price, the LP is worth less than simply holding; v3 <strong>amplifies</strong> it through concentration.</td></tr>
+        <tr><td><strong>Zero earnings out of range</strong></td><td>Once price leaves your <code>[Pa, Pb]</code>, fees stop and the position becomes 100% the weaker asset.</td></tr>
+        <tr><td><strong>JIT liquidity</strong></td><td>Pros add liquidity just before a large swap and pull it right after, taking fees that would have gone to passive LPs.</td></tr>
+        <tr><td><strong>MEV / sandwich</strong></td><td>Your swap gets front-run and sandwiched; always set slippage, or route through a private mempool.</td></tr>
+        <tr><td><strong>v4 hook risk</strong></td><td>A malicious or buggy hook can block trades, skim extra fees, or brick the pool. Check who the hook is and whether it's audited before entering.</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>In short: an LP's main enemies in v2/v3 are <strong>impermanent loss</strong> and <strong>MEV</strong>; v4 adds one more — <strong>whether you trust the pool's hook</strong>.</p></blockquote>
 
     <h2>One-line distinction</h2>
     <blockquote><p><strong>v3</strong> solves capital efficiency — concentrated liquidity, collecting payment via the "pool calls the caller back" pattern. <strong>v4</strong> keeps v3's pricing but moves to a single PoolManager plus "unlock once, settle only the net" flash accounting, and opens hooks so anyone can inject logic into the pool's lifecycle.</p></blockquote>
