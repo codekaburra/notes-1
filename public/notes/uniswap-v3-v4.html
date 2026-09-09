@@ -34,98 +34,238 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Uniswap v3 與 v4</h1>
-    <p class="meta">2026-09-09 · DeFi / AMM</p>
+    <p class="meta">2026-09-09 · DeFi / AMM · 開發者視角</p>
 
-    <p>v3 與 v4 是整個 Uniswap 家族中概念跳躍最大的兩代，因為兩者各自解決的是完全不同層面的問題。以下分別說明，最後以一句話區分。</p>
+    <p>本則從整合者的角度切入：不只講概念，而是「你要呼叫哪個合約的哪個函式、誰回呼誰、代幣在哪一步移動」。v3 與 v4 的定價數學相同（集中流動性），差別在<strong>合約如何互相呼叫</strong>——這正是三張流程圖要說清楚的事。</p>
 
-    <h2>v3 —— 集中流動性</h2>
-    <p>v2 到 v3 只有一個核心思想，其餘皆為其衍生結果。</p>
-    <p><strong>v2</strong>：流動性平均攤在 <code>0 → ∞</code> 的整條價格曲線上（<code>x·y=k</code>）。然而交易僅發生在現價附近，因此大部分資金停留在永遠不會成交的價位，形同閒置。</p>
-    <p><strong>v3</strong>：流動性提供者（LP）自行選定一段<strong>價格區間</strong> <code>[Pa, Pb]</code>，將資金集中投入。在區間之內，其部位等同於一個深度極高的 v2 池；一旦價格離開此區間，部位即轉為單一資產，且不再賺取任何手續費。</p>
+    <h2>先建立心智模型：集中流動性</h2>
+    <p><strong>v2</strong> 把流動性平均攤在 <code>0 → ∞</code>（<code>x·y=k</code>）；<strong>v3</strong> 讓 LP 選定區間 <code>[Pa, Pb]</code> 集中投入，區間內深度極高，價格離開區間則轉為單一資產且停止收費。價格在合約內以 <code>sqrtPriceX96</code> 儲存（Q64.96 定點數，即 √price × 2⁹⁶），tick 以 <code>1.0001^tick</code> 離散化。</p>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 720 300" role="img" aria-label="兩張並排的流動性分佈圖：v2 的流動性以一條低矮而寬的長條攤在整個價格範圍上；v3 的流動性以一條高而窄的長條集中在現價附近的選定區間，兩塊面積相同代表相同資金量。">
-          <!-- Panel A: v2 -->
-          <text class="svg-label" x="45" y="40">v2</text>
-          <text class="svg-cap" x="82" y="40">流動性攤平</text>
+        <svg viewBox="0 0 720 300" role="img" aria-label="v2 與 v3 流動性分佈對照：v2 為橫跨整個價格範圍的低矮寬長條，v3 為集中於現價附近的高窄長條，兩者面積相同。">
+          <text class="svg-label" x="45" y="40">v2</text><text class="svg-cap" x="82" y="40">流動性攤平</text>
           <line class="svg-axis" x1="45" y1="250" x2="345" y2="250"></line>
           <rect class="svg-liq" x="48" y="214" width="294" height="36" rx="3"></rect>
           <line class="svg-price" x1="196" y1="72" x2="196" y2="260"></line>
           <text class="svg-mono" x="196" y="64" text-anchor="middle">現價</text>
           <text class="svg-mono" x="345" y="272" text-anchor="end">價格 →</text>
-
-          <!-- Panel B: v3 -->
-          <text class="svg-label" x="400" y="40">v3</text>
-          <text class="svg-cap" x="437" y="40">流動性集中</text>
+          <text class="svg-label" x="400" y="40">v3</text><text class="svg-cap" x="437" y="40">流動性集中</text>
           <line class="svg-axis" x1="400" y1="250" x2="700" y2="250"></line>
           <rect class="svg-liq-strong" x="518" y="128" width="64" height="122" rx="3"></rect>
           <line class="svg-price" x1="550" y1="72" x2="550" y2="260"></line>
           <text class="svg-mono" x="550" y="64" text-anchor="middle">現價</text>
           <text class="svg-mono" x="700" y="272" text-anchor="end">價格 →</text>
-          <!-- range bracket -->
           <line class="svg-range" x1="518" y1="266" x2="582" y2="266"></line>
           <line class="svg-range" x1="518" y1="261" x2="518" y2="271"></line>
           <line class="svg-range" x1="582" y1="261" x2="582" y2="271"></line>
           <text class="svg-mono-a" x="550" y="288" text-anchor="middle">LP 選定區間 [Pa, Pb]</text>
         </svg>
       </div>
-      <figcaption>兩塊長條的面積相同，代表投入相同的資金。v2 將資金攤在整條價格曲線上，v3 則集中於現價附近的窄區間，因而在該區間內提供遠更深的流動性。縱軸為流動性深度，橫軸為價格。</figcaption>
+      <figcaption>兩塊面積相同（相同資金）。v3 集中後資本效率高，但部位因區間各異而成為 ERC-721 NFT，且需主動管理。縱軸為流動性深度，橫軸為價格。</figcaption>
     </figure>
 
-    <p>此一改動連帶產生四個結果：</p>
-    <ul>
-      <li><strong>Tick（刻度）</strong>：價格空間被切分為離散的 tick，<code>price = 1.0001^tick</code>，每個 tick 相差 0.01%。流動性掛在相鄰兩個 tick 之間；價格每跨越一個 tick，便有一批流動性被啟用或退出。</li>
-      <li><strong>部位成為 NFT</strong>：v2 的 LP 代幣可互換（ERC-20），因所有部位相同；v3 每個部位的區間不同，因此改以 ERC-721 表示，各自獨立。</li>
-      <li><strong>多個費率層</strong>：0.01% / 0.05% / 0.30% / 1.00%，每個費率為獨立的池。同一交易對可能同時存在數個 v3 池。</li>
-      <li><strong>由被動轉為主動</strong>：集中意味著資本效率提升，但價格離開區間即停止收益，且無常損失被放大。v3 的 LP 需持續監控並調整區間，因此專業造市者取得了多數的 v3 流動性。</li>
-    </ul>
-    <blockquote><p>將區間設定得極窄（近乎一個價位），v3 的 LP 部位即近似一張限價單——此為 v2 無法達成之功能。</p></blockquote>
+    <h2>v3 整合：兩種呼叫路徑</h2>
+    <p>你有兩種方式跟 v3 互動。多數應用走<strong>周邊合約</strong>（periphery）的 <code>SwapRouter</code>，它把細節包好：</p>
+<pre><code>ISwapRouter.ExactInputSingleParams memory p = ISwapRouter.ExactInputSingleParams({
+    tokenIn: WETH, tokenOut: USDC, fee: 500,        <span class="c">// 0.05% 費率層，決定用哪個池</span>
+    recipient: msg.sender, deadline: block.timestamp,
+    amountIn: 1 ether, amountOutMinimum: minOut,     <span class="c">// minOut 是你的滑點保護</span>
+    sqrtPriceLimitX96: 0
+});
+uint256 out = router.exactInputSingle(p);</code></pre>
+    <p>若要極致省 gas 或做 flash swap，則<strong>直接呼叫核心池</strong>的 <code>swap()</code>。這裡藏著 v3 最重要的模式：<strong>池會在交易中途回呼你</strong>，要你把欠它的代幣付清。</p>
+<pre><code><span class="c">// 觸發：直接對核心池下單</span>
+pool.swap(recipient, zeroForOne, amountSpecified, sqrtPriceLimitX96, data);
 
-    <h2>v4 —— Hooks 與架構重寫</h2>
-    <p>v4 的定價數學（集中流動性、tick）大致直接繼承自 v3。v4 改變的並非「如何定價」，而是三件事：如何部署、代幣如何流動、能否注入自訂邏輯。</p>
-    <div class="scroll"><table>
-      <thead><tr><th>改動</th><th>v3</th><th>v4</th></tr></thead>
-      <tbody>
-        <tr><td><strong>Hooks</strong></td><td>無，邏輯寫死</td><td>每個池可掛載一個 hook 合約，於 <code>beforeSwap</code>、<code>afterSwap</code>、<code>beforeAddLiquidity</code> 等生命週期節點執行自訂程式碼</td></tr>
-        <tr><td><strong>Singleton</strong></td><td>每個池為一個獨立部署的合約</td><td>所有池共用單一 <code>PoolManager</code> 合約</td></tr>
-        <tr><td><strong>Flash accounting</strong></td><td>每一步皆實際轉入、轉出代幣</td><td>一筆交易內僅記帳（採 EIP-1153 暫時性儲存），最終只結算淨額</td></tr>
-        <tr><td><strong>原生 ETH</strong></td><td>須先包裝為 WETH</td><td>直接使用 ETH</td></tr>
-      </tbody>
-    </table></div>
-    <p><strong>Hooks 為 v4 的核心。</strong>hook 是一個合約，於建池時指定。此後該池每次交易，<code>PoolManager</code> 會在成交前後回呼此 hook。因此動態費率、鏈上限價單、TWAMM、自訂曲線、MEV 內化等機制，過去需另建一整條 DEX，如今僅需數百行的 hook 即可實現，無須分叉 Uniswap。</p>
-    <p><strong>Singleton</strong> 使建立新池從「部署合約」變為「一次狀態更新」，gas 成本大幅下降，且多跳交易無須在合約之間搬移代幣。<strong>Flash accounting</strong> 則讓複雜路由的多跳交易顯著更便宜。</p>
+<span class="c">// 池在計算完成後、回傳前，回呼這個函式向你討錢</span>
+function uniswapV3SwapCallback(
+    int256 amount0Delta, int256 amount1Delta, bytes calldata data
+) external {
+    require(msg.sender == pool, "only pool");        <span class="c">// 只有池能呼叫</span>
+    <span class="c">// 正的 delta = 你欠池的那一邊，必須在這裡轉給它</span>
+    if (amount0Delta &gt; 0) IERC20(token0).transfer(pool, uint256(amount0Delta));
+    if (amount1Delta &gt; 0) IERC20(token1).transfer(pool, uint256(amount1Delta));
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="v3 swap 呼叫流程：你的合約呼叫 SwapRouter 的 exactInputSingle，Router 呼叫核心池的 swap，池在中途回呼 uniswapV3SwapCallback 向 Router 收取 tokenIn，最後池把 tokenOut 送給收款人。">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="a1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="20" y="96" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="85" y="122" text-anchor="middle">你的合約</text>
+          <text class="svg-ncode" x="85" y="140" text-anchor="middle">caller</text>
+          <rect class="svg-node" x="310" y="96" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="375" y="122" text-anchor="middle">SwapRouter</text>
+          <text class="svg-ncode" x="375" y="140" text-anchor="middle">periphery</text>
+          <rect class="svg-node-a" x="600" y="96" width="140" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="670" y="122" text-anchor="middle">Pool</text>
+          <text class="svg-ncode" x="670" y="140" text-anchor="middle">core · 每對每費率一個</text>
+          <line class="svg-flow" x1="150" y1="118" x2="308" y2="118" marker-end="url(#a1)"></line>
+          <text class="svg-flowlabel" x="229" y="110" text-anchor="middle">① exactInputSingle()</text>
+          <line class="svg-flow" x1="440" y1="114" x2="598" y2="114" marker-end="url(#a1)"></line>
+          <text class="svg-flowlabel" x="519" y="106" text-anchor="middle">② pool.swap()</text>
+          <line class="svg-flow-a" x1="598" y1="140" x2="442" y2="140" marker-end="url(#a1a)"></line>
+          <text class="svg-step" x="519" y="156" text-anchor="middle">③ uniswapV3SwapCallback()</text>
+          <line class="svg-flow" x1="670" y1="156" x2="670" y2="210" marker-end="url(#a1)"></line>
+          <line class="svg-flow" x1="670" y1="210" x2="85" y2="210" marker-end="url(#a1)"></line>
+          <line class="svg-flow" x1="85" y1="210" x2="85" y2="158" marker-end="url(#a1)"></line>
+          <text class="svg-flowlabel" x="377" y="203" text-anchor="middle">④ tokenOut → recipient</text>
+        </svg>
+      </div>
+      <figcaption>關鍵在 ③：核心池<strong>反過來呼叫 caller</strong>（controller inversion），在 callback 內收取 tokenIn。這讓 flash swap 成為可能——先拿貨、在 callback 結束前補足即可。走 SwapRouter 時，這個 callback 由 Router 幫你實作。</figcaption>
+    </figure>
+    <p>流動性部位則透過 <code>NonfungiblePositionManager</code> 管理（<code>mint</code> / <code>increaseLiquidity</code> / <code>decreaseLiquidity</code> / <code>collect</code>）。因為每個部位的區間不同，故以 NFT 表示，而非 v2 的可互換 LP 代幣。</p>
+
+    <h2>v4：Singleton 與 flash accounting</h2>
+    <p>v4 的定價沿用 v3，但把所有池收進<strong>單一 <code>PoolManager</code> 合約</strong>。任何操作前必須先 <code>unlock()</code>；PoolManager 隨即回呼你的 <code>unlockCallback()</code>，你在這個 callback 之內完成一切，過程<strong>只改記帳（deltas），不搬代幣</strong>，直到最後才結算淨額。這套機制建立在 EIP-1153 暫時性儲存之上。</p>
+<pre><code><span class="c">// 1) 進場：unlock 一次，把你要做的事編碼帶進去</span>
+manager.unlock(abi.encode(key, params));
+
+<span class="c">// 2) PoolManager 回呼到這裡；所有動作都在 callback 內</span>
+function unlockCallback(bytes calldata raw) external returns (bytes memory) {
+    require(msg.sender == address(manager), "only manager");
+    (PoolKey memory key, SwapParams memory params) = abi.decode(raw, (PoolKey, SwapParams));
+
+    BalanceDelta delta = manager.swap(key, params, "");   <span class="c">// 只動 delta，尚未搬幣</span>
+
+    <span class="c">// 負 delta = 欠款（付進去）；正 delta = 應得（提出來）</span>
+    if (delta.amount0() &lt; 0) _settle(key.currency0);       <span class="c">// 轉入 tokenIn 後呼叫 settle()</span>
+    if (delta.amount1() &gt; 0) _take(key.currency1);          <span class="c">// take() 提出 tokenOut</span>
+    <span class="c">// 回傳前，PoolManager 強制檢查此 caller 的所有 delta == 0，否則整筆 revert</span>
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 320" role="img" aria-label="v4 flash accounting 流程：你的合約呼叫 PoolManager 的 unlock，PoolManager 回呼 unlockCallback，你在 callback 內呼叫 swap 得到 BalanceDelta，再以 settle 付欠款、take 取應得，callback 結束時 PoolManager 檢查所有 delta 歸零。">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="a2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="60" width="170" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="109" y="86" text-anchor="middle">你的合約</text>
+          <text class="svg-ncode" x="109" y="104" text-anchor="middle">integrator</text>
+          <rect class="svg-node-a" x="470" y="60" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="570" y="86" text-anchor="middle">PoolManager</text>
+          <text class="svg-ncode" x="570" y="104" text-anchor="middle">singleton · 所有池共用</text>
+          <line class="svg-flow" x1="194" y1="80" x2="468" y2="80" marker-end="url(#a2)"></line>
+          <text class="svg-flowlabel" x="331" y="72" text-anchor="middle">① unlock(data)</text>
+          <line class="svg-flow-a" x1="468" y1="104" x2="196" y2="104" marker-end="url(#a2a)"></line>
+          <text class="svg-step" x="331" y="118" text-anchor="middle">② unlockCallback(data)</text>
+          <rect class="svg-node-dash" x="20" y="150" width="710" height="150" rx="12"></rect>
+          <text class="svg-ncode" x="36" y="172">在 unlockCallback 之內 —— 只記帳，最後才結算</text>
+          <line class="svg-flow" x1="200" y1="200" x2="466" y2="200" marker-end="url(#a2)"></line>
+          <text class="svg-flowlabel" x="333" y="192" text-anchor="middle">③ swap(key, params) → BalanceDelta</text>
+          <line class="svg-flow" x1="200" y1="234" x2="466" y2="234" marker-end="url(#a2)"></line>
+          <text class="svg-flowlabel" x="333" y="226" text-anchor="middle">④ settle()：轉入 tokenIn、清負債</text>
+          <line class="svg-flow-a" x1="466" y1="266" x2="200" y2="266" marker-end="url(#a2a)"></line>
+          <text class="svg-step" x="333" y="258" text-anchor="middle">⑤ take()：提出 tokenOut、清正額</text>
+          <text class="svg-mono-a" x="375" y="292" text-anchor="middle">⑥ callback 結束：PoolManager 要求 Σ delta == 0，否則 revert</text>
+        </svg>
+      </div>
+      <figcaption>對比 v3：v3 每一步都真的轉入轉出代幣；v4 在一次 unlock 內把所有操作累積成 delta，最後只結算淨額。多跳、套利、複雜路由因此顯著更省 gas，且無須在合約間搬幣（全都在同一個 PoolManager 內）。</figcaption>
+    </figure>
+
+    <h2>v4 Hooks：把邏輯插進池的生命週期</h2>
+    <p>hook 是你在建池時綁定的合約。此後 PoolManager 會在每個動作的前後回呼它——<code>beforeSwap</code> / <code>afterSwap</code> / <code>beforeAddLiquidity</code> 等共 14 個切入點。動態費率、鏈上限價單、白名單、MEV 內化，都寫在這裡，無須分叉 Uniswap。</p>
+<pre><code>contract MyHook is BaseHook {
+    <span class="c">// 宣告要哪些 callback；必須與合約「地址的位元」一致</span>
+    function getHookPermissions() public pure override
+        returns (Hooks.Permissions memory)
+    {
+        return Hooks.Permissions({ beforeSwap: true, afterSwap: true /* 其餘 false */ });
+    }
+
+    <span class="c">// BaseHook 外層有 onlyPoolManager 守衛：只有 PoolManager 進得來</span>
+    function _beforeSwap(address, PoolKey calldata, SwapParams calldata, bytes calldata)
+        internal override returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        <span class="c">// 你的邏輯：改費率、擋交易、記錄預言機…</span>
+        return (BaseHook.beforeSwap.selector, ZERO_DELTA, 0);
+    }
+}</code></pre>
+    <p>最反直覺的一點：<strong>「要哪些 callback」不是寫在 storage，而是編碼在 hook 合約的地址裡。</strong>地址的低位元決定哪些切入點生效（<code>BEFORE_SWAP_FLAG = 1 &lt;&lt; 7</code>、<code>AFTER_SWAP_FLAG = 1 &lt;&lt; 6</code>…）。部署時 PoolManager 會核對地址位元是否等於 <code>getHookPermissions()</code>，不符即 revert。因此你得<strong>挖礦 CREATE2 的 salt</strong>，直到算出的地址位元剛好符合宣告的權限。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 330" role="img" aria-label="v4 hook 生命週期與地址位元：PoolManager 在撮合前後分別呼叫 hook 的 beforeSwap 與 afterSwap，hook 以 onlyPoolManager 限制呼叫者；下方顯示 hook 地址最低位元組，其中 bit7 與 bit6 為 1，對應 BEFORE_SWAP 與 AFTER_SWAP 兩個旗標。">
+          <defs>
+            <marker id="a3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="40" y="40" width="180" height="150" rx="10"></rect>
+          <text class="svg-nlabel" x="130" y="72" text-anchor="middle">PoolManager</text>
+          <text class="svg-ncode" x="130" y="118" text-anchor="middle">swap() 執行中</text>
+          <text class="svg-ncode" x="130" y="150" text-anchor="middle">撮合核心數學</text>
+          <rect class="svg-node" x="540" y="40" width="180" height="150" rx="10"></rect>
+          <text class="svg-nlabel" x="630" y="72" text-anchor="middle">MyHook</text>
+          <text class="svg-ncode" x="630" y="150" text-anchor="middle">onlyPoolManager 守衛</text>
+          <line class="svg-flow-a" x1="220" y1="78" x2="538" y2="78" marker-end="url(#a3a)"></line>
+          <text class="svg-step" x="379" y="70" text-anchor="middle">① beforeSwap()　撮合前</text>
+          <line class="svg-flow-a" x1="220" y1="160" x2="538" y2="160" marker-end="url(#a3a)"></line>
+          <text class="svg-step" x="379" y="152" text-anchor="middle">② afterSwap()　撮合後</text>
+          <line class="svg-axis" x1="40" y1="230" x2="720" y2="230"></line>
+          <text class="svg-cap" x="40" y="220">hook 地址最低位元組　bit7…bit0</text>
+          <g>
+            <rect class="svg-bit-on"  x="40"  y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="60"  y="270">1</text>
+            <rect class="svg-bit-on"  x="88"  y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="108" y="270">1</text>
+            <rect class="svg-bit-off" x="136" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="156" y="270">0</text>
+            <rect class="svg-bit-off" x="184" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="204" y="270">0</text>
+            <rect class="svg-bit-off" x="232" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="252" y="270">0</text>
+            <rect class="svg-bit-off" x="280" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="300" y="270">0</text>
+            <rect class="svg-bit-off" x="328" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="348" y="270">0</text>
+            <rect class="svg-bit-off" x="376" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="396" y="270">0</text>
+          </g>
+          <text class="svg-mono-a" x="60"  y="302" text-anchor="middle">BEFORE_SWAP</text>
+          <text class="svg-mono-a" x="108" y="316" text-anchor="middle">AFTER_SWAP</text>
+          <text class="svg-mono-a" x="440" y="272">= 0xC0（bit7 | bit6）</text>
+        </svg>
+      </div>
+      <figcaption>PoolManager 在撮合前後回呼 hook（①②），而 hook 以 <code>onlyPoolManager</code> 拒絕其他呼叫者。哪些回呼會發生，寫死在 hook 地址的低位元裡——因此部署前要挖礦 CREATE2 salt 讓地址符合 <code>getHookPermissions()</code>。</figcaption>
+    </figure>
+
+    <h2>前端：用 viem 呼叫（full-stack 視角）</h2>
+    <p>合約之外，前端典型做法是「先模擬、再送出」，用模擬預先抓 revert、也拿到回傳值：</p>
+<pre><code>import { parseEther } from "viem";
+
+<span class="c">// 1) 先模擬——失敗會在這裡丟錯，不會白花 gas</span>
+const { request, result } = await publicClient.simulateContract({
+  address: SWAP_ROUTER, abi: swapRouterAbi, functionName: "exactInputSingle",
+  args: [{ tokenIn, tokenOut, fee: 500, recipient, deadline,
+           amountIn: parseEther("1"), amountOutMinimum, sqrtPriceLimitX96: 0n }],
+  account,
+});
+
+<span class="c">// 2) 模擬過了才真的送交易</span>
+const hash = await walletClient.writeContract(request);</code></pre>
+    <p>v4 因為要走 <code>unlock</code> → callback，前端通常不直接對 PoolManager 下單，而是呼叫官方的 <code>UniversalRouter</code> / <code>V4Router</code>，由它在鏈上完成 unlock 與結算。</p>
 
     <h2>一句話區分</h2>
-    <blockquote><p><strong>v3</strong> 解決「資本效率」——將流動性集中於現價附近，代價是 LP 需主動管理。<strong>v4</strong> 保留 v3 的定價機制不變，再疊加「可程式化（hooks）」與「更省 gas 的架構（singleton 與 flash accounting）」。</p></blockquote>
-    <p>若以比喻表示：v3 將 AMM 由「灑水器」改為「精準噴頭」；v4 則將整套機器變為「可安裝外掛的作業系統」。</p>
+    <blockquote><p><strong>v3</strong> 解決資本效率——集中流動性，並用「池回呼 caller」的模式收款。<strong>v4</strong> 沿用 v3 定價，改成單一 PoolManager + 「unlock 一次、只結算淨額」的 flash accounting，並開放 hooks 讓任何人把邏輯插進池的生命週期。</p></blockquote>
   </div>
 
   <!-- ================= English ================= -->
   <div data-l="en">
     <h1>Uniswap v3 &amp; v4</h1>
-    <p class="meta">2026-09-09 · DeFi / AMM</p>
+    <p class="meta">2026-09-09 · DeFi / AMM · Developer view</p>
 
-    <p>v3 and v4 are the two biggest conceptual leaps in the Uniswap family, because each solves a problem at a completely different layer. Here is each in turn, with a one-line distinction at the end.</p>
+    <p>This note takes the integrator's angle: not just concepts, but which contract and function you call, who calls back whom, and where tokens move at each step. v3 and v4 share the same pricing maths (concentrated liquidity); what differs is <strong>how the contracts call each other</strong> — which is exactly what the three flow diagrams make concrete.</p>
 
-    <h2>v3 — Concentrated liquidity</h2>
-    <p>There is a single core idea from v2 to v3; everything else follows from it.</p>
-    <p><strong>v2</strong>: liquidity is spread evenly across the entire price curve, <code>0 → ∞</code> (<code>x·y=k</code>). But trading only happens near the current price, so most capital sits at prices that never trade — effectively idle.</p>
-    <p><strong>v3</strong>: a liquidity provider (LP) chooses a <strong>price range</strong> <code>[Pa, Pb]</code> and concentrates capital within it. Inside the range the position behaves like a very deep v2 pool; once price leaves the range, the position becomes a single asset and earns no fees.</p>
+    <h2>Mental model first: concentrated liquidity</h2>
+    <p><strong>v2</strong> spreads liquidity evenly across <code>0 → ∞</code> (<code>x·y=k</code>); <strong>v3</strong> lets an LP pick a range <code>[Pa, Pb]</code> and concentrate capital in it — very deep inside the range, single-asset and fee-less once price leaves it. Price is stored on-chain as <code>sqrtPriceX96</code> (Q64.96 fixed point, i.e. √price × 2⁹⁶); ticks discretise it as <code>1.0001^tick</code>.</p>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 720 300" role="img" aria-label="Two liquidity-distribution charts side by side: v2 spreads liquidity as a low, wide bar across the whole price range; v3 concentrates it as a tall, narrow bar around the current price within a chosen range, the two areas equal to show the same amount of capital.">
-          <text class="svg-label" x="45" y="40">v2</text>
-          <text class="svg-cap" x="82" y="40">spread thin</text>
+        <svg viewBox="0 0 720 300" role="img" aria-label="v2 vs v3 liquidity distribution: v2 is a low wide bar across the whole price range, v3 a tall narrow bar concentrated near the current price, both of equal area.">
+          <text class="svg-label" x="45" y="40">v2</text><text class="svg-cap" x="82" y="40">spread thin</text>
           <line class="svg-axis" x1="45" y1="250" x2="345" y2="250"></line>
           <rect class="svg-liq" x="48" y="214" width="294" height="36" rx="3"></rect>
           <line class="svg-price" x1="196" y1="72" x2="196" y2="260"></line>
           <text class="svg-mono" x="196" y="64" text-anchor="middle">price now</text>
           <text class="svg-mono" x="345" y="272" text-anchor="end">price →</text>
-
-          <text class="svg-label" x="400" y="40">v3</text>
-          <text class="svg-cap" x="437" y="40">concentrated</text>
+          <text class="svg-label" x="400" y="40">v3</text><text class="svg-cap" x="437" y="40">concentrated</text>
           <line class="svg-axis" x1="400" y1="250" x2="700" y2="250"></line>
           <rect class="svg-liq-strong" x="518" y="128" width="64" height="122" rx="3"></rect>
           <line class="svg-price" x1="550" y1="72" x2="550" y2="260"></line>
@@ -137,35 +277,188 @@
           <text class="svg-mono-a" x="550" y="288" text-anchor="middle">LP range [Pa, Pb]</text>
         </svg>
       </div>
-      <figcaption>The two bars have equal area — the same amount of capital. v2 spreads it across the whole curve; v3 concentrates it in a narrow band around the current price, giving far deeper liquidity there. The vertical axis is liquidity depth, the horizontal axis is price.</figcaption>
+      <figcaption>Equal areas (same capital). Concentration raises capital efficiency, but each position has a distinct range, so positions are ERC-721 NFTs and need active management. Vertical axis is liquidity depth, horizontal axis is price.</figcaption>
     </figure>
 
-    <p>Four consequences follow:</p>
-    <ul>
-      <li><strong>Ticks</strong>: price space is discretised into ticks, <code>price = 1.0001^tick</code>, each tick 0.01% apart. Liquidity sits between two adjacent ticks; each time price crosses a tick, a batch of liquidity is activated or retired.</li>
-      <li><strong>Positions become NFTs</strong>: v2 LP tokens are fungible (ERC-20) because all positions are identical; each v3 position has a different range, so they are ERC-721, each unique.</li>
-      <li><strong>Multiple fee tiers</strong>: 0.01% / 0.05% / 0.30% / 1.00%, each a separate pool. One pair may have several v3 pools at once.</li>
-      <li><strong>Passive becomes active</strong>: concentration raises capital efficiency, but earnings stop once price leaves the range, and impermanent loss is amplified. v3 LPs must monitor and re-adjust, which is why professional market makers hold most v3 liquidity.</li>
-    </ul>
-    <blockquote><p>Set the range extremely narrow (nearly a single price) and a v3 position approximates a limit order — something v2 cannot do.</p></blockquote>
+    <h2>Integrating v3: two call paths</h2>
+    <p>You interact with v3 two ways. Most apps use the <strong>periphery</strong> <code>SwapRouter</code>, which wraps the details:</p>
+<pre><code>ISwapRouter.ExactInputSingleParams memory p = ISwapRouter.ExactInputSingleParams({
+    tokenIn: WETH, tokenOut: USDC, fee: 500,        <span class="c">// 0.05% tier picks the pool</span>
+    recipient: msg.sender, deadline: block.timestamp,
+    amountIn: 1 ether, amountOutMinimum: minOut,     <span class="c">// minOut is your slippage guard</span>
+    sqrtPriceLimitX96: 0
+});
+uint256 out = router.exactInputSingle(p);</code></pre>
+    <p>For maximum gas savings or flash swaps you call the <strong>core pool</strong>'s <code>swap()</code> directly. Here is v3's most important pattern: <strong>the pool calls you back mid-swap</strong> to collect what you owe.</p>
+<pre><code><span class="c">// Trigger: order straight against the core pool</span>
+pool.swap(recipient, zeroForOne, amountSpecified, sqrtPriceLimitX96, data);
 
-    <h2>v4 — Hooks and an architectural rewrite</h2>
-    <p>v4's pricing maths (concentrated liquidity, ticks) is largely inherited directly from v3. What v4 changes is not <em>how it prices</em>, but three things: how it deploys, how tokens move, and whether custom logic can be injected.</p>
-    <div class="scroll"><table>
-      <thead><tr><th>Change</th><th>v3</th><th>v4</th></tr></thead>
-      <tbody>
-        <tr><td><strong>Hooks</strong></td><td>none; logic is fixed</td><td>each pool can attach a hook contract that runs custom code at lifecycle points: <code>beforeSwap</code>, <code>afterSwap</code>, <code>beforeAddLiquidity</code>, etc.</td></tr>
-        <tr><td><strong>Singleton</strong></td><td>each pool is a separately deployed contract</td><td>all pools share one <code>PoolManager</code> contract</td></tr>
-        <tr><td><strong>Flash accounting</strong></td><td>tokens actually transferred in/out at every step</td><td>only bookkeeping within a transaction (via EIP-1153 transient storage); only the net is settled at the end</td></tr>
-        <tr><td><strong>Native ETH</strong></td><td>must wrap to WETH</td><td>uses ETH directly</td></tr>
-      </tbody>
-    </table></div>
-    <p><strong>Hooks are the heart of v4.</strong> A hook is a contract specified at pool creation. Thereafter, on every swap, the <code>PoolManager</code> calls back into the hook before and after execution. Dynamic fees, on-chain limit orders, TWAMM, custom curves, MEV internalisation — mechanisms that once required building an entire new DEX — now take a few hundred lines of hook, without forking Uniswap.</p>
-    <p><strong>Singleton</strong> turns creating a pool from "deploying a contract" into "one state update," cutting gas sharply and letting multi-hop swaps avoid moving tokens between contracts. <strong>Flash accounting</strong> makes complex multi-hop routes markedly cheaper.</p>
+<span class="c">// After computing, before returning, the pool calls back to collect</span>
+function uniswapV3SwapCallback(
+    int256 amount0Delta, int256 amount1Delta, bytes calldata data
+) external {
+    require(msg.sender == pool, "only pool");        <span class="c">// only the pool may call</span>
+    <span class="c">// A positive delta is the side you owe; pay it here</span>
+    if (amount0Delta &gt; 0) IERC20(token0).transfer(pool, uint256(amount0Delta));
+    if (amount1Delta &gt; 0) IERC20(token1).transfer(pool, uint256(amount1Delta));
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="v3 swap flow: your contract calls SwapRouter.exactInputSingle, the router calls the core pool's swap, the pool calls uniswapV3SwapCallback back to collect tokenIn, then the pool sends tokenOut to the recipient.">
+          <defs>
+            <marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="b1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="20" y="96" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="85" y="122" text-anchor="middle">Your contract</text>
+          <text class="svg-ncode" x="85" y="140" text-anchor="middle">caller</text>
+          <rect class="svg-node" x="310" y="96" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="375" y="122" text-anchor="middle">SwapRouter</text>
+          <text class="svg-ncode" x="375" y="140" text-anchor="middle">periphery</text>
+          <rect class="svg-node-a" x="600" y="96" width="140" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="670" y="122" text-anchor="middle">Pool</text>
+          <text class="svg-ncode" x="670" y="140" text-anchor="middle">core · one per pair·tier</text>
+          <line class="svg-flow" x1="150" y1="118" x2="308" y2="118" marker-end="url(#b1)"></line>
+          <text class="svg-flowlabel" x="229" y="110" text-anchor="middle">① exactInputSingle()</text>
+          <line class="svg-flow" x1="440" y1="114" x2="598" y2="114" marker-end="url(#b1)"></line>
+          <text class="svg-flowlabel" x="519" y="106" text-anchor="middle">② pool.swap()</text>
+          <line class="svg-flow-a" x1="598" y1="140" x2="442" y2="140" marker-end="url(#b1a)"></line>
+          <text class="svg-step" x="519" y="156" text-anchor="middle">③ uniswapV3SwapCallback()</text>
+          <line class="svg-flow" x1="670" y1="156" x2="670" y2="210" marker-end="url(#b1)"></line>
+          <line class="svg-flow" x1="670" y1="210" x2="85" y2="210" marker-end="url(#b1)"></line>
+          <line class="svg-flow" x1="85" y1="210" x2="85" y2="158" marker-end="url(#b1)"></line>
+          <text class="svg-flowlabel" x="377" y="203" text-anchor="middle">④ tokenOut → recipient</text>
+        </svg>
+      </div>
+      <figcaption>The crux is ③: the core pool <strong>calls the caller back</strong> (control inversion) to collect tokenIn inside the callback. That is what makes flash swaps possible — take first, top up before the callback ends. Via SwapRouter, the router implements this callback for you.</figcaption>
+    </figure>
+    <p>Liquidity positions are managed through <code>NonfungiblePositionManager</code> (<code>mint</code> / <code>increaseLiquidity</code> / <code>decreaseLiquidity</code> / <code>collect</code>). Because each range differs, positions are NFTs, not v2's fungible LP tokens.</p>
+
+    <h2>v4: singleton and flash accounting</h2>
+    <p>v4 keeps v3's pricing but gathers every pool into one <strong><code>PoolManager</code></strong>. Any operation must first <code>unlock()</code>; PoolManager then calls back your <code>unlockCallback()</code>, inside which you do everything — and the process <strong>only moves deltas, not tokens</strong>, settling the net at the very end. It rests on EIP-1153 transient storage.</p>
+<pre><code><span class="c">// 1) Enter: unlock once, carrying your encoded intent</span>
+manager.unlock(abi.encode(key, params));
+
+<span class="c">// 2) PoolManager calls back here; everything happens in the callback</span>
+function unlockCallback(bytes calldata raw) external returns (bytes memory) {
+    require(msg.sender == address(manager), "only manager");
+    (PoolKey memory key, SwapParams memory params) = abi.decode(raw, (PoolKey, SwapParams));
+
+    BalanceDelta delta = manager.swap(key, params, "");   <span class="c">// touches deltas only, no transfer yet</span>
+
+    <span class="c">// negative delta = you owe (pay in); positive = you're owed (take out)</span>
+    if (delta.amount0() &lt; 0) _settle(key.currency0);       <span class="c">// transfer tokenIn, then settle()</span>
+    if (delta.amount1() &gt; 0) _take(key.currency1);          <span class="c">// take() the tokenOut</span>
+    <span class="c">// before returning, PoolManager requires all deltas for this caller == 0, else revert</span>
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 320" role="img" aria-label="v4 flash accounting flow: your contract calls PoolManager.unlock, PoolManager calls back unlockCallback, inside which you call swap to get a BalanceDelta, then settle to pay and take to withdraw, and on returning PoolManager checks all deltas are zero.">
+          <defs>
+            <marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="b2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="60" width="170" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="109" y="86" text-anchor="middle">Your contract</text>
+          <text class="svg-ncode" x="109" y="104" text-anchor="middle">integrator</text>
+          <rect class="svg-node-a" x="470" y="60" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="570" y="86" text-anchor="middle">PoolManager</text>
+          <text class="svg-ncode" x="570" y="104" text-anchor="middle">singleton · all pools</text>
+          <line class="svg-flow" x1="194" y1="80" x2="468" y2="80" marker-end="url(#b2)"></line>
+          <text class="svg-flowlabel" x="331" y="72" text-anchor="middle">① unlock(data)</text>
+          <line class="svg-flow-a" x1="468" y1="104" x2="196" y2="104" marker-end="url(#b2a)"></line>
+          <text class="svg-step" x="331" y="118" text-anchor="middle">② unlockCallback(data)</text>
+          <rect class="svg-node-dash" x="20" y="150" width="710" height="150" rx="12"></rect>
+          <text class="svg-ncode" x="36" y="172">inside unlockCallback — bookkeeping only, settle at the end</text>
+          <line class="svg-flow" x1="200" y1="200" x2="466" y2="200" marker-end="url(#b2)"></line>
+          <text class="svg-flowlabel" x="333" y="192" text-anchor="middle">③ swap(key, params) → BalanceDelta</text>
+          <line class="svg-flow" x1="200" y1="234" x2="466" y2="234" marker-end="url(#b2)"></line>
+          <text class="svg-flowlabel" x="333" y="226" text-anchor="middle">④ settle(): pay tokenIn, clear debit</text>
+          <line class="svg-flow-a" x1="466" y1="266" x2="200" y2="266" marker-end="url(#b2a)"></line>
+          <text class="svg-step" x="333" y="258" text-anchor="middle">⑤ take(): withdraw tokenOut, clear credit</text>
+          <text class="svg-mono-a" x="375" y="292" text-anchor="middle">⑥ on return: PoolManager requires Σ delta == 0, else revert</text>
+        </svg>
+      </div>
+      <figcaption>Versus v3: v3 transfers tokens in and out at every step; v4 accumulates all operations into deltas within one unlock and settles only the net. Multi-hop, arbitrage and complex routes are markedly cheaper, with no token movement between contracts (it all happens inside one PoolManager).</figcaption>
+    </figure>
+
+    <h2>v4 Hooks: inject logic into the pool's lifecycle</h2>
+    <p>A hook is a contract you bind at pool creation. Thereafter PoolManager calls it before and after each action — <code>beforeSwap</code> / <code>afterSwap</code> / <code>beforeAddLiquidity</code> and 14 entry points in total. Dynamic fees, on-chain limit orders, allowlists, MEV internalisation all live here, without forking Uniswap.</p>
+<pre><code>contract MyHook is BaseHook {
+    <span class="c">// Declare which callbacks you want; must match the ADDRESS bits</span>
+    function getHookPermissions() public pure override
+        returns (Hooks.Permissions memory)
+    {
+        return Hooks.Permissions({ beforeSwap: true, afterSwap: true /* rest false */ });
+    }
+
+    <span class="c">// BaseHook wraps this with onlyPoolManager: only PoolManager gets in</span>
+    function _beforeSwap(address, PoolKey calldata, SwapParams calldata, bytes calldata)
+        internal override returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        <span class="c">// your logic: adjust fee, block a trade, record an oracle...</span>
+        return (BaseHook.beforeSwap.selector, ZERO_DELTA, 0);
+    }
+}</code></pre>
+    <p>The most counter-intuitive part: <strong>which callbacks fire is not stored in state — it is encoded in the hook contract's address.</strong> The low bits of the address decide which entry points are active (<code>BEFORE_SWAP_FLAG = 1 &lt;&lt; 7</code>, <code>AFTER_SWAP_FLAG = 1 &lt;&lt; 6</code>…). At deployment PoolManager checks the address bits equal <code>getHookPermissions()</code>, reverting on mismatch. So you must <strong>mine the CREATE2 salt</strong> until the resulting address bits match your declared permissions.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 330" role="img" aria-label="v4 hook lifecycle and address bits: PoolManager calls the hook's beforeSwap and afterSwap around matching, the hook restricts callers with onlyPoolManager; below, the hook address's low byte has bit7 and bit6 set, corresponding to the BEFORE_SWAP and AFTER_SWAP flags.">
+          <defs>
+            <marker id="b3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="40" y="40" width="180" height="150" rx="10"></rect>
+          <text class="svg-nlabel" x="130" y="72" text-anchor="middle">PoolManager</text>
+          <text class="svg-ncode" x="130" y="118" text-anchor="middle">inside swap()</text>
+          <text class="svg-ncode" x="130" y="150" text-anchor="middle">core matching maths</text>
+          <rect class="svg-node" x="540" y="40" width="180" height="150" rx="10"></rect>
+          <text class="svg-nlabel" x="630" y="72" text-anchor="middle">MyHook</text>
+          <text class="svg-ncode" x="630" y="150" text-anchor="middle">onlyPoolManager guard</text>
+          <line class="svg-flow-a" x1="220" y1="78" x2="538" y2="78" marker-end="url(#b3a)"></line>
+          <text class="svg-step" x="379" y="70" text-anchor="middle">① beforeSwap()  pre-match</text>
+          <line class="svg-flow-a" x1="220" y1="160" x2="538" y2="160" marker-end="url(#b3a)"></line>
+          <text class="svg-step" x="379" y="152" text-anchor="middle">② afterSwap()  post-match</text>
+          <line class="svg-axis" x1="40" y1="230" x2="720" y2="230"></line>
+          <text class="svg-cap" x="40" y="220">hook address low byte  bit7…bit0</text>
+          <g>
+            <rect class="svg-bit-on"  x="40"  y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="60"  y="270">1</text>
+            <rect class="svg-bit-on"  x="88"  y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="108" y="270">1</text>
+            <rect class="svg-bit-off" x="136" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="156" y="270">0</text>
+            <rect class="svg-bit-off" x="184" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="204" y="270">0</text>
+            <rect class="svg-bit-off" x="232" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="252" y="270">0</text>
+            <rect class="svg-bit-off" x="280" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="300" y="270">0</text>
+            <rect class="svg-bit-off" x="328" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="348" y="270">0</text>
+            <rect class="svg-bit-off" x="376" y="244" width="40" height="40" rx="5"></rect><text class="svg-bit-t" x="396" y="270">0</text>
+          </g>
+          <text class="svg-mono-a" x="60"  y="302" text-anchor="middle">BEFORE_SWAP</text>
+          <text class="svg-mono-a" x="108" y="316" text-anchor="middle">AFTER_SWAP</text>
+          <text class="svg-mono-a" x="440" y="272">= 0xC0 (bit7 | bit6)</text>
+        </svg>
+      </div>
+      <figcaption>PoolManager calls the hook before and after matching (①②), and the hook rejects any other caller via <code>onlyPoolManager</code>. Which callbacks happen is baked into the hook address's low bits — so before deploying you mine a CREATE2 salt whose address matches <code>getHookPermissions()</code>.</figcaption>
+    </figure>
+
+    <h2>Front end: calling with viem (full-stack view)</h2>
+    <p>Beyond the contracts, the front end typically "simulates, then sends" — the simulation catches reverts up front and returns the result:</p>
+<pre><code>import { parseEther } from "viem";
+
+<span class="c">// 1) Simulate — a failure throws here, before you spend gas</span>
+const { request, result } = await publicClient.simulateContract({
+  address: SWAP_ROUTER, abi: swapRouterAbi, functionName: "exactInputSingle",
+  args: [{ tokenIn, tokenOut, fee: 500, recipient, deadline,
+           amountIn: parseEther("1"), amountOutMinimum, sqrtPriceLimitX96: 0n }],
+  account,
+});
+
+<span class="c">// 2) Only send once the simulation passed</span>
+const hash = await walletClient.writeContract(request);</code></pre>
+    <p>Because v4 goes through <code>unlock</code> → callback, front ends rarely hit PoolManager directly; they call the official <code>UniversalRouter</code> / <code>V4Router</code>, which performs the unlock and settlement on-chain.</p>
 
     <h2>One-line distinction</h2>
-    <blockquote><p><strong>v3</strong> solves <em>capital efficiency</em> — concentrating liquidity near the current price, at the cost of active LP management. <strong>v4</strong> keeps v3's pricing unchanged and layers on <em>programmability</em> (hooks) and a <em>cheaper architecture</em> (singleton and flash accounting).</p></blockquote>
-    <p>By analogy: v3 turned the AMM from a sprinkler into a precision nozzle; v4 turns the whole machine into an operating system you can install plugins on.</p>
+    <blockquote><p><strong>v3</strong> solves capital efficiency — concentrated liquidity, collecting payment via the "pool calls the caller back" pattern. <strong>v4</strong> keeps v3's pricing but moves to a single PoolManager plus "unlock once, settle only the net" flash accounting, and opens hooks so anyone can inject logic into the pool's lifecycle.</p></blockquote>
   </div>
 
   <footer>
