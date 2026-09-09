@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Uniswap v3 與 v4</title>
+<title>Uniswap v2、v3 與 v4</title>
 <script>
   try {
     var l = localStorage.getItem('notes-lang');
@@ -14,7 +14,7 @@
 </script>
 <link rel="stylesheet" href="../assets/style.css">
 </head>
-<body data-title-zh="Uniswap v3 與 v4" data-title-en="Uniswap v3 & v4">
+<body data-title-zh="Uniswap v2、v3 與 v4" data-title-en="Uniswap v2, v3 & v4">
 <div class="wrap">
 
   <header class="top">
@@ -33,17 +33,35 @@
 
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
-    <h1>Uniswap v3 與 v4</h1>
+    <h1>Uniswap v2、v3 與 v4</h1>
     <p class="meta">2026-09-09 · DeFi / AMM · 開發者視角</p>
 
-    <p>本則從整合者的角度切入：不只講概念，而是「你要呼叫哪個合約的哪個函式、誰回呼誰、代幣在哪一步移動」。v3 與 v4 的定價數學相同（集中流動性），差別在<strong>合約如何互相呼叫</strong>——這正是三張流程圖要說清楚的事。</p>
+    <p>本則從整合者的角度切入：不只講概念，而是「你要呼叫哪個合約的哪個函式、誰回呼誰、代幣在哪一步移動」。主線是三代協議如何演進：<strong>v2 用最小的 Pair 實作固定乘積，v3 用集中流動性提升資本效率，v4 再用 singleton、flash accounting 與 hooks 提升組合性。</strong></p>
 
-    <h2>先建立心智模型：集中流動性</h2>
+    <h2>v2：最小可行的 AMM</h2>
+    <p>v2 的核心刻意保持極小：<code>Factory</code> 為每一組 ERC-20 token 建立一個 <code>Pair</code>，Pair 同時保存兩邊儲備、執行 swap，並鑄造可互換的 ERC-20 LP token；使用者通常透過 <code>Router</code> 處理路徑、滑點與加減流動性。Pair 地址可由 Factory、token0、token1 與 init code hash 透過 CREATE2 確定性算出。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>元件</th><th>責任</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Factory</strong></td><td>建立並查詢 Pair；每組 token 只有一個官方 Pair。</td></tr>
+        <tr><td><strong>Pair</strong></td><td>保存 reserves、驗證 invariant、執行 swap／mint／burn，並累積價格。</td></tr>
+        <tr><td><strong>Router</strong></td><td>計算路徑與金額、檢查 deadline／slippage，再串接一個或多個 Pair。</td></tr>
+      </tbody>
+    </table></div>
+    <p>若儲備是 <code>x</code> 與 <code>y</code>，交易後必須滿足固定乘積。輸入會先扣 0.30% swap fee，再計算輸出：</p>
+<pre><code>amountInWithFee = amountIn * 997;
+amountOut = amountInWithFee * reserveOut
+          / (reserveIn * 1000 + amountInWithFee);</code></pre>
+    <p>例如池中有 100 ETH 與 200,000 USDC，送入 10 ETH 並不會按現價直接得到 20,000 USDC；扣費並沿曲線移動後約得到 18,132 USDC。成交均價低於交易前現價的差距是 <strong>price impact</strong>；而 <strong>slippage tolerance</strong> 是使用者願意接受、用來設定 <code>amountOutMinimum</code> 的額外界線。</p>
+    <p>Pair 的 <code>swap(..., data)</code> 還支援 flash swap：它先送出資產，若 <code>data</code> 非空便回呼 <code>uniswapV2Call</code>；callback 結束時只要還款並滿足含費用的 invariant，資產中途可被拿去套利、清算或換成另一種 token。v2 也在 Pair 中累積 <code>price0CumulativeLast</code>／<code>price1CumulativeLast</code>，讓整合者以兩個時間點的差值建立 TWAP，而不是把容易被單區塊操縱的即時 reserve ratio 當預言機。</p>
+
+    <h2>v3：集中流動性的心智模型</h2>
     <p><strong>v2</strong> 把流動性平均攤在 <code>0 → ∞</code>（<code>x·y=k</code>）；<strong>v3</strong> 讓 LP 選定區間 <code>[Pa, Pb]</code> 集中投入，區間內深度極高，價格離開區間則轉為單一資產且停止收費。價格在合約內以 <code>sqrtPriceX96</code> 儲存（Q64.96 定點數，即 √price × 2⁹⁶），tick 以 <code>1.0001^tick</code> 離散化。</p>
+    <p>區間內可把部位理解為帶有<strong>虛擬儲備</strong>的固定乘積曲線：相同真實資金支撐更大的有效深度，所以小額交易的滑點更低。價格跨過 tick 時，該 tick 的 <code>liquidityNet</code> 會加入或移出 active liquidity；到達上、下界後，部位逐步完全轉成其中一種資產。</p>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 720 300" role="img" aria-label="v2 與 v3 流動性分佈對照：v2 為橫跨整個價格範圍的低矮寬長條，v3 為集中於現價附近的高窄長條，兩者面積相同。">
+        <svg viewBox="0 0 720 300" role="img" aria-label="v2 與 v3 流動性分佈概念對照：v2 橫跨整個價格範圍，v3 集中於 LP 選定區間。本圖不按資金或流動性比例繪製。">
           <text class="svg-label" x="45" y="40">v2</text><text class="svg-cap" x="82" y="40">流動性攤平</text>
           <line class="svg-axis" x1="45" y1="250" x2="345" y2="250"></line>
           <rect class="svg-liq" x="48" y="214" width="294" height="36" rx="3"></rect>
@@ -62,7 +80,7 @@
           <text class="svg-mono-a" x="550" y="288" text-anchor="middle">LP 選定區間 [Pa, Pb]</text>
         </svg>
       </div>
-      <figcaption>兩塊面積相同（相同資金）。v3 集中後資本效率高，但部位因區間各異而成為 ERC-721 NFT，且需主動管理。縱軸為流動性深度，橫軸為價格。</figcaption>
+      <figcaption>概念圖，面積不代表投入資金。v3 集中後資本效率較高，但各部位的區間不同，因此周邊合約以 ERC-721 NFT 表示，且通常需要主動管理。縱軸為流動性深度，橫軸為價格。</figcaption>
     </figure>
 
     <h2>v3 整合：兩種呼叫路徑</h2>
@@ -121,7 +139,8 @@ function uniswapV3SwapCallback(
     <p>流動性部位則透過 <code>NonfungiblePositionManager</code> 管理（<code>mint</code> / <code>increaseLiquidity</code> / <code>decreaseLiquidity</code> / <code>collect</code>）。因為每個部位的區間不同，故以 NFT 表示，而非 v2 的可互換 LP 代幣。</p>
 
     <h2>v4：Singleton 與 flash accounting</h2>
-    <p>v4 的定價沿用 v3，但把所有池收進<strong>單一 <code>PoolManager</code> 合約</strong>。任何操作前必須先 <code>unlock()</code>；PoolManager 隨即回呼你的 <code>unlockCallback()</code>，你在這個 callback 之內完成一切，過程<strong>只改記帳（deltas），不搬代幣</strong>，直到最後才結算淨額。這套機制建立在 EIP-1153 暫時性儲存之上。</p>
+    <p>v4 的<strong>原生池</strong>沿用 v3 集中流動性數學，但把所有池收進<strong>單一 <code>PoolManager</code> 合約</strong>；若 hook 使用 custom accounting，也可以繞過原生曲線並實作不同定價。每個池不再是一份合約，而由 <code>PoolKey(currency0, currency1, fee, tickSpacing, hooks)</code> 識別。</p>
+    <p>任何低階操作前必須先 <code>unlock()</code>；PoolManager 隨即回呼你的 <code>unlockCallback()</code>，你在這個 callback 之內完成一切，過程主要記錄各 currency 的 <strong>deltas</strong>，直到最後才結算淨額。這套機制建立在 EIP-1153 暫時性儲存之上，並原生支援 ETH；ERC-6909 claims 還能把餘額留在 PoolManager 內供後續使用。</p>
 <pre><code><span class="c">// 1) 進場：unlock 一次，把你要做的事編碼帶進去</span>
 manager.unlock(abi.encode(key, params));
 
@@ -132,10 +151,12 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
 
     BalanceDelta delta = manager.swap(key, params, "");   <span class="c">// 只動 delta，尚未搬幣</span>
 
-    <span class="c">// 負 delta = 欠款（付進去）；正 delta = 應得（提出來）</span>
-    if (delta.amount0() &lt; 0) _settle(key.currency0);       <span class="c">// 轉入 tokenIn 後呼叫 settle()</span>
-    if (delta.amount1() &gt; 0) _take(key.currency1);          <span class="c">// take() 提出 tokenOut</span>
-    <span class="c">// 回傳前，PoolManager 強制檢查此 caller 的所有 delta == 0，否則整筆 revert</span>
+    <span class="c">// 負 delta = 欠款；正 delta = 應得。兩種 currency 都要分別處理。</span>
+    _resolve(key.currency0, delta.amount0());
+    _resolve(key.currency1, delta.amount1());
+    <span class="c">// _resolve: 負值走 sync/transfer/settle，正值走 take（或 ERC-6909 claim）</span>
+    <span class="c">// 回傳前，每一種 currency 的 delta 都必須個別歸零，不能跨幣抵銷。</span>
+    return "";
 }</code></pre>
 
     <figure>
@@ -163,14 +184,14 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
           <text class="svg-flowlabel" x="333" y="226" text-anchor="middle">④ settle()：轉入 tokenIn、清負債</text>
           <line class="svg-flow-a" x1="466" y1="266" x2="200" y2="266" marker-end="url(#a2a)"></line>
           <text class="svg-step" x="333" y="258" text-anchor="middle">⑤ take()：提出 tokenOut、清正額</text>
-          <text class="svg-mono-a" x="375" y="292" text-anchor="middle">⑥ callback 結束：PoolManager 要求 Σ delta == 0，否則 revert</text>
+          <text class="svg-mono-a" x="375" y="292" text-anchor="middle">⑥ callback 結束：每種 currency delta 個別歸零，否則 revert</text>
         </svg>
       </div>
       <figcaption>對比 v3：v3 每一步都真的轉入轉出代幣；v4 在一次 unlock 內把所有操作累積成 delta，最後只結算淨額。多跳、套利、複雜路由因此顯著更省 gas，且無須在合約間搬幣（全都在同一個 PoolManager 內）。</figcaption>
     </figure>
 
     <h2>v4 Hooks：把邏輯插進池的生命週期</h2>
-    <p>hook 是你在建池時綁定的合約。此後 PoolManager 會在每個動作的前後回呼它——<code>beforeSwap</code> / <code>afterSwap</code> / <code>beforeAddLiquidity</code> 等共 14 個切入點。動態費率、鏈上限價單、白名單、MEV 內化，都寫在這裡，無須分叉 Uniswap。</p>
+    <p>hook 是你在建池時綁定的合約。此後 PoolManager 可在 initialize、增減流動性、swap 與 donate 的前後回呼它：共有 <strong>10 個生命週期 callback</strong>，再加上 4 個 return-delta 權限，合計 14 個 address permission flags。動態費率、鏈上限價單、白名單、MEV 內化甚至自訂曲線，都可寫在這裡，無須分叉核心。</p>
 <pre><code>contract MyHook is BaseHook {
     <span class="c">// 宣告要哪些 callback；必須與合約「地址的位元」一致</span>
     function getHookPermissions() public pure override
@@ -184,10 +205,10 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
         internal override returns (bytes4, BeforeSwapDelta, uint24)
     {
         <span class="c">// 你的邏輯：改費率、擋交易、記錄預言機…</span>
-        return (BaseHook.beforeSwap.selector, ZERO_DELTA, 0);
+        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 }</code></pre>
-    <p>最反直覺的一點：<strong>「要哪些 callback」不是寫在 storage，而是編碼在 hook 合約的地址裡。</strong>地址的低位元決定哪些切入點生效（<code>BEFORE_SWAP_FLAG = 1 &lt;&lt; 7</code>、<code>AFTER_SWAP_FLAG = 1 &lt;&lt; 6</code>…）。部署時 PoolManager 會核對地址位元是否等於 <code>getHookPermissions()</code>，不符即 revert。因此你得<strong>挖礦 CREATE2 的 salt</strong>，直到算出的地址位元剛好符合宣告的權限。</p>
+    <p>最反直覺的一點：<strong>權限編碼在 hook 合約地址的最低 14 bits。</strong>例如 <code>BEFORE_SWAP_FLAG = 1 &lt;&lt; 7</code>、<code>AFTER_SWAP_FLAG = 1 &lt;&lt; 6</code>。PoolManager 執行時直接讀地址旗標決定是否 callback；常用的 v4-periphery <code>BaseHook</code> 則在 constructor 內以 <code>validateHookPermissions</code> 檢查地址是否符合 <code>getHookPermissions()</code>。因此部署前通常要<strong>挖礦 CREATE2 salt</strong>，直到地址位元符合預期。</p>
 
     <figure>
       <div class="figbox">
@@ -223,11 +244,11 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
           <text class="svg-mono-a" x="440" y="272">= 0xC0（bit7 | bit6）</text>
         </svg>
       </div>
-      <figcaption>PoolManager 在撮合前後回呼 hook（①②），而 hook 以 <code>onlyPoolManager</code> 拒絕其他呼叫者。哪些回呼會發生，寫死在 hook 地址的低位元裡——因此部署前要挖礦 CREATE2 salt 讓地址符合 <code>getHookPermissions()</code>。</figcaption>
+      <figcaption>PoolManager 在撮合前後回呼 hook（①②），而 hook 以 <code>onlyPoolManager</code> 拒絕其他呼叫者。圖中只示範最低位元組的 swap flags；完整權限使用地址最低 14 bits，通常由 <code>BaseHook</code> constructor 驗證。</figcaption>
     </figure>
 
     <h2>前端：用 viem 呼叫（full-stack 視角）</h2>
-    <p>合約之外，前端典型做法是「先模擬、再送出」，用模擬預先抓 revert、也拿到回傳值：</p>
+    <p>合約之外，前端完整流程通常是：用 <code>QuoterV2</code> 或路由服務取得報價與路徑，依 token 的實際 decimals 建立金額，再設定 <code>amountOutMinimum</code>；approval 可透過 <code>Permit2</code> 管理，最後由 <code>UniversalRouter</code> 組合 v2／v3／v4、多跳與 wrap／unwrap。以下只示範較容易理解的 v3 單池「先模擬、再送出」：</p>
 <pre><code>import { parseEther } from "viem";
 
 <span class="c">// 1) 先模擬——失敗會在這裡丟錯，不會白花 gas</span>
@@ -240,14 +261,14 @@ const { request, result } = await publicClient.simulateContract({
 
 <span class="c">// 2) 模擬過了才真的送交易</span>
 const hash = await walletClient.writeContract(request);</code></pre>
-    <p>v4 因為要走 <code>unlock</code> → callback，前端通常不直接對 PoolManager 下單，而是呼叫官方的 <code>UniversalRouter</code> / <code>V4Router</code>，由它在鏈上完成 unlock 與結算。</p>
+    <p>v4 因為要走 <code>unlock</code> → callback，前端通常不直接對 PoolManager 下單，而是呼叫官方的 <code>UniversalRouter</code> / <code>V4Router</code>，由它在鏈上完成 unlock 與結算。<code>UniswapX</code> 則是另一層 intent／filler 執行系統，不是新的 AMM 版本。</p>
 
     <h2>設計理念與取捨</h2>
     <p>每一代都是一次刻意的取捨；看懂取捨，才看得懂 API 為何長這樣。</p>
     <div class="scroll"><table>
       <thead><tr><th>版本</th><th>換到什麼</th><th>付出的代價</th></tr></thead>
       <tbody>
-        <tr><td><strong>v2</strong></td><td>極簡、被動、部位可互換（ERC-20）</td><td>資本效率極低，資金大多閒置</td></tr>
+        <tr><td><strong>v2</strong></td><td>極簡、被動、部位可互換（ERC-20）</td><td>流動性分散於全價格範圍，同資金下滑點通常較高</td></tr>
         <tr><td><strong>v3</strong></td><td>資本效率（集中流動性）</td><td>需主動管理；部位變 NFT、不可互換；無常損失放大</td></tr>
         <tr><td><strong>v4</strong></td><td>省 gas（singleton + flash accounting）＋ 可程式化（hooks）</td><td>整合更複雜；池的安全取決於它掛的 hook</td></tr>
       </tbody>
@@ -274,7 +295,7 @@ require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
       <li><strong>不要拿現貨池價格當預言機。</strong><code>slot0</code> 的即時價可被閃電貸在單一區塊內拉動；要用 TWAP 或外部預言機（Chainlink）。</li>
       <li><strong>滑點與時效。</strong><code>amountOutMinimum</code>、<code>deadline</code> 一定要設；設 0 等於任人宰割。</li>
       <li><strong>fee-on-transfer / rebasing 代幣</strong>會打破「收到＝預期」的假設，實務上多半直接不支援。</li>
-      <li><strong>v4 特有：</strong>hook 可重入、可透過 <code>beforeSwapReturnsDelta</code> 改變金額；settle／take 記帳寫錯會讓整筆 revert 或資金卡住。只整合可信、經審計的 hook。</li>
+      <li><strong>v4 特有：</strong>hook 可重入，也可使用 return delta 改變金額；settle／take 記帳寫錯會讓整筆 revert 或資金卡住。只整合可信、經審計的 hook。</li>
     </ul>
 
     <h2>使用者投資風險</h2>
@@ -283,7 +304,7 @@ require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
       <tbody>
         <tr><td><strong>無常損失</strong></td><td>兩資產價格背離時，LP 的價值低於單純持有；v3 因集中而<strong>放大</strong>。</td></tr>
-        <tr><td><strong>區間外歸零收益</strong></td><td>價格離開你選的 <code>[Pa, Pb]</code> 就停止賺費，且部位變成 100% 較弱的那一側。</td></tr>
+        <tr><td><strong>區間外歸零收益</strong></td><td>價格離開 <code>[Pa, Pb]</code> 後停止賺費並成為單一資產；突破上界時 token0 轉為 token1，跌破下界時則相反。</td></tr>
         <tr><td><strong>JIT 流動性</strong></td><td>專業者在大單前一刻注入、成交後立刻撤走，吃走本該屬於被動 LP 的手續費。</td></tr>
         <tr><td><strong>MEV／三明治</strong></td><td>你的 swap 會被搶跑夾擊；務必設滑點，或走私有 mempool。</td></tr>
         <tr><td><strong>v4 hook 風險</strong></td><td>惡意或有 bug 的 hook 可擋單、額外抽費、甚至鎖死池子。進池前務必確認 hook 是誰、是否審計。</td></tr>
@@ -292,22 +313,50 @@ require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
     <blockquote><p>一句話：v2／v3 當 LP 的主要敵人是<strong>無常損失</strong>與<strong>MEV</strong>；v4 多了一個——<strong>你信不信任這個池的 hook</strong>。</p></blockquote>
 
     <h2>一句話區分</h2>
-    <blockquote><p><strong>v3</strong> 解決資本效率——集中流動性，並用「池回呼 caller」的模式收款。<strong>v4</strong> 沿用 v3 定價，改成單一 PoolManager + 「unlock 一次、只結算淨額」的 flash accounting，並開放 hooks 讓任何人把邏輯插進池的生命週期。</p></blockquote>
+    <blockquote><p><strong>v2</strong> 用每對一個 Pair 與固定乘積建立最小 AMM；<strong>v3</strong> 用集中流動性提升資本效率，並以 pool callback 收款；<strong>v4</strong> 把原生集中流動性池收進單一 PoolManager，以 flash accounting 淨額結算，再用 hooks 開放自訂行為與定價。</p></blockquote>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://app.uniswap.org/whitepaper.pdf">Uniswap v2 whitepaper</a></li>
+      <li><a href="https://app.uniswap.org/whitepaper-v3.pdf">Uniswap v3 whitepaper</a></li>
+      <li><a href="https://github.com/Uniswap/v4-core">Uniswap v4 core contracts</a></li>
+      <li><a href="https://developers.uniswap.org/docs/protocols/v4/guides/custom-accounting">v4 custom accounting guide</a></li>
+      <li><a href="https://github.com/Uniswap/v4-periphery">Uniswap v4 periphery contracts</a></li>
+    </ul>
+    <p class="meta">內容最後核對：2026-09-09</p>
   </div>
 
   <!-- ================= English ================= -->
   <div data-l="en">
-    <h1>Uniswap v3 &amp; v4</h1>
+    <h1>Uniswap v2, v3 &amp; v4</h1>
     <p class="meta">2026-09-09 · DeFi / AMM · Developer view</p>
 
-    <p>This note takes the integrator's angle: not just concepts, but which contract and function you call, who calls back whom, and where tokens move at each step. v3 and v4 share the same pricing maths (concentrated liquidity); what differs is <strong>how the contracts call each other</strong> — which is exactly what the three flow diagrams make concrete.</p>
+    <p>This note takes the integrator's angle: not just concepts, but which contract and function you call, who calls back whom, and where tokens move at each step. The thread is how the protocol evolved: <strong>v2 implements constant product with minimal Pair contracts, v3 concentrates liquidity for capital efficiency, and v4 adds a singleton, flash accounting, and hooks for composability.</strong></p>
 
-    <h2>Mental model first: concentrated liquidity</h2>
+    <h2>v2: the minimum viable AMM</h2>
+    <p>v2 deliberately keeps its core small. The <code>Factory</code> creates one <code>Pair</code> for each ERC-20 token pair. A Pair stores both reserves, executes swaps, and mints fungible ERC-20 LP tokens; users normally go through a <code>Router</code> for paths, slippage checks, and liquidity operations. A Pair address can be computed deterministically from the Factory, token0, token1, and init code hash via CREATE2.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Component</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Factory</strong></td><td>Creates and indexes Pairs; each token pair has one canonical Pair.</td></tr>
+        <tr><td><strong>Pair</strong></td><td>Stores reserves, enforces the invariant, executes swap/mint/burn, and accumulates prices.</td></tr>
+        <tr><td><strong>Router</strong></td><td>Computes paths and amounts, checks deadline/slippage, then connects one or more Pairs.</td></tr>
+      </tbody>
+    </table></div>
+    <p>For reserves <code>x</code> and <code>y</code>, the post-trade balances must satisfy constant product. Input is first charged the 0.30% swap fee:</p>
+<pre><code>amountInWithFee = amountIn * 997;
+amountOut = amountInWithFee * reserveOut
+          / (reserveIn * 1000 + amountInWithFee);</code></pre>
+    <p>For example, sending 10 ETH into a pool with 100 ETH and 200,000 USDC does not return 20,000 USDC at the displayed spot price. After the fee and curve movement it returns about 18,132 USDC. The difference in execution caused by your own trade is <strong>price impact</strong>; <strong>slippage tolerance</strong> is the extra boundary you accept when setting <code>amountOutMinimum</code>.</p>
+    <p>A Pair's <code>swap(..., data)</code> also enables flash swaps: it sends assets first and, when <code>data</code> is non-empty, calls <code>uniswapV2Call</code>. Before the callback returns, the caller must repay and satisfy the fee-adjusted invariant. v2 Pairs also accumulate <code>price0CumulativeLast</code> and <code>price1CumulativeLast</code>, allowing integrators to construct a TWAP from two observations instead of treating the manipulable current reserve ratio as an oracle.</p>
+
+    <h2>v3: a mental model for concentrated liquidity</h2>
     <p><strong>v2</strong> spreads liquidity evenly across <code>0 → ∞</code> (<code>x·y=k</code>); <strong>v3</strong> lets an LP pick a range <code>[Pa, Pb]</code> and concentrate capital in it — very deep inside the range, single-asset and fee-less once price leaves it. Price is stored on-chain as <code>sqrtPriceX96</code> (Q64.96 fixed point, i.e. √price × 2⁹⁶); ticks discretise it as <code>1.0001^tick</code>.</p>
+    <p>Within its range, a position behaves like a constant-product curve with larger <strong>virtual reserves</strong>: the same real capital supports greater effective depth and lower slippage for small trades. When price crosses a tick, that tick's <code>liquidityNet</code> enters or leaves active liquidity. At either boundary the position progressively becomes entirely one asset.</p>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 720 300" role="img" aria-label="v2 vs v3 liquidity distribution: v2 is a low wide bar across the whole price range, v3 a tall narrow bar concentrated near the current price, both of equal area.">
+        <svg viewBox="0 0 720 300" role="img" aria-label="Conceptual v2 versus v3 liquidity distribution: v2 spans the full price range while v3 is concentrated in an LP-selected range. The drawing is not proportional to capital or liquidity.">
           <text class="svg-label" x="45" y="40">v2</text><text class="svg-cap" x="82" y="40">spread thin</text>
           <line class="svg-axis" x1="45" y1="250" x2="345" y2="250"></line>
           <rect class="svg-liq" x="48" y="214" width="294" height="36" rx="3"></rect>
@@ -326,7 +375,7 @@ require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
           <text class="svg-mono-a" x="550" y="288" text-anchor="middle">LP range [Pa, Pb]</text>
         </svg>
       </div>
-      <figcaption>Equal areas (same capital). Concentration raises capital efficiency, but each position has a distinct range, so positions are ERC-721 NFTs and need active management. Vertical axis is liquidity depth, horizontal axis is price.</figcaption>
+      <figcaption>Conceptual diagram; area does not represent invested capital. Concentration raises capital efficiency, but each range differs, so the periphery represents positions as ERC-721 NFTs and they often need active management. Vertical axis is liquidity depth, horizontal axis is price.</figcaption>
     </figure>
 
     <h2>Integrating v3: two call paths</h2>
@@ -385,7 +434,8 @@ function uniswapV3SwapCallback(
     <p>Liquidity positions are managed through <code>NonfungiblePositionManager</code> (<code>mint</code> / <code>increaseLiquidity</code> / <code>decreaseLiquidity</code> / <code>collect</code>). Because each range differs, positions are NFTs, not v2's fungible LP tokens.</p>
 
     <h2>v4: singleton and flash accounting</h2>
-    <p>v4 keeps v3's pricing but gathers every pool into one <strong><code>PoolManager</code></strong>. Any operation must first <code>unlock()</code>; PoolManager then calls back your <code>unlockCallback()</code>, inside which you do everything — and the process <strong>only moves deltas, not tokens</strong>, settling the net at the very end. It rests on EIP-1153 transient storage.</p>
+    <p>v4's <strong>native pools</strong> retain v3 concentrated-liquidity maths but gather every pool into one <strong><code>PoolManager</code></strong>. A hook using custom accounting can instead bypass the native curve and implement different pricing. A pool is no longer a contract; it is identified by <code>PoolKey(currency0, currency1, fee, tickSpacing, hooks)</code>.</p>
+    <p>Low-level operations begin with <code>unlock()</code>; PoolManager calls your <code>unlockCallback()</code>, inside which actions primarily update per-currency <strong>deltas</strong> and settle only the net at the end. This rests on EIP-1153 transient storage. v4 also supports native ETH, while ERC-6909 claims can retain balances inside PoolManager for later use.</p>
 <pre><code><span class="c">// 1) Enter: unlock once, carrying your encoded intent</span>
 manager.unlock(abi.encode(key, params));
 
@@ -396,15 +446,17 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
 
     BalanceDelta delta = manager.swap(key, params, "");   <span class="c">// touches deltas only, no transfer yet</span>
 
-    <span class="c">// negative delta = you owe (pay in); positive = you're owed (take out)</span>
-    if (delta.amount0() &lt; 0) _settle(key.currency0);       <span class="c">// transfer tokenIn, then settle()</span>
-    if (delta.amount1() &gt; 0) _take(key.currency1);          <span class="c">// take() the tokenOut</span>
-    <span class="c">// before returning, PoolManager requires all deltas for this caller == 0, else revert</span>
+    <span class="c">// Negative means you owe; positive means you are owed. Resolve both currencies.</span>
+    _resolve(key.currency0, delta.amount0());
+    _resolve(key.currency1, delta.amount1());
+    <span class="c">// _resolve: negative uses sync/transfer/settle; positive uses take (or a claim)</span>
+    <span class="c">// Every currency delta must individually reach zero; currencies cannot offset each other.</span>
+    return "";
 }</code></pre>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 760 320" role="img" aria-label="v4 flash accounting flow: your contract calls PoolManager.unlock, PoolManager calls back unlockCallback, inside which you call swap to get a BalanceDelta, then settle to pay and take to withdraw, and on returning PoolManager checks all deltas are zero.">
+        <svg viewBox="0 0 760 320" role="img" aria-label="v4 flash accounting flow: your contract calls PoolManager.unlock, PoolManager calls back unlockCallback, inside which you call swap to get a BalanceDelta, then settle to pay and take to withdraw, and on returning every currency delta must individually be zero.">
           <defs>
             <marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
             <marker id="b2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
@@ -427,14 +479,14 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
           <text class="svg-flowlabel" x="333" y="226" text-anchor="middle">④ settle(): pay tokenIn, clear debit</text>
           <line class="svg-flow-a" x1="466" y1="266" x2="200" y2="266" marker-end="url(#b2a)"></line>
           <text class="svg-step" x="333" y="258" text-anchor="middle">⑤ take(): withdraw tokenOut, clear credit</text>
-          <text class="svg-mono-a" x="375" y="292" text-anchor="middle">⑥ on return: PoolManager requires Σ delta == 0, else revert</text>
+          <text class="svg-mono-a" x="375" y="292" text-anchor="middle">⑥ on return: each currency delta must be zero, else revert</text>
         </svg>
       </div>
       <figcaption>Versus v3: v3 transfers tokens in and out at every step; v4 accumulates all operations into deltas within one unlock and settles only the net. Multi-hop, arbitrage and complex routes are markedly cheaper, with no token movement between contracts (it all happens inside one PoolManager).</figcaption>
     </figure>
 
     <h2>v4 Hooks: inject logic into the pool's lifecycle</h2>
-    <p>A hook is a contract you bind at pool creation. Thereafter PoolManager calls it before and after each action — <code>beforeSwap</code> / <code>afterSwap</code> / <code>beforeAddLiquidity</code> and 14 entry points in total. Dynamic fees, on-chain limit orders, allowlists, MEV internalisation all live here, without forking Uniswap.</p>
+    <p>A hook is a contract bound at pool creation. PoolManager can call it around initialize, liquidity changes, swaps, and donations: there are <strong>10 lifecycle callbacks</strong> plus 4 return-delta permissions, for 14 address permission flags in total. Dynamic fees, range orders, allowlists, MEV internalisation, and even custom curves can live here without forking the core.</p>
 <pre><code>contract MyHook is BaseHook {
     <span class="c">// Declare which callbacks you want; must match the ADDRESS bits</span>
     function getHookPermissions() public pure override
@@ -448,10 +500,10 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
         internal override returns (bytes4, BeforeSwapDelta, uint24)
     {
         <span class="c">// your logic: adjust fee, block a trade, record an oracle...</span>
-        return (BaseHook.beforeSwap.selector, ZERO_DELTA, 0);
+        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 }</code></pre>
-    <p>The most counter-intuitive part: <strong>which callbacks fire is not stored in state — it is encoded in the hook contract's address.</strong> The low bits of the address decide which entry points are active (<code>BEFORE_SWAP_FLAG = 1 &lt;&lt; 7</code>, <code>AFTER_SWAP_FLAG = 1 &lt;&lt; 6</code>…). At deployment PoolManager checks the address bits equal <code>getHookPermissions()</code>, reverting on mismatch. So you must <strong>mine the CREATE2 salt</strong> until the resulting address bits match your declared permissions.</p>
+    <p>The most counter-intuitive part is that <strong>permissions are encoded in the lowest 14 bits of the hook address.</strong> For example, <code>BEFORE_SWAP_FLAG = 1 &lt;&lt; 7</code> and <code>AFTER_SWAP_FLAG = 1 &lt;&lt; 6</code>. PoolManager reads those flags at runtime to decide whether to call a hook. The commonly used v4-periphery <code>BaseHook</code> validates the address against <code>getHookPermissions()</code> in its constructor. Deployment therefore usually requires <strong>mining a CREATE2 salt</strong> whose resulting address has the intended bits.</p>
 
     <figure>
       <div class="figbox">
@@ -487,11 +539,11 @@ function unlockCallback(bytes calldata raw) external returns (bytes memory) {
           <text class="svg-mono-a" x="440" y="272">= 0xC0 (bit7 | bit6)</text>
         </svg>
       </div>
-      <figcaption>PoolManager calls the hook before and after matching (①②), and the hook rejects any other caller via <code>onlyPoolManager</code>. Which callbacks happen is baked into the hook address's low bits — so before deploying you mine a CREATE2 salt whose address matches <code>getHookPermissions()</code>.</figcaption>
+      <figcaption>PoolManager calls the hook before and after matching (①②), while <code>onlyPoolManager</code> rejects other callers. The diagram shows only the swap flags in the lowest byte; the complete permission scheme uses the lowest 14 address bits and is normally validated by the <code>BaseHook</code> constructor.</figcaption>
     </figure>
 
     <h2>Front end: calling with viem (full-stack view)</h2>
-    <p>Beyond the contracts, the front end typically "simulates, then sends" — the simulation catches reverts up front and returns the result:</p>
+    <p>A complete front-end flow normally uses <code>QuoterV2</code> or a routing service for a quote and route, parses amounts with the token's actual decimals, and derives <code>amountOutMinimum</code>. <code>Permit2</code> can manage approvals, while <code>UniversalRouter</code> composes v2/v3/v4 swaps, multi-hop routes, and wrapping. This smaller example shows the easier-to-read v3 single-pool "simulate, then send" flow:</p>
 <pre><code>import { parseEther } from "viem";
 
 <span class="c">// 1) Simulate — a failure throws here, before you spend gas</span>
@@ -504,14 +556,14 @@ const { request, result } = await publicClient.simulateContract({
 
 <span class="c">// 2) Only send once the simulation passed</span>
 const hash = await walletClient.writeContract(request);</code></pre>
-    <p>Because v4 goes through <code>unlock</code> → callback, front ends rarely hit PoolManager directly; they call the official <code>UniversalRouter</code> / <code>V4Router</code>, which performs the unlock and settlement on-chain.</p>
+    <p>Because v4 goes through <code>unlock</code> → callback, front ends rarely hit PoolManager directly; they call the official <code>UniversalRouter</code> / <code>V4Router</code>, which performs the unlock and settlement on-chain. <code>UniswapX</code> is a separate intent-and-filler execution system, not another AMM version.</p>
 
     <h2>Design ideas and trade-offs</h2>
     <p>Each version is a deliberate trade-off; grasp the trade-off and the API shape makes sense.</p>
     <div class="scroll"><table>
       <thead><tr><th>Version</th><th>Gains</th><th>Cost</th></tr></thead>
       <tbody>
-        <tr><td><strong>v2</strong></td><td>Dead simple, passive, fungible positions (ERC-20)</td><td>Very low capital efficiency; most funds idle</td></tr>
+        <tr><td><strong>v2</strong></td><td>Simple, passive, fungible positions (ERC-20)</td><td>Liquidity spans the full price range, usually producing more slippage for the same capital</td></tr>
         <tr><td><strong>v3</strong></td><td>Capital efficiency (concentrated liquidity)</td><td>Active management; positions become non-fungible NFTs; amplified impermanent loss</td></tr>
         <tr><td><strong>v4</strong></td><td>Gas (singleton + flash accounting) and programmability (hooks)</td><td>More complex to integrate; a pool's safety depends on its hook</td></tr>
       </tbody>
@@ -538,7 +590,7 @@ require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
       <li><strong>Never use spot pool price as an oracle.</strong> <code>slot0</code> can be pushed within a single block by a flash loan; use a TWAP or an external oracle (Chainlink).</li>
       <li><strong>Slippage and deadline.</strong> Always set <code>amountOutMinimum</code> and <code>deadline</code>; zero leaves you at anyone's mercy.</li>
       <li><strong>Fee-on-transfer / rebasing tokens</strong> break the "received == expected" assumption; most integrations simply refuse them.</li>
-      <li><strong>v4-specific:</strong> a hook can re-enter and can change amounts via <code>beforeSwapReturnsDelta</code>; a settle/take bookkeeping mistake reverts the whole call or strands funds. Integrate only trusted, audited hooks.</li>
+      <li><strong>v4-specific:</strong> a hook can re-enter and can change amounts through return deltas; a settle/take bookkeeping mistake reverts the whole call or strands funds. Integrate only trusted, audited hooks.</li>
     </ul>
 
     <h2>User investment risk</h2>
@@ -547,7 +599,7 @@ require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
       <tbody>
         <tr><td><strong>Impermanent loss</strong></td><td>When the two assets diverge in price, the LP is worth less than simply holding; v3 <strong>amplifies</strong> it through concentration.</td></tr>
-        <tr><td><strong>Zero earnings out of range</strong></td><td>Once price leaves your <code>[Pa, Pb]</code>, fees stop and the position becomes 100% the weaker asset.</td></tr>
+        <tr><td><strong>Zero earnings out of range</strong></td><td>Once price leaves <code>[Pa, Pb]</code>, fees stop and the position becomes one asset: above the upper bound token0 has converted to token1; below the lower bound, the reverse.</td></tr>
         <tr><td><strong>JIT liquidity</strong></td><td>Pros add liquidity just before a large swap and pull it right after, taking fees that would have gone to passive LPs.</td></tr>
         <tr><td><strong>MEV / sandwich</strong></td><td>Your swap gets front-run and sandwiched; always set slippage, or route through a private mempool.</td></tr>
         <tr><td><strong>v4 hook risk</strong></td><td>A malicious or buggy hook can block trades, skim extra fees, or brick the pool. Check who the hook is and whether it's audited before entering.</td></tr>
@@ -556,7 +608,17 @@ require(msg.sender == expectedPool, "unauthorized callback");</code></pre>
     <blockquote><p>In short: an LP's main enemies in v2/v3 are <strong>impermanent loss</strong> and <strong>MEV</strong>; v4 adds one more — <strong>whether you trust the pool's hook</strong>.</p></blockquote>
 
     <h2>One-line distinction</h2>
-    <blockquote><p><strong>v3</strong> solves capital efficiency — concentrated liquidity, collecting payment via the "pool calls the caller back" pattern. <strong>v4</strong> keeps v3's pricing but moves to a single PoolManager plus "unlock once, settle only the net" flash accounting, and opens hooks so anyone can inject logic into the pool's lifecycle.</p></blockquote>
+    <blockquote><p><strong>v2</strong> builds a minimal AMM from one constant-product Pair per token pair; <strong>v3</strong> adds concentrated liquidity and collects payment through a pool callback; <strong>v4</strong> gathers native concentrated-liquidity pools into one PoolManager, settles net changes through flash accounting, and opens behavior and pricing to hooks.</p></blockquote>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://app.uniswap.org/whitepaper.pdf">Uniswap v2 whitepaper</a></li>
+      <li><a href="https://app.uniswap.org/whitepaper-v3.pdf">Uniswap v3 whitepaper</a></li>
+      <li><a href="https://github.com/Uniswap/v4-core">Uniswap v4 core contracts</a></li>
+      <li><a href="https://developers.uniswap.org/docs/protocols/v4/guides/custom-accounting">v4 custom accounting guide</a></li>
+      <li><a href="https://github.com/Uniswap/v4-periphery">Uniswap v4 periphery contracts</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-09</p>
   </div>
 
   <footer>
