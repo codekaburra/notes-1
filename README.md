@@ -32,7 +32,9 @@ npx wrangler dev
 1. Copy `public/notes/deploy.html` to a new filename.
 2. Update `<title>` and the `data-title-zh` / `data-title-en` attributes on `<body>`.
 3. Write one language in each of the `data-l="zh"` / `data-l="en"` blocks.
-4. Add an entry to `<ul class="notes">` in `public/index.html`.
+4. Add an entry to `<ul class="notes">` in `public/index.html`. Include its sequential
+   `.n-index`, uppercase `.n-topic`, bilingual title/description, and `.n-date`.
+   An image is optional; when needed, add `<img class="n-thumb" ...>` inside the link.
 
 ## Deploy A: GitHub Pages
 
@@ -96,7 +98,9 @@ npx wrangler dev
 1. 複製 `public/notes/deploy.html` 成新檔名。
 2. 改 `<title>` 與 `<body>` 上的 `data-title-zh` / `data-title-en`。
 3. 兩個 `data-l="zh"` / `data-l="en"` 區塊各寫一種語言。
-4. 在 `public/index.html` 的 `<ul class="notes">` 加一筆。
+4. 在 `public/index.html` 的 `<ul class="notes">` 加一筆，包含依序編號的
+   `.n-index`、大寫 `.n-topic`、雙語標題與摘要，以及 `.n-date`。
+   圖片可有可無；需要時在連結內加入 `<img class="n-thumb" ...>`。
 
 ### 部署 A：GitHub Pages
 
