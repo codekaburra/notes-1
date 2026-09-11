@@ -34,9 +34,58 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Account Abstraction 與 Smart Accounts</h1>
-    <p class="meta">2026-09-09 · ERC-4337 · EIP-7702 · ERC-7579 · Developer guide</p>
+    <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · 開發者指南</p>
 
     <p><strong>Smart Account 是帳戶合約；Account Abstraction 是讓帳戶自訂驗證、執行與 gas 支付規則的整套系統。</strong>本篇從協議一路走到工程實作：UserOperation、Bundler、EntryPoint、7702 delegation、Account／Factory、Paymaster、ERC-7579、viem、除錯與上線檢查。</p>
+
+    <h2>先從一個使用情境開始</h2>
+    <p>假設 Alice 想用 USDC 買 token，但手機裡沒有 ETH。傳統 EOA 不能送交易，因為 Ethereum protocol 要求發送者先付 gas。Account Abstraction 把「使用者授權」與「誰送鏈上交易、誰付 gas」拆開：</p>
+    <ol>
+      <li>Alice 的 wallet 建立一份「我要執行哪些 calls」的 <code>UserOperation</code> 並簽名。</li>
+      <li>Bundler 先模擬，確認 Smart Account 接受這份授權。</li>
+      <li>Paymaster 可選擇贊助 gas；沒有 Paymaster 時則由 account deposit／balance 負擔。</li>
+      <li>Bundler 用自己的 EOA 把操作送到 EntryPoint，EntryPoint 驗證後才要求 Smart Account 執行。</li>
+    </ol>
+    <blockquote><p><strong>先記住：</strong>Alice 簽的是 UserOperation，不一定是 Ethereum transaction；Bundler 送 transaction，不代表 Bundler 有權控制 Alice 的資產。</p></blockquote>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 310" role="img" aria-label="傳統 EOA 交易與 ERC-4337 UserOperation 流程比較：EOA 直接簽交易並自行支付 gas；4337 使用者簽 UserOperation，由 Bundler 送往 EntryPoint，Smart Account 驗證並執行，可由 Paymaster 贊助。">
+          <defs>
+            <marker id="aa-zh-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-zh-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="32">傳統 EOA</text>
+          <rect class="svg-node" x="28" y="52" width="180" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="118" y="79" text-anchor="middle">Alice EOA</text>
+          <text class="svg-ncode" x="118" y="99" text-anchor="middle">簽 transaction + 付 gas</text>
+          <line class="svg-flow" x1="208" y1="83" x2="522" y2="83" marker-end="url(#aa-zh-1)"></line>
+          <text class="svg-flowlabel" x="365" y="73" text-anchor="middle">Ethereum transaction</text>
+          <rect class="svg-node-a" x="524" y="52" width="208" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="628" y="79" text-anchor="middle">Target contract</text>
+          <text class="svg-ncode" x="628" y="99" text-anchor="middle">msg.sender = Alice</text>
+          <line class="svg-axis" x1="28" y1="140" x2="732" y2="140"></line>
+          <text class="svg-label" x="28" y="171">ERC-4337</text>
+          <rect class="svg-node" x="28" y="192" width="142" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="220" text-anchor="middle">Alice wallet</text>
+          <text class="svg-ncode" x="99" y="241" text-anchor="middle">簽 UserOperation</text>
+          <rect class="svg-node" x="226" y="192" width="122" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="287" y="220" text-anchor="middle">Bundler</text>
+          <text class="svg-ncode" x="287" y="241" text-anchor="middle">送 transaction</text>
+          <rect class="svg-node-a" x="404" y="192" width="126" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="467" y="220" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="467" y="241" text-anchor="middle">驗證與計費</text>
+          <rect class="svg-node" x="586" y="192" width="146" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="659" y="220" text-anchor="middle">Smart Account</text>
+          <text class="svg-ncode" x="659" y="241" text-anchor="middle">授權並執行</text>
+          <line class="svg-flow" x1="170" y1="228" x2="224" y2="228" marker-end="url(#aa-zh-1)"></line>
+          <line class="svg-flow" x1="348" y1="228" x2="402" y2="228" marker-end="url(#aa-zh-1)"></line>
+          <line class="svg-flow" x1="530" y1="228" x2="584" y2="228" marker-end="url(#aa-zh-1)"></line>
+          <text class="svg-mono-a" x="467" y="292" text-anchor="middle">Paymaster 可贊助 gas；資產仍由 account 的 validation rules 控制</text>
+        </svg>
+      </div>
+      <figcaption>4337 沒有取消驗證：它把驗證搬到 Smart Account contract。Bundler 只負責提交，EntryPoint 只按規則協調，真正的授權仍由帳戶程式碼決定。</figcaption>
+    </figure>
 
     <h2>三種帳戶模型</h2>
     <div class="scroll"><table>
@@ -59,6 +108,50 @@
       <li><strong>Aggregator：</strong>選用的聚合簽章驗證器，例如把多個 BLS 簽章聚成一個。</li>
     </ul>
     <blockquote><p>Bundler 收到 UserOperation 不等於保證上鏈。它會重複模擬，且可以因 fee、reputation、mempool policy、狀態變動或 bundle 經濟性而延後或丟棄。</p></blockquote>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 330" role="img" aria-label="ERC-4337 參與者流程：Wallet 將 UserOperation 送給 Bundler，Bundler 模擬後呼叫 EntryPoint handleOps，EntryPoint 驗證 Account 與 Paymaster，再讓 Account 執行 Target，最後向 Paymaster 或 Account deposit 結算 gas。">
+          <defs>
+            <marker id="aa-zh-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-zh-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="42" width="126" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="87" y="70" text-anchor="middle">Wallet</text>
+          <text class="svg-ncode" x="87" y="91" text-anchor="middle">build + sign</text>
+          <rect class="svg-node" x="212" y="42" width="126" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="275" y="70" text-anchor="middle">Bundler</text>
+          <text class="svg-ncode" x="275" y="91" text-anchor="middle">simulate + bundle</text>
+          <rect class="svg-node-a" x="400" y="42" width="136" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="468" y="70" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="468" y="91" text-anchor="middle">handleOps()</text>
+          <rect class="svg-node" x="598" y="42" width="138" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="667" y="70" text-anchor="middle">Beneficiary</text>
+          <text class="svg-ncode" x="667" y="91" text-anchor="middle">收取 gas 補償</text>
+          <line class="svg-flow" x1="150" y1="76" x2="210" y2="76" marker-end="url(#aa-zh-2)"></line>
+          <line class="svg-flow" x1="338" y1="76" x2="398" y2="76" marker-end="url(#aa-zh-2)"></line>
+          <line class="svg-flow" x1="536" y1="76" x2="596" y2="76" marker-end="url(#aa-zh-2)"></line>
+          <text class="svg-flowlabel" x="180" y="65" text-anchor="middle">UserOp</text>
+          <text class="svg-flowlabel" x="368" y="65" text-anchor="middle">tx</text>
+          <rect class="svg-node-a" x="196" y="196" width="150" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="271" y="225" text-anchor="middle">Smart Account</text>
+          <text class="svg-ncode" x="271" y="247" text-anchor="middle">validate → execute</text>
+          <rect class="svg-node" x="414" y="196" width="126" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="477" y="225" text-anchor="middle">Target</text>
+          <text class="svg-ncode" x="477" y="247" text-anchor="middle">DEX / token / app</text>
+          <rect class="svg-node" x="598" y="196" width="138" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="667" y="225" text-anchor="middle">Paymaster</text>
+          <text class="svg-ncode" x="667" y="247" text-anchor="middle">optional sponsor</text>
+          <line class="svg-flow-a" x1="440" y1="110" x2="306" y2="194" marker-end="url(#aa-zh-2a)"></line>
+          <line class="svg-flow" x1="346" y1="233" x2="412" y2="233" marker-end="url(#aa-zh-2)"></line>
+          <line class="svg-flow-a" x1="500" y1="110" x2="638" y2="194" marker-end="url(#aa-zh-2a)"></line>
+          <text class="svg-step" x="339" y="148">validateUserOp()</text>
+          <text class="svg-step" x="560" y="148">validatePaymasterUserOp()</text>
+          <text class="svg-mono-a" x="380" y="309" text-anchor="middle">validation 成功 ≠ target execution 成功；兩個結果要分開觀察</text>
+        </svg>
+      </div>
+      <figcaption>Bundler、EntryPoint 與 Paymaster 都不是帳戶 owner。它們能決定是否提交、是否接受或是否贊助，但不能繞過 Smart Account 的 validation policy 任意取走資產。</figcaption>
+    </figure>
 
     <h2>PackedUserOperation：鏈上真正驗證的資料</h2>
     <p>v0.7 之後，RPC 傳輸時可用較易讀的 unpacked 欄位，但進入 EntryPoint 時會壓成 9 欄的 <code>PackedUserOperation</code>：</p>
@@ -133,6 +226,160 @@ function execute(address target, uint256 value, bytes calldata data)
     return signatureOk ? 0 : 1;
 }</code></pre>
     <p>高流量帳戶通常以 <code>entryPoint.depositTo(account)</code> 預存，而不是每次 validation 傳 ETH。若 account 使用多個 EntryPoint、validator 或 session，簽章 domain 必須明確綁定版本與入口。</p>
+
+    <h2>Smart Account lifecycle：誰初始化，誰能修改</h2>
+    <p><strong>控制權不是由「誰部署」自動決定，而是由初始化後的 validation、recovery、module 與 upgrade policy 決定。</strong>常見 proxy account 由 Factory 部署，並在同一筆交易內設定 owner／validator、EntryPoint、guardian、modules 與 upgrade admin。</p>
+<pre><code>function initialize(address owner, address guardian) external initializer {
+    if (owner == address(0)) revert InvalidOwner();
+    _owner = owner;
+    _guardian = guardian;
+    _installValidator(ownerValidator, abi.encode(owner));
+}
+
+constructor() {
+    _disableInitializers(); <span class="c">// 鎖住 implementation，避免被單獨接管</span>
+}</code></pre>
+    <p>部署與初始化必須原子完成。若 account／proxy 已存在但仍未初始化，任何人都可能先呼叫 <code>initialize</code>，把自己設為 owner、裝入惡意 executor、升級 implementation，甚至轉走預先送到 counterfactual address 的資產。</p>
+    <p>初始化後想修改，必須走 account 明確提供的授權入口，例如由有效 UserOperation 令 account call 自己：</p>
+    <ul>
+      <li><strong>Owner／validator：</strong>rotate key、改 multisig threshold、加入 passkey 或撤銷 session key。</li>
+      <li><strong>Recovery：</strong>guardian 或 recovery module 可在 delay／quorum 條件下替換 validator。</li>
+      <li><strong>Modules：</strong>安裝／卸載 validator、executor、hook、fallback handler。</li>
+      <li><strong>Upgrade：</strong>只有 implementation 明確採 proxy 且保留 upgrade authority 時才能改 code；immutable account 不能事後憑空加入升級能力。</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 350" role="img" aria-label="Smart Account lifecycle 與權限圖：預測地址經 Factory 原子部署初始化後成為 active account；owner validator、guardian recovery、module manager 與 upgrade admin 各自擁有不同權限；之後可 revoke、migrate 或 disable，但不能把已執行交易取消。">
+          <defs>
+            <marker id="aa-zh-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-zh-3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="44" width="150" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="72" text-anchor="middle">Predicted address</text>
+          <text class="svg-ncode" x="99" y="93" text-anchor="middle">尚未有 code</text>
+          <rect class="svg-node-a" x="236" y="44" width="158" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="72" text-anchor="middle">Atomic init</text>
+          <text class="svg-ncode" x="315" y="93" text-anchor="middle">Factory + owner policy</text>
+          <rect class="svg-node" x="456" y="44" width="142" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="527" y="72" text-anchor="middle">Active</text>
+          <text class="svg-ncode" x="527" y="93" text-anchor="middle">validate + execute</text>
+          <rect class="svg-node-dash" x="640" y="44" width="96" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="688" y="72" text-anchor="middle">Retired</text>
+          <text class="svg-ncode" x="688" y="93" text-anchor="middle">migrate</text>
+          <line class="svg-flow" x1="174" y1="78" x2="234" y2="78" marker-end="url(#aa-zh-3)"></line>
+          <line class="svg-flow" x1="394" y1="78" x2="454" y2="78" marker-end="url(#aa-zh-3)"></line>
+          <line class="svg-flow" x1="598" y1="78" x2="638" y2="78" marker-end="url(#aa-zh-3)"></line>
+          <text class="svg-flowlabel" x="204" y="66" text-anchor="middle">deploy</text>
+          <text class="svg-flowlabel" x="618" y="66" text-anchor="middle">revoke</text>
+          <rect class="svg-node-a" x="72" y="208" width="138" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="141" y="235" text-anchor="middle">Validator / owner</text>
+          <text class="svg-ncode" x="141" y="257" text-anchor="middle">批准 UserOp</text>
+          <rect class="svg-node" x="252" y="208" width="138" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="321" y="235" text-anchor="middle">Guardian</text>
+          <text class="svg-ncode" x="321" y="257" text-anchor="middle">延遲 recovery</text>
+          <rect class="svg-node" x="432" y="208" width="138" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="501" y="235" text-anchor="middle">Module manager</text>
+          <text class="svg-ncode" x="501" y="257" text-anchor="middle">install / uninstall</text>
+          <rect class="svg-node" x="612" y="208" width="124" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="674" y="235" text-anchor="middle">Upgrade admin</text>
+          <text class="svg-ncode" x="674" y="257" text-anchor="middle">replace logic</text>
+          <line class="svg-flow-a" x1="527" y1="114" x2="159" y2="206" marker-end="url(#aa-zh-3a)"></line>
+          <line class="svg-flow-a" x1="527" y1="114" x2="333" y2="206" marker-end="url(#aa-zh-3a)"></line>
+          <line class="svg-flow-a" x1="527" y1="114" x2="495" y2="206" marker-end="url(#aa-zh-3a)"></line>
+          <line class="svg-flow-a" x1="527" y1="114" x2="659" y2="206" marker-end="url(#aa-zh-3a)"></line>
+          <text class="svg-mono-a" x="380" y="326" text-anchor="middle">部署者 ≠ owner；Bundler ≠ owner；真正權限以 account code 與當前 modules 為準</text>
+        </svg>
+      </div>
+      <figcaption>每個角色只能擁有產品明確授予的能力。若同一第三方同時掌握 validator、guardian 與 upgrade admin，使用者表面上是 owner，實際上仍可能失去控制。</figcaption>
+    </figure>
+
+    <h2>ERC-20 到底放在哪個地址？</h2>
+    <p>ERC-20 contract 只保存一份 <code>balances[address]</code> mapping。建立 Smart Account 不會自動搬動 EOA 的 token，也不會因為兩個地址由同一個人控制就合併餘額。</p>
+<pre><code>address eoa = 0x...A11CE;
+address smartAccount = 0x...5AFE;
+
+token.balanceOf(eoa);          <span class="c">// 原本 EOA 的餘額，例如 100 USDC</span>
+token.balanceOf(smartAccount); <span class="c">// 獨立 4337 account 的餘額，例如 0</span></code></pre>
+    <ul>
+      <li><strong>獨立 4337 account：</strong>資產要以 <code>transfer(smartAccount, amount)</code> 搬入；或 EOA 先 <code>approve(smartAccount, amount)</code>，再由 account 呼叫 <code>transferFrom</code>。Owner 身分本身不產生 allowance。</li>
+      <li><strong>Counterfactual account：</strong>尚未部署的 CREATE2 預測地址也能先收 ERC-20；但 Factory、salt、init code、owner 與 implementation 任一算錯，都可能令資產鎖住或被錯誤初始化者取得。</li>
+      <li><strong>Proxy account：</strong>token 屬於 proxy address，不屬於 implementation。升級 implementation 不會搬動 ERC-20 balance。</li>
+      <li><strong>EIP-7702：</strong>沒有新地址；code 掛在原 EOA，故 <code>balanceOf(eoa)</code> 不變。Delegate code 呼叫 token 時，token 看到的 <code>msg.sender</code> 也是該 EOA。</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="ERC-20 balance address 比較：獨立 ERC-4337 Smart Account 與 EOA 是兩個地址和兩份餘額；EIP-7702 使用原 EOA 地址，因此餘額留在同一地址；proxy account 的資產屬於 proxy 而不是 implementation。">
+          <defs>
+            <marker id="aa-zh-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="34">獨立 4337 account</text>
+          <rect class="svg-node" x="28" y="56" width="190" height="78" rx="10"></rect>
+          <text class="svg-nlabel" x="123" y="84" text-anchor="middle">EOA 0xA</text>
+          <text class="svg-ncode" x="123" y="108" text-anchor="middle">balanceOf(0xA) = 100</text>
+          <rect class="svg-node-a" x="542" y="56" width="190" height="78" rx="10"></rect>
+          <text class="svg-nlabel" x="637" y="84" text-anchor="middle">Smart Account 0xB</text>
+          <text class="svg-ncode" x="637" y="108" text-anchor="middle">balanceOf(0xB) = 0</text>
+          <line class="svg-flow" x1="218" y1="95" x2="540" y2="95" marker-end="url(#aa-zh-4)"></line>
+          <text class="svg-flowlabel" x="379" y="84" text-anchor="middle">transfer 或 approve + transferFrom</text>
+          <line class="svg-axis" x1="28" y1="162" x2="732" y2="162"></line>
+          <text class="svg-label" x="28" y="194">EIP-7702 delegated EOA</text>
+          <rect class="svg-node-a" x="214" y="214" width="332" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="240" text-anchor="middle">EOA + delegated code = 同一個 0xA</text>
+          <text class="svg-ncode" x="380" y="260" text-anchor="middle">balanceOf(0xA) = 100；不需搬到新地址</text>
+        </svg>
+      </div>
+      <figcaption>EntryPoint、Bundler 與 Paymaster 都不持有使用者的 ERC-20。它們參與驗證、提交與 gas 結算；token balance 永遠跟著 ERC-20 mapping 裡的 holder address。</figcaption>
+    </figure>
+
+    <h2>如何撤銷、取消、移除或「銷毀」？</h2>
+    <p>這四個動作不是同一件事，也沒有一個適用所有 Smart Accounts 的全域 cancel API：</p>
+    <ul>
+      <li><strong>尚未上鏈的 UserOperation：</strong>可要求特定 Bundler 從 mempool 移除，但不是協議保證；也可依 Bundler policy 用相同 nonce／較高 fee replacement，或先執行 account 提供的 nonce invalidation。</li>
+      <li><strong>已 included、尚未執行：</strong>4337 bundle 內 validation 與 execution 同一筆交易完成，沒有讓使用者中途按 cancel 的窗口。</li>
+      <li><strong>已執行：</strong>不能取消鏈上結果。只能撤銷 allowances、rotate keys、移除 module、暫停 sponsorship、搬走剩餘資產或執行應用層補救。</li>
+      <li><strong>Session／module：</strong>由 account 的當前 validator、guardian 或 module-management policy 決定誰能 revoke；EntryPoint 不替產品定義 owner。</li>
+      <li><strong>關閉 4337 account：</strong>Cancun／EIP-6780 後，既有合約的 <code>SELFDESTRUCT</code> 通常不再刪除 code／storage。實務上是移走資產、撤銷 approval、disable validators/modules 或 migrate，不是把地址消失。</li>
+      <li><strong>移除 7702 delegation：</strong>該 EOA 的私鑰簽新的 authorization，把 delegate 設為 <code>address(0)</code>；relayer 可代為提交，但不能代替 EOA 產生授權。</li>
+    </ul>
+    <p>清除 delegation 或 module 只影響未來，不會取回已被轉走的 token，也不會自動撤銷惡意 code 已建立的 ERC-20 allowance、position 或簽章。</p>
+
+    <h2>如果 Hacker 搶先初始化或騙到 delegation</h2>
+    <p><strong>未初始化 4337 proxy：</strong>如果部署與初始化分成兩筆交易，hacker 可搶先成為 owner／validator、安裝 executor、取得 upgrade authority。即使 account 尚未有 code，使用者先送到預測地址的 token 也會在惡意 account 部署後暴露。</p>
+    <p><strong>惡意 7702 delegation：</strong>hacker 一般不能只靠知道地址設定 delegation；他需要 EOA 私鑰，或誘導使用者簽 authorization。成功後，惡意 code 在 EOA 的 address、balance、storage context 執行，可轉走 ETH／token、建立無限 allowance、開倉或加入持續性後門。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 260" role="img" aria-label="兩種 Smart Account takeover 路徑：未初始化的 4337 proxy 被 attacker 搶先 initialize；或使用者簽下惡意 EIP-7702 authorization，令惡意 delegate 在 EOA context 執行。">
+          <defs>
+            <marker id="aa-zh-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="24" y="32">4337 takeover</text>
+          <rect class="svg-node" x="24" y="52" width="160" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="80" text-anchor="middle">Uninitialized proxy</text>
+          <text class="svg-ncode" x="104" y="101" text-anchor="middle">已有地址／可能已有 token</text>
+          <rect class="svg-node-a" x="300" y="52" width="160" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="80" text-anchor="middle">Attacker initialize()</text>
+          <text class="svg-ncode" x="380" y="101" text-anchor="middle">owner = attacker</text>
+          <rect class="svg-node-dash" x="576" y="52" width="160" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="80" text-anchor="middle">Account compromised</text>
+          <text class="svg-ncode" x="656" y="101" text-anchor="middle">drain / upgrade / lock</text>
+          <line class="svg-flow-a" x1="184" y1="86" x2="298" y2="86" marker-end="url(#aa-zh-5)"></line>
+          <line class="svg-flow-a" x1="460" y1="86" x2="574" y2="86" marker-end="url(#aa-zh-5)"></line>
+          <text class="svg-label" x="24" y="164">7702 phishing</text>
+          <rect class="svg-node" x="24" y="184" width="160" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="216" text-anchor="middle">User signs auth</text>
+          <rect class="svg-node-a" x="300" y="184" width="160" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="216" text-anchor="middle">Malicious delegate</text>
+          <rect class="svg-node-dash" x="576" y="184" width="160" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="216" text-anchor="middle">Acts as EOA</text>
+          <line class="svg-flow-a" x1="184" y1="211" x2="298" y2="211" marker-end="url(#aa-zh-5)"></line>
+          <line class="svg-flow-a" x1="460" y1="211" x2="574" y2="211" marker-end="url(#aa-zh-5)"></line>
+        </svg>
+      </div>
+      <figcaption>兩條路徑的防線不同：4337 要 atomic initialization、鎖 implementation initializer；7702 要把 authorization 視為高風險權限授予，顯示 chain、delegate code hash、權限與撤銷方式，不能 blind-sign。</figcaption>
+    </figure>
+    <p>事故後應先把剩餘資產轉到安全地址，再撤銷 token allowances、session keys／modules 與 delegation；只做「clear delegation」並不足以修復已留下的鏈上權限。</p>
 
     <h2>Factory + CREATE2：先有地址，後有 code</h2>
     <p>Counterfactual account 可在部署前收款與簽 UserOp。第一次操作帶 factory／factoryData，SenderCreator 呼叫 factory 後，實際地址必須等於 <code>sender</code>。salt、implementation、proxy init code、初始化參數或 compiler 設定任一改變，都可能改變地址。</p>
@@ -283,19 +530,67 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <h2>官方來源</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a>／<a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a>／<a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a>／<a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
-      <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a>／<a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a>／<a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a>／<a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a>／<a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a>／<a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
       <li><a href="https://github.com/eth-infinitism/account-abstraction">Reference implementation</a>／<a href="https://github.com/eth-infinitism/account-abstraction/releases">official releases and deployments</a></li>
       <li><a href="https://docs.erc4337.io/">ERC-4337 developer documentation</a></li>
     </ul>
-    <p class="meta">內容最後核對：2026-09-09</p>
+    <p class="meta">內容最後核對：2026-09-11</p>
   </div>
 
   <!-- ================= English ================= -->
   <div data-l="en">
     <h1>Account Abstraction &amp; Smart Accounts</h1>
-    <p class="meta">2026-09-09 · ERC-4337 · EIP-7702 · ERC-7579 · Developer guide</p>
+    <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · Developer guide</p>
 
     <p><strong>A Smart Account is the account contract; Account Abstraction is the system that lets accounts define validation, execution, and gas-payment rules.</strong> This guide runs from protocol to production engineering: UserOperations, Bundlers, EntryPoint, 7702 delegation, account/factory contracts, paymasters, ERC-7579, viem, debugging, and launch checks.</p>
+
+    <h2>Start with one user story</h2>
+    <p>Alice wants to swap USDC but has no ETH on her phone. A traditional EOA cannot submit the transaction because Ethereum requires the sender to pay gas first. Account Abstraction separates user authorization from who submits the on-chain transaction and who pays gas:</p>
+    <ol>
+      <li>Alice's wallet builds a <code>UserOperation</code> describing the calls and asks her to sign it.</li>
+      <li>A Bundler simulates the operation and checks whether the Smart Account accepts that authorization.</li>
+      <li>An optional Paymaster sponsors gas; otherwise the account deposit or balance funds it.</li>
+      <li>The Bundler submits a transaction from its EOA to EntryPoint. EntryPoint validates before asking the Smart Account to execute.</li>
+    </ol>
+    <blockquote><p><strong>Remember:</strong> Alice signs a UserOperation, not necessarily an Ethereum transaction. The Bundler submits the transaction, but that does not give it control over Alice's assets.</p></blockquote>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 310" role="img" aria-label="Traditional EOA transaction compared with an ERC-4337 UserOperation: an EOA signs and pays gas directly; in 4337 the user signs a UserOperation, a Bundler sends it to EntryPoint, and the Smart Account validates and executes, optionally sponsored by a Paymaster.">
+          <defs>
+            <marker id="aa-en-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="32">Traditional EOA</text>
+          <rect class="svg-node" x="28" y="52" width="180" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="118" y="79" text-anchor="middle">Alice EOA</text>
+          <text class="svg-ncode" x="118" y="99" text-anchor="middle">signs tx + pays gas</text>
+          <line class="svg-flow" x1="208" y1="83" x2="522" y2="83" marker-end="url(#aa-en-1)"></line>
+          <text class="svg-flowlabel" x="365" y="73" text-anchor="middle">Ethereum transaction</text>
+          <rect class="svg-node-a" x="524" y="52" width="208" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="628" y="79" text-anchor="middle">Target contract</text>
+          <text class="svg-ncode" x="628" y="99" text-anchor="middle">msg.sender = Alice</text>
+          <line class="svg-axis" x1="28" y1="140" x2="732" y2="140"></line>
+          <text class="svg-label" x="28" y="171">ERC-4337</text>
+          <rect class="svg-node" x="28" y="192" width="142" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="220" text-anchor="middle">Alice wallet</text>
+          <text class="svg-ncode" x="99" y="241" text-anchor="middle">signs UserOperation</text>
+          <rect class="svg-node" x="226" y="192" width="122" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="287" y="220" text-anchor="middle">Bundler</text>
+          <text class="svg-ncode" x="287" y="241" text-anchor="middle">submits tx</text>
+          <rect class="svg-node-a" x="404" y="192" width="126" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="467" y="220" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="467" y="241" text-anchor="middle">validate + charge</text>
+          <rect class="svg-node" x="586" y="192" width="146" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="659" y="220" text-anchor="middle">Smart Account</text>
+          <text class="svg-ncode" x="659" y="241" text-anchor="middle">authorize + execute</text>
+          <line class="svg-flow" x1="170" y1="228" x2="224" y2="228" marker-end="url(#aa-en-1)"></line>
+          <line class="svg-flow" x1="348" y1="228" x2="402" y2="228" marker-end="url(#aa-en-1)"></line>
+          <line class="svg-flow" x1="530" y1="228" x2="584" y2="228" marker-end="url(#aa-en-1)"></line>
+          <text class="svg-mono-a" x="467" y="292" text-anchor="middle">Paymaster may sponsor gas; account validation still controls assets</text>
+        </svg>
+      </div>
+      <figcaption>4337 does not remove validation; it moves validation into the Smart Account contract. The Bundler submits, EntryPoint coordinates, and the account code decides authorization.</figcaption>
+    </figure>
 
     <h2>Three account models</h2>
     <div class="scroll"><table>
@@ -318,6 +613,50 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li><strong>Aggregator:</strong> optional shared signature verifier, for example aggregating multiple BLS signatures.</li>
     </ul>
     <blockquote><p>A Bundler accepting a UserOperation does not guarantee inclusion. It may re-simulate, delay, replace, or drop it because of fee, reputation, mempool policy, state changes, or bundle economics.</p></blockquote>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 330" role="img" aria-label="ERC-4337 actor flow: Wallet sends a UserOperation to a Bundler; the Bundler simulates then calls EntryPoint handleOps; EntryPoint validates Account and Paymaster, asks Account to execute the Target, then settles gas from Paymaster or Account deposit.">
+          <defs>
+            <marker id="aa-en-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-en-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="42" width="126" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="87" y="70" text-anchor="middle">Wallet</text>
+          <text class="svg-ncode" x="87" y="91" text-anchor="middle">build + sign</text>
+          <rect class="svg-node" x="212" y="42" width="126" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="275" y="70" text-anchor="middle">Bundler</text>
+          <text class="svg-ncode" x="275" y="91" text-anchor="middle">simulate + bundle</text>
+          <rect class="svg-node-a" x="400" y="42" width="136" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="468" y="70" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="468" y="91" text-anchor="middle">handleOps()</text>
+          <rect class="svg-node" x="598" y="42" width="138" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="667" y="70" text-anchor="middle">Beneficiary</text>
+          <text class="svg-ncode" x="667" y="91" text-anchor="middle">receives gas refund</text>
+          <line class="svg-flow" x1="150" y1="76" x2="210" y2="76" marker-end="url(#aa-en-2)"></line>
+          <line class="svg-flow" x1="338" y1="76" x2="398" y2="76" marker-end="url(#aa-en-2)"></line>
+          <line class="svg-flow" x1="536" y1="76" x2="596" y2="76" marker-end="url(#aa-en-2)"></line>
+          <text class="svg-flowlabel" x="180" y="65" text-anchor="middle">UserOp</text>
+          <text class="svg-flowlabel" x="368" y="65" text-anchor="middle">tx</text>
+          <rect class="svg-node-a" x="196" y="196" width="150" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="271" y="225" text-anchor="middle">Smart Account</text>
+          <text class="svg-ncode" x="271" y="247" text-anchor="middle">validate → execute</text>
+          <rect class="svg-node" x="414" y="196" width="126" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="477" y="225" text-anchor="middle">Target</text>
+          <text class="svg-ncode" x="477" y="247" text-anchor="middle">DEX / token / app</text>
+          <rect class="svg-node" x="598" y="196" width="138" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="667" y="225" text-anchor="middle">Paymaster</text>
+          <text class="svg-ncode" x="667" y="247" text-anchor="middle">optional sponsor</text>
+          <line class="svg-flow-a" x1="440" y1="110" x2="306" y2="194" marker-end="url(#aa-en-2a)"></line>
+          <line class="svg-flow" x1="346" y1="233" x2="412" y2="233" marker-end="url(#aa-en-2)"></line>
+          <line class="svg-flow-a" x1="500" y1="110" x2="638" y2="194" marker-end="url(#aa-en-2a)"></line>
+          <text class="svg-step" x="339" y="148">validateUserOp()</text>
+          <text class="svg-step" x="560" y="148">validatePaymasterUserOp()</text>
+          <text class="svg-mono-a" x="380" y="309" text-anchor="middle">validation success ≠ target execution success; observe both separately</text>
+        </svg>
+      </div>
+      <figcaption>Bundler, EntryPoint, and Paymaster are not the account owner. They may submit, accept, or sponsor an operation, but cannot bypass the Smart Account validation policy to take assets.</figcaption>
+    </figure>
 
     <h2>PackedUserOperation: what EntryPoint verifies on-chain</h2>
     <p>Since v0.7, RPC transport may use readable unpacked fields, but EntryPoint receives the nine-field <code>PackedUserOperation</code>:</p>
@@ -392,6 +731,160 @@ function execute(address target, uint256 value, bytes calldata data)
     return signatureOk ? 0 : 1;
 }</code></pre>
     <p>High-volume accounts often pre-deposit with <code>entryPoint.depositTo(account)</code> instead of sending ETH during each validation. Accounts supporting multiple EntryPoints, validators, or sessions must bind version and entry point in the signature domain.</p>
+
+    <h2>Smart Account lifecycle: who initializes and who can change it</h2>
+    <p><strong>Control is not automatically determined by who deploys the account. It follows the initialized validation, recovery, module, and upgrade policies.</strong> A common proxy account is deployed by a Factory and atomically configured with an owner/validator, EntryPoint, guardian, modules, and upgrade admin.</p>
+<pre><code>function initialize(address owner, address guardian) external initializer {
+    if (owner == address(0)) revert InvalidOwner();
+    _owner = owner;
+    _guardian = guardian;
+    _installValidator(ownerValidator, abi.encode(owner));
+}
+
+constructor() {
+    _disableInitializers(); <span class="c">// lock the implementation against direct takeover</span>
+}</code></pre>
+    <p>Deployment and initialization must be atomic. If an account or proxy exists uninitialized, anyone may call <code>initialize</code> first, become owner, install a malicious executor, upgrade the implementation, and take assets already sent to its counterfactual address.</p>
+    <p>After initialization, changes must enter through an explicitly authorized account path, commonly an accepted UserOperation that makes the account call itself:</p>
+    <ul>
+      <li><strong>Owner/validator:</strong> rotate keys, change multisig threshold, add a passkey, or revoke a session key.</li>
+      <li><strong>Recovery:</strong> guardians or a recovery module replace validators subject to delay/quorum.</li>
+      <li><strong>Modules:</strong> install or remove validators, executors, hooks, and fallback handlers.</li>
+      <li><strong>Upgrade:</strong> logic changes only if the implementation deliberately uses a proxy and retains upgrade authority; an immutable account cannot gain upgradeability later by assumption.</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 350" role="img" aria-label="Smart Account lifecycle and authority: a predicted address is atomically deployed and initialized into an active account; owner validator, guardian recovery, module manager, and upgrade admin have separate rights; the account may later revoke, migrate, or disable capabilities, but cannot cancel executed transactions.">
+          <defs>
+            <marker id="aa-en-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-en-3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="44" width="150" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="72" text-anchor="middle">Predicted address</text>
+          <text class="svg-ncode" x="99" y="93" text-anchor="middle">no code yet</text>
+          <rect class="svg-node-a" x="236" y="44" width="158" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="72" text-anchor="middle">Atomic init</text>
+          <text class="svg-ncode" x="315" y="93" text-anchor="middle">Factory + owner policy</text>
+          <rect class="svg-node" x="456" y="44" width="142" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="527" y="72" text-anchor="middle">Active</text>
+          <text class="svg-ncode" x="527" y="93" text-anchor="middle">validate + execute</text>
+          <rect class="svg-node-dash" x="640" y="44" width="96" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="688" y="72" text-anchor="middle">Retired</text>
+          <text class="svg-ncode" x="688" y="93" text-anchor="middle">migrate</text>
+          <line class="svg-flow" x1="174" y1="78" x2="234" y2="78" marker-end="url(#aa-en-3)"></line>
+          <line class="svg-flow" x1="394" y1="78" x2="454" y2="78" marker-end="url(#aa-en-3)"></line>
+          <line class="svg-flow" x1="598" y1="78" x2="638" y2="78" marker-end="url(#aa-en-3)"></line>
+          <text class="svg-flowlabel" x="204" y="66" text-anchor="middle">deploy</text>
+          <text class="svg-flowlabel" x="618" y="66" text-anchor="middle">revoke</text>
+          <rect class="svg-node-a" x="72" y="208" width="138" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="141" y="235" text-anchor="middle">Validator / owner</text>
+          <text class="svg-ncode" x="141" y="257" text-anchor="middle">approves UserOps</text>
+          <rect class="svg-node" x="252" y="208" width="138" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="321" y="235" text-anchor="middle">Guardian</text>
+          <text class="svg-ncode" x="321" y="257" text-anchor="middle">delayed recovery</text>
+          <rect class="svg-node" x="432" y="208" width="138" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="501" y="235" text-anchor="middle">Module manager</text>
+          <text class="svg-ncode" x="501" y="257" text-anchor="middle">install / uninstall</text>
+          <rect class="svg-node" x="612" y="208" width="124" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="674" y="235" text-anchor="middle">Upgrade admin</text>
+          <text class="svg-ncode" x="674" y="257" text-anchor="middle">replace logic</text>
+          <line class="svg-flow-a" x1="527" y1="114" x2="159" y2="206" marker-end="url(#aa-en-3a)"></line>
+          <line class="svg-flow-a" x1="527" y1="114" x2="333" y2="206" marker-end="url(#aa-en-3a)"></line>
+          <line class="svg-flow-a" x1="527" y1="114" x2="495" y2="206" marker-end="url(#aa-en-3a)"></line>
+          <line class="svg-flow-a" x1="527" y1="114" x2="659" y2="206" marker-end="url(#aa-en-3a)"></line>
+          <text class="svg-mono-a" x="380" y="326" text-anchor="middle">deployer ≠ owner; Bundler ≠ owner; current account code and modules define authority</text>
+        </svg>
+      </div>
+      <figcaption>Each role should receive only the capability the product intends. If one third party controls validator, guardian, and upgrade admin, the user may appear to be owner while still lacking ultimate control.</figcaption>
+    </figure>
+
+    <h2>Which address owns the ERC-20 balance?</h2>
+    <p>An ERC-20 contract stores one <code>balances[address]</code> mapping. Creating a Smart Account does not move an EOA's tokens, and two addresses controlled by the same person do not share a balance.</p>
+<pre><code>address eoa = 0x...A11CE;
+address smartAccount = 0x...5AFE;
+
+token.balanceOf(eoa);          <span class="c">// original EOA balance, e.g. 100 USDC</span>
+token.balanceOf(smartAccount); <span class="c">// separate 4337 account balance, e.g. 0</span></code></pre>
+    <ul>
+      <li><strong>Separate 4337 account:</strong> move assets with <code>transfer(smartAccount, amount)</code>, or let the EOA <code>approve(smartAccount, amount)</code> before the account calls <code>transferFrom</code>. Being owner does not create an allowance.</li>
+      <li><strong>Counterfactual account:</strong> an undeployed CREATE2 address can receive ERC-20s, but a wrong Factory, salt, init code, owner, or implementation may lock them or expose them to a malicious initializer.</li>
+      <li><strong>Proxy account:</strong> tokens belong to the proxy address, not the implementation. Upgrading implementation does not move the ERC-20 balance.</li>
+      <li><strong>EIP-7702:</strong> there is no new address, so <code>balanceOf(eoa)</code> is unchanged. When delegated code calls a token, that token sees the EOA as <code>msg.sender</code>.</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="ERC-20 balance address comparison: a separate ERC-4337 Smart Account and EOA have different addresses and balances; EIP-7702 uses the original EOA address, so the balance stays there; a proxy account owns assets at the proxy, not implementation.">
+          <defs>
+            <marker id="aa-en-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="34">Separate 4337 account</text>
+          <rect class="svg-node" x="28" y="56" width="190" height="78" rx="10"></rect>
+          <text class="svg-nlabel" x="123" y="84" text-anchor="middle">EOA 0xA</text>
+          <text class="svg-ncode" x="123" y="108" text-anchor="middle">balanceOf(0xA) = 100</text>
+          <rect class="svg-node-a" x="542" y="56" width="190" height="78" rx="10"></rect>
+          <text class="svg-nlabel" x="637" y="84" text-anchor="middle">Smart Account 0xB</text>
+          <text class="svg-ncode" x="637" y="108" text-anchor="middle">balanceOf(0xB) = 0</text>
+          <line class="svg-flow" x1="218" y1="95" x2="540" y2="95" marker-end="url(#aa-en-4)"></line>
+          <text class="svg-flowlabel" x="379" y="84" text-anchor="middle">transfer or approve + transferFrom</text>
+          <line class="svg-axis" x1="28" y1="162" x2="732" y2="162"></line>
+          <text class="svg-label" x="28" y="194">EIP-7702 delegated EOA</text>
+          <rect class="svg-node-a" x="214" y="214" width="332" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="240" text-anchor="middle">EOA + delegated code = same 0xA</text>
+          <text class="svg-ncode" x="380" y="260" text-anchor="middle">balanceOf(0xA) = 100; no migration required</text>
+        </svg>
+      </div>
+      <figcaption>EntryPoint, Bundler, and Paymaster do not hold the user's ERC-20s. They validate, submit, and settle gas; token balances remain keyed by the holder address in the token contract.</figcaption>
+    </figure>
+
+    <h2>How do removal, revocation, cancellation, and “destruction” differ?</h2>
+    <p>These are separate operations, and no universal cancel API applies to every Smart Account:</p>
+    <ul>
+      <li><strong>UserOperation not yet included:</strong> ask a particular Bundler to drop it, but this is not a protocol guarantee. Depending on Bundler policy, replace it with the same nonce and a higher fee, or execute an account-defined nonce invalidation first.</li>
+      <li><strong>Included but not executed:</strong> validation and execution happen inside the same 4337 bundle transaction, so the user has no mid-transaction cancel window.</li>
+      <li><strong>Already executed:</strong> on-chain effects cannot be cancelled. Revoke allowances, rotate keys, remove modules, pause sponsorship, move remaining assets, or perform application-level remediation.</li>
+      <li><strong>Session/module:</strong> the current validator, guardian, or module-management policy decides who can revoke it; EntryPoint does not define the product's owner.</li>
+      <li><strong>Closing a 4337 account:</strong> after Cancun/EIP-6780, <code>SELFDESTRUCT</code> generally no longer deletes established contract code/storage. Retirement means migrating assets, revoking approvals, and disabling validators/modules—not making the address disappear.</li>
+      <li><strong>Clearing 7702 delegation:</strong> the EOA key signs a new authorization pointing to <code>address(0)</code>. A relayer may submit it but cannot create the authorization for the EOA.</li>
+    </ul>
+    <p>Clearing a delegation or module affects future execution only. It does not recover stolen tokens or automatically revoke ERC-20 allowances, positions, or signatures created by malicious code.</p>
+
+    <h2>If an attacker initializes the account or obtains delegation</h2>
+    <p><strong>Uninitialized 4337 proxy:</strong> if deployment and initialization are separate transactions, an attacker may initialize first as owner/validator, install an executor, or seize upgrade authority. Tokens pre-sent to a predicted address become exposed once the malicious account is deployed.</p>
+    <p><strong>Malicious 7702 delegation:</strong> knowing the EOA address is not enough; the attacker needs its key or must trick the user into signing an authorization. Malicious code then executes in the EOA's address, balance, and storage context and may transfer assets, create unlimited allowances, open positions, or install persistent backdoors.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 260" role="img" aria-label="Two Smart Account takeover paths: an attacker front-runs initialize on an uninitialized 4337 proxy; or a user signs malicious EIP-7702 authorization and the delegate executes in the EOA context.">
+          <defs>
+            <marker id="aa-en-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="24" y="32">4337 takeover</text>
+          <rect class="svg-node" x="24" y="52" width="160" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="80" text-anchor="middle">Uninitialized proxy</text>
+          <text class="svg-ncode" x="104" y="101" text-anchor="middle">address / tokens may exist</text>
+          <rect class="svg-node-a" x="300" y="52" width="160" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="80" text-anchor="middle">Attacker initialize()</text>
+          <text class="svg-ncode" x="380" y="101" text-anchor="middle">owner = attacker</text>
+          <rect class="svg-node-dash" x="576" y="52" width="160" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="80" text-anchor="middle">Account compromised</text>
+          <text class="svg-ncode" x="656" y="101" text-anchor="middle">drain / upgrade / lock</text>
+          <line class="svg-flow-a" x1="184" y1="86" x2="298" y2="86" marker-end="url(#aa-en-5)"></line>
+          <line class="svg-flow-a" x1="460" y1="86" x2="574" y2="86" marker-end="url(#aa-en-5)"></line>
+          <text class="svg-label" x="24" y="164">7702 phishing</text>
+          <rect class="svg-node" x="24" y="184" width="160" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="216" text-anchor="middle">User signs auth</text>
+          <rect class="svg-node-a" x="300" y="184" width="160" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="216" text-anchor="middle">Malicious delegate</text>
+          <rect class="svg-node-dash" x="576" y="184" width="160" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="216" text-anchor="middle">Acts as EOA</text>
+          <line class="svg-flow-a" x1="184" y1="211" x2="298" y2="211" marker-end="url(#aa-en-5)"></line>
+          <line class="svg-flow-a" x1="460" y1="211" x2="574" y2="211" marker-end="url(#aa-en-5)"></line>
+        </svg>
+      </div>
+      <figcaption>The defenses differ: 4337 needs atomic initialization and a locked implementation initializer; 7702 authorization is a high-risk grant whose chain, delegate code hash, authority, and revocation path must be displayed—never blind-signed.</figcaption>
+    </figure>
+    <p>During incident response, move remaining assets first, then revoke token allowances, sessions/modules, and delegation. Clearing delegation alone does not repair permissions the malicious code already left on-chain.</p>
 
     <h2>Factory + CREATE2: address before code</h2>
     <p>A counterfactual account can receive assets and sign a UserOp before deployment. Its first operation carries factory/factoryData; after SenderCreator invokes the factory, the deployed address must equal <code>sender</code>. Changing salt, implementation, proxy init code, initialization parameters, or compiler settings may change the address.</p>
@@ -542,11 +1035,11 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <h2>Official sources</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a> / <a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a> / <a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a> / <a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
-      <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a> / <a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a> / <a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a> / <a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a> / <a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a> / <a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
       <li><a href="https://github.com/eth-infinitism/account-abstraction">Reference implementation</a> / <a href="https://github.com/eth-infinitism/account-abstraction/releases">official releases and deployments</a></li>
       <li><a href="https://docs.erc4337.io/">ERC-4337 developer documentation</a></li>
     </ul>
-    <p class="meta">Content last verified: 2026-09-09</p>
+    <p class="meta">Content last verified: 2026-09-11</p>
   </div>
 
   <footer>
