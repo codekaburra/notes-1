@@ -404,6 +404,91 @@ token.balanceOf(smartAccount); <span class="c">// 獨立 4337 account 的餘額�
       <figcaption>EntryPoint、Bundler 與 Paymaster 都不持有使用者的 ERC-20。它們參與驗證、提交與 gas 結算；token balance 永遠跟著 ERC-20 mapping 裡的 holder address。</figcaption>
     </figure>
 
+    <h2>L1、L2、L3：相同地址不等於相同帳戶狀態</h2>
+    <p>EOA 通常在各 EVM chain 有相同地址；CREATE2 Smart Account 也可能刻意部署到相同地址。但每條 chain 仍有獨立的 code、storage、nonce、balance、modules、owner policy、EntryPoint deposit 與 7702 delegation。某鏈上的 owner rotation 或 session-key revocation，不會自動同步到另一條鏈。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>環境</th><th>Smart Account 特別要檢查</th><th>失效／退出假設</th></tr></thead>
+      <tbody>
+        <tr><td><strong>L1</strong></td><td>EntryPoint 版本、Bundler 支援、較高 verification／calldata 成本</td><td>L1 finality、base fee；通常是最終 settlement layer</td></tr>
+        <tr><td><strong>L2 rollup</strong></td><td>sequencer endpoint、L1 data fee 如何進入 <code>preVerificationGas</code>、原生 gas token、system contracts</td><td>soft confirmation ≠ L1 finality；檢查 forced inclusion／withdrawal、challenge 或 validity-proof 狀態</td></tr>
+        <tr><td><strong>L3／appchain</strong></td><td>除了 L2 風險，再確認它結算到哪條 L2、使用哪個 DA layer、bridge 與 account stack 是否相容</td><td>通常同時依賴 L3 operator、L2、L1 與 DA；escape hatch 可能更弱或根本不存在</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><strong>相同 4337 地址：</strong>只有 Factory address、CREATE2 salt、完整 init code 與 deployer semantics 都一致時才可預測；還要逐鏈驗證 Factory／implementation code hash，不能只比較地址。</li>
+      <li><strong>相同 EOA／7702 地址：</strong>delegation 是每鏈 state。<code>chain_id = 0</code> authorization 可能在 nonce 符合的其他鏈被使用，而相同 delegate address 在另一鏈甚至可能是不同 code。</li>
+      <li><strong>Gas：</strong>Account／Paymaster 的 EntryPoint deposit 各鏈獨立；L1 有錢不代表 L2 可付 gas，某鏈 sponsor policy 也不代表另一鏈接受。</li>
+      <li><strong>Recovery：</strong>要明確決定 owner、guardian、module registry 與 upgrade 是否逐鏈管理，或透過可信 cross-chain governance 同步；同步延遲期間必須定義哪條鏈是 authority source。</li>
+    </ul>
+
+    <h2>Cross-chain：不是一筆原子 transaction</h2>
+    <p>ERC-4337 UserOperation 的 hash 綁定 <code>chainId</code> 與 EntryPoint，所以 Chain A 的 UserOp 不能直接拿到 Chain B 執行。跨鏈操作通常是兩筆以上的 transaction，加上一段 bridge／messaging／intent settlement：</p>
+    <ol>
+      <li>Source chain 的 Smart Account 授權並鎖定／燃燒資產或送出 message。</li>
+      <li>等待 source finality、bridge proof／validator／relayer，以及 destination inclusion。</li>
+      <li>Destination bridge／receiver 驗證 source chain、original sender、destination、nonce/message ID 後，才由當地 account 或 executor 執行。</li>
+    </ol>
+    <p>任何一步都可能獨立失敗，因此「A 成功、B 失敗」是正常 failure mode。產品必須有 expiry、refund／retry、idempotency、message replay protection、partial-completion UI 與 incident runbook。Destination contract 看到的 <code>msg.sender</code> 通常是 bridge receiver，不是 source Smart Account；不可只靠 <code>msg.sender</code> 推斷原始使用者。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 360" role="img" aria-label="跨鏈 Smart Account 與 reserve 模型：Chain A 與 Chain B 的相同 account address 各自有獨立 state；source account 經 bridge escrow 和非同步 message 到 destination receiver；bridged token liability 需由 source escrow reserve 支持。">
+          <defs>
+            <marker id="aa-zh-chain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-zh-chaina" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="24" y="30">Chain A / source</text>
+          <text class="svg-label" x="568" y="30">Chain B / destination</text>
+          <rect class="svg-node" x="24" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="106" y="102" text-anchor="middle">owner / nonce / modules A</text>
+          <rect class="svg-node-a" x="298" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="80" text-anchor="middle">Bridge / mailbox</text>
+          <text class="svg-ncode" x="380" y="102" text-anchor="middle">async proof + message ID</text>
+          <rect class="svg-node" x="572" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="654" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="654" y="102" text-anchor="middle">owner / nonce / modules B</text>
+          <line class="svg-flow" x1="188" y1="89" x2="296" y2="89" marker-end="url(#aa-zh-chain)"></line>
+          <line class="svg-flow" x1="462" y1="89" x2="570" y2="89" marker-end="url(#aa-zh-chain)"></line>
+          <text class="svg-flowlabel" x="242" y="78" text-anchor="middle">lock / message</text>
+          <text class="svg-flowlabel" x="516" y="78" text-anchor="middle">mint / execute</text>
+          <text class="svg-mono-a" x="380" y="158" text-anchor="middle">相同 address，兩份 state；message 非同步且可能只完成一邊</text>
+          <rect class="svg-node-a" x="92" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="197" y="248" text-anchor="middle">Source escrow reserve</text>
+          <text class="svg-ncode" x="197" y="272" text-anchor="middle">locked canonical token</text>
+          <rect class="svg-node" x="458" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="563" y="248" text-anchor="middle">Destination liability</text>
+          <text class="svg-ncode" x="563" y="272" text-anchor="middle">bridged token supply</text>
+          <line class="svg-flow-a" x1="302" y1="259" x2="456" y2="259" marker-end="url(#aa-zh-chaina)"></line>
+          <text class="svg-step" x="379" y="248" text-anchor="middle">reserve ≥ redeemable liability</text>
+          <text class="svg-mono-a" x="380" y="338" text-anchor="middle">還要扣除借出／受限 reserve，並計入 pending messages 與所有 destination chains</text>
+        </svg>
+      </div>
+      <figcaption>地址一致只改善 UX，不會帶來共享 storage 或原子性。真正的跨鏈安全來自 message authentication、finality、DA、bridge upgrade keys、replay protection 與可用的退出路徑。</figcaption>
+    </figure>
+
+    <h2>Proof of reserve：證明有資產，不等於證明可償付</h2>
+    <p><strong>原生 ERC-20：</strong>如果 token 直接持有在 Smart Account，該鏈的 <code>balanceOf(account)</code> 已能證明帳戶持有多少 token units，不需要額外 PoR 來證明 ownership。但若 token 本身代表法幣、黃金或其他 off-chain claim，發行方的 backing 仍要另行驗證。Wallet 顯示的「多鏈總資產」只是 indexer 把各鏈 balance 加總的 view，不是一份共享鏈上 balance。</p>
+    <p><strong>Bridged／wrapped asset：</strong>destination token 是負債憑證，應檢查 source escrow 的可贖回 reserve 是否覆蓋所有 destination liabilities：</p>
+<pre><code>usableReserve =
+    canonicalAssetsLocked
+  - borrowedOrEncumberedAssets
+  - protocolFeesAndKnownShortfalls;
+
+totalLiability =
+    Σ destinationRedeemableSupply
+  + pendingOutboundClaims
+  - provablyBurnedPendingRedemptions;
+
+usableReserve &gt;= totalLiability;</code></pre>
+    <ul>
+      <li>核對 reserve address、token mapping、mint／burn authority、proxy upgrade admin、multisig threshold 與證明時間。</li>
+      <li>把 in-flight messages、不同 L2/L3 的總 supply、提款 queue、challenge period 與已被借出／再質押的 reserve 納入。</li>
+      <li>Merkle proof、auditor attestation 或 reserve wallet signature 只證明某個時間點的資產；沒有完整 proof of liabilities、資產權利與可提款性，就不是 solvency proof。</li>
+      <li>Intent solver／liquidity provider 先墊 destination 資產時，PoR／liquidity risk 屬於 solver，不是 Smart Account 本身；使用者仍承擔 solver、bridge 與最終 settlement 失敗風險。</li>
+      <li>Rollup 的 state root／fraud proof／validity proof 證明 state transition；DA 保證你能重建／退出。它們與「bridge escrow 是否 1:1 backed」是不同問題。</li>
+    </ul>
+
     <h2>如何撤銷、取消、移除或「銷毀」？</h2>
     <p>這四個動作不是同一件事，也沒有一個適用所有 Smart Accounts 的全域 cancel API：</p>
     <ul>
@@ -483,7 +568,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
 <pre><code>0xef0100 ‖ delegate implementation address</code></pre>
     <p>之後 CALL 該 EOA 時，會載入 delegate 的 code，但在 EOA 自己的 address、balance 與 storage context 執行，類似固定於帳戶地址的 delegation。它不是單筆交易後自動消失的暫時授權；要更換 delegate 必須再授權另一地址，授權 <code>address(0)</code> 則清除 delegation。</p>
     <ul>
-      <li><code>chain_id = 0</code> 可跨鏈重播同一 authorization；除非刻意需要，應綁定實際 chain ID。</li>
+      <li><code>chain_id = 0</code> 令同一 authorization 可能在 authority nonce 符合的其他鏈使用；除非刻意需要，應綁定實際 chain ID。</li>
       <li>authorization nonce 保護「設定 code」不被重放，但 delegate 的 <code>execute</code>、session 與簽章仍要自行做 domain separation 和 replay protection。</li>
       <li>delegate 沒有 constructor；初始化必須防搶跑。與 4337 組合時，初始化呼叫必須只接受 <code>entryPoint.senderCreator()</code>。</li>
       <li>delegate implementation 被銷毀或行為改變會直接影響 EOA；不要把未固定、可任意升級的 implementation 當成無信任基礎。</li>
@@ -602,6 +687,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a>／<a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a>／<a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a>／<a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a>／<a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a>／<a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a>／<a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
+      <li><a href="https://ethereum.org/developers/docs/scaling/">Ethereum scaling</a>／<a href="https://ethereum.org/developers/docs/data-availability/">Data availability</a>／<a href="https://eips.ethereum.org/EIPS/eip-7964">ERC-7964 cross-chain signatures（draft）</a></li>
       <li><a href="https://github.com/eth-infinitism/account-abstraction">Reference implementation</a>／<a href="https://github.com/eth-infinitism/account-abstraction/releases">official releases and deployments</a></li>
       <li><a href="https://docs.erc4337.io/">ERC-4337 developer documentation</a></li>
     </ul>
@@ -980,6 +1066,91 @@ token.balanceOf(smartAccount); <span class="c">// separate 4337 account balance,
       <figcaption>EntryPoint, Bundler, and Paymaster do not hold the user's ERC-20s. They validate, submit, and settle gas; token balances remain keyed by the holder address in the token contract.</figcaption>
     </figure>
 
+    <h2>L1, L2, and L3: the same address is not the same account state</h2>
+    <p>An EOA usually has the same address across EVM chains, and a CREATE2 Smart Account may deliberately be deployed to the same address. Each chain still has independent code, storage, nonce, balance, modules, owner policy, EntryPoint deposit, and 7702 delegation. Rotating an owner or revoking a session key on one chain does not automatically update another.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Environment</th><th>Smart Account checks</th><th>Failure/exit assumptions</th></tr></thead>
+      <tbody>
+        <tr><td><strong>L1</strong></td><td>EntryPoint version, Bundler support, and higher verification/calldata cost</td><td>L1 finality and base fee; commonly the final settlement layer</td></tr>
+        <tr><td><strong>L2 rollup</strong></td><td>sequencer endpoint, how L1 data fee enters <code>preVerificationGas</code>, native gas token, and system contracts</td><td>soft confirmation ≠ L1 finality; inspect forced inclusion/withdrawal plus challenge or validity-proof status</td></tr>
+        <tr><td><strong>L3/appchain</strong></td><td>in addition to L2 risks, identify the settlement L2, DA layer, bridge, and account-stack compatibility</td><td>often depends on L3 operator, L2, L1, and DA; escape hatches may be weaker or absent</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><strong>Same 4337 address:</strong> requires matching Factory address, CREATE2 salt, complete init code, and deployer semantics. Verify Factory/implementation code hash on every chain; address equality alone is insufficient.</li>
+      <li><strong>Same EOA/7702 address:</strong> delegation is chain-local state. A <code>chain_id = 0</code> authorization may be usable on another chain where the nonce matches, and the same delegate address may contain different code there.</li>
+      <li><strong>Gas:</strong> Account and Paymaster EntryPoint deposits are chain-specific. Funds on L1 do not pay L2 gas, and one chain's sponsorship policy does not imply another will accept it.</li>
+      <li><strong>Recovery:</strong> explicitly decide whether owner, guardians, module registry, and upgrades are managed per chain or synchronized through trusted cross-chain governance. During synchronization delay, define which chain is the authority source.</li>
+    </ul>
+
+    <h2>Cross-chain execution is not one atomic transaction</h2>
+    <p>An ERC-4337 UserOperation hash binds <code>chainId</code> and EntryPoint, so a UserOp for Chain A cannot be submitted directly on Chain B. A cross-chain action normally consists of two or more transactions plus bridge, messaging, or intent settlement:</p>
+    <ol>
+      <li>The source-chain Smart Account authorizes and locks/burns assets or emits a message.</li>
+      <li>The system waits for source finality, bridge proof/validators/relayer, and destination inclusion.</li>
+      <li>A destination bridge/receiver verifies source chain, original sender, destination, and nonce/message ID before the local account or executor acts.</li>
+    </ol>
+    <p>Each step can fail independently, so “A succeeded, B failed” is a normal failure mode. Define expiry, refund/retry, idempotency, message replay protection, partial-completion UI, and incident runbooks. The destination contract normally sees the bridge receiver as <code>msg.sender</code>, not the source Smart Account; never infer the original user from <code>msg.sender</code> alone.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 360" role="img" aria-label="Cross-chain Smart Account and reserve model: the same account address on Chain A and Chain B has independent state; source account passes through bridge escrow and asynchronous messaging to a destination receiver; bridged-token liability needs source escrow reserves.">
+          <defs>
+            <marker id="aa-en-chain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-en-chaina" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="24" y="30">Chain A / source</text>
+          <text class="svg-label" x="568" y="30">Chain B / destination</text>
+          <rect class="svg-node" x="24" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="106" y="102" text-anchor="middle">owner / nonce / modules A</text>
+          <rect class="svg-node-a" x="298" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="80" text-anchor="middle">Bridge / mailbox</text>
+          <text class="svg-ncode" x="380" y="102" text-anchor="middle">async proof + message ID</text>
+          <rect class="svg-node" x="572" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="654" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="654" y="102" text-anchor="middle">owner / nonce / modules B</text>
+          <line class="svg-flow" x1="188" y1="89" x2="296" y2="89" marker-end="url(#aa-en-chain)"></line>
+          <line class="svg-flow" x1="462" y1="89" x2="570" y2="89" marker-end="url(#aa-en-chain)"></line>
+          <text class="svg-flowlabel" x="242" y="78" text-anchor="middle">lock / message</text>
+          <text class="svg-flowlabel" x="516" y="78" text-anchor="middle">mint / execute</text>
+          <text class="svg-mono-a" x="380" y="158" text-anchor="middle">same address, separate state; async message may complete on only one side</text>
+          <rect class="svg-node-a" x="92" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="197" y="248" text-anchor="middle">Source escrow reserve</text>
+          <text class="svg-ncode" x="197" y="272" text-anchor="middle">locked canonical token</text>
+          <rect class="svg-node" x="458" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="563" y="248" text-anchor="middle">Destination liability</text>
+          <text class="svg-ncode" x="563" y="272" text-anchor="middle">bridged token supply</text>
+          <line class="svg-flow-a" x1="302" y1="259" x2="456" y2="259" marker-end="url(#aa-en-chaina)"></line>
+          <text class="svg-step" x="379" y="248" text-anchor="middle">reserve ≥ redeemable liability</text>
+          <text class="svg-mono-a" x="380" y="338" text-anchor="middle">subtract lent/encumbered reserves; include pending messages and every destination chain</text>
+        </svg>
+      </div>
+      <figcaption>Address equality improves UX but gives neither shared storage nor atomicity. Cross-chain security comes from message authentication, finality, DA, bridge upgrade keys, replay protection, and a usable exit path.</figcaption>
+    </figure>
+
+    <h2>Proof of reserve: assets are not the same as solvency</h2>
+    <p><strong>Native ERC-20:</strong> if a Smart Account directly holds a token, <code>balanceOf(account)</code> proves how many token units it owns on that chain; no extra PoR is needed to prove ownership. If the token itself represents fiat, gold, or another off-chain claim, issuer backing still requires separate verification. A wallet's “total across chains” is an indexer view summing separate balances, not one shared on-chain balance.</p>
+    <p><strong>Bridged/wrapped asset:</strong> a destination token is a liability claim. Redeemable reserves in source escrow should cover liabilities across every destination:</p>
+<pre><code>usableReserve =
+    canonicalAssetsLocked
+  - borrowedOrEncumberedAssets
+  - protocolFeesAndKnownShortfalls;
+
+totalLiability =
+    Σ destinationRedeemableSupply
+  + pendingOutboundClaims
+  - provablyBurnedPendingRedemptions;
+
+usableReserve &gt;= totalLiability;</code></pre>
+    <ul>
+      <li>Verify reserve address, token mapping, mint/burn authority, proxy upgrade admin, multisig threshold, and proof timestamp.</li>
+      <li>Include in-flight messages, total supply across all L2/L3s, withdrawal queues, challenge periods, and lent or rehypothecated reserves.</li>
+      <li>A Merkle proof, auditor attestation, or reserve-wallet signature proves assets at one point in time. Without complete liabilities, legal claim, and withdrawal availability, it is not proof of solvency.</li>
+      <li>When an intent solver or liquidity provider fronts destination assets, PoR/liquidity risk belongs to that solver, not the Smart Account. The user still bears solver, bridge, and final-settlement failure risk.</li>
+      <li>A rollup state root plus fraud/validity proof proves state transitions; DA lets users reconstruct state and exit. Those are different from whether bridge escrow is 1:1 backed.</li>
+    </ul>
+
     <h2>How do removal, revocation, cancellation, and “destruction” differ?</h2>
     <p>These are separate operations, and no universal cancel API applies to every Smart Account:</p>
     <ul>
@@ -1059,7 +1230,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
 <pre><code>0xef0100 ‖ delegate implementation address</code></pre>
     <p>A CALL to that EOA loads delegate code but executes in the EOA's own address, balance, and storage context. This is not a temporary one-transaction authorization: it persists until another delegate is authorized or <code>address(0)</code> clears the delegation.</p>
     <ul>
-      <li><code>chain_id = 0</code> permits cross-chain replay of the authorization; bind the actual chain unless that is explicitly intended.</li>
+      <li><code>chain_id = 0</code> allows the authorization to be used on another chain where the authority nonce matches; bind the actual chain unless that is explicitly intended.</li>
       <li>The authorization nonce protects setting code, not delegate <code>execute</code>, sessions, or signatures; those still require domain separation and replay protection.</li>
       <li>There is no delegate constructor. Initialization must resist front-running; with 4337 it must only accept <code>entryPoint.senderCreator()</code>.</li>
       <li>Destroyed or mutable delegate implementations directly affect the EOA; do not treat an arbitrarily upgradeable implementation as trustless.</li>
@@ -1178,6 +1349,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a> / <a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a> / <a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a> / <a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a> / <a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a> / <a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a> / <a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
+      <li><a href="https://ethereum.org/developers/docs/scaling/">Ethereum scaling</a> / <a href="https://ethereum.org/developers/docs/data-availability/">Data availability</a> / <a href="https://eips.ethereum.org/EIPS/eip-7964">ERC-7964 cross-chain signatures (draft)</a></li>
       <li><a href="https://github.com/eth-infinitism/account-abstraction">Reference implementation</a> / <a href="https://github.com/eth-infinitism/account-abstraction/releases">official releases and deployments</a></li>
       <li><a href="https://docs.erc4337.io/">ERC-4337 developer documentation</a></li>
     </ul>
