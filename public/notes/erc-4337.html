@@ -187,6 +187,77 @@
     </ol>
     <p><code>validationData</code> 同時編碼 signature aggregator、<code>validAfter</code> 與 <code>validUntil</code>。v0.9 也可用最高 bit 表示 block-number validity。Account 與 Paymaster 的有效區間會取交集。</p>
 
+    <h2>Gas：誰先付、預留多少、最後扣多少</h2>
+    <p><strong>Bundler 先用自己的 ETH 支付整筆 bundle transaction；EntryPoint 執行後，再從 Account 或 Paymaster 的 EntryPoint deposit 扣款並補償 beneficiary。</strong>「Paymaster 贊助」只是把最終 payer 換成 Paymaster，不代表 gas 消失；使用者即使付 ERC-20，鏈上網路費最後仍由某個 deposit 以原生幣結算。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>欄位</th><th>涵蓋階段</th><th>常見低估原因</th></tr></thead>
+      <tbody>
+        <tr><td><code>preVerificationGas</code></td><td>calldata、bundle 固定成本、EntryPoint 無法直接量到的鏈下／L2 data 成本</td><td>signature／paymaster data 長度改變、L2 data fee、7702 authorization</td></tr>
+        <tr><td><code>verificationGasLimit</code></td><td>sender 建立與 Account validation 的 gas budget</td><td>第一次部署、multisig／passkey、storage cold access</td></tr>
+        <tr><td><code>paymasterVerificationGasLimit</code></td><td>Paymaster validation</td><td>oracle、quota、複雜 sponsorship policy</td></tr>
+        <tr><td><code>callGasLimit</code></td><td>Account execution 與 target calls</td><td>batch、首次 token approval、外部協議狀態分支</td></tr>
+        <tr><td><code>paymasterPostOpGasLimit</code></td><td>Paymaster <code>postOp</code></td><td>token 收費、記帳與 target revert 後的處理</td></tr>
+        <tr><td><code>maxFeePerGas</code>／<code>maxPriorityFeePerGas</code></td><td>每單位 gas 願意支付的上限</td><td>base fee 在等待 inclusion 時上升</td></tr>
+      </tbody>
+    </table></div>
+<pre><code><span class="c">// EntryPoint v0.9 的最大預付額，省略 packing</span>
+requiredGas =
+    verificationGasLimit +
+    callGasLimit +
+    paymasterVerificationGasLimit +
+    paymasterPostOpGasLimit +
+    preVerificationGas;
+
+requiredPrefund = requiredGas * maxFeePerGas;
+
+actualUserOpFeePerGas = min(maxFeePerGas, block.basefee + maxPriorityFeePerGas);
+actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
+    <ul>
+      <li><strong>Self-funded：</strong>Account 先在 EntryPoint 有 deposit，或在 <code>validateUserOp</code> 補上 <code>missingAccountFunds</code>；EntryPoint 從該 deposit 扣款。</li>
+      <li><strong>Sponsored：</strong>EntryPoint 從 Paymaster deposit 扣款；即使 target execution revert，已消耗的 validation／execution／postOp gas 仍由 sponsor 支付。</li>
+      <li><strong>Refund：</strong>prefund 只是上限預留，未使用部分回到原 payer 的 EntryPoint deposit，不是退到 Bundler。</li>
+      <li><strong>Unused-gas penalty：</strong>v0.9 對大量未使用的 <code>callGasLimit</code>／paymaster postOp gas 收 10% penalty；未使用量不超過 40,000 gas 時不收，避免 UserOp 虛佔 bundle 容量。</li>
+      <li><strong>7702：</strong>authorization 出現時，Bundler 要把無法在 EntryPoint 內直接觀察的 <code>PER_EMPTY_ACCOUNT_COST = 25,000</code> gas 納入 <code>preVerificationGas</code>。</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 310" role="img" aria-label="ERC-4337 gas 資金流：Bundler 先支付 handleOps transaction，EntryPoint 預鎖 Account 或 Paymaster deposit，執行後按 charged gas used 與有效 gas price 結算 beneficiary，剩餘 prefund 回到 payer deposit。">
+          <defs>
+            <marker id="aa-zh-gas" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-zh-gasa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="28" y="40" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="68" text-anchor="middle">Bundler EOA</text>
+          <text class="svg-ncode" x="104" y="90" text-anchor="middle">先付 bundle tx gas</text>
+          <rect class="svg-node-a" x="304" y="40" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="68" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="380" y="90" text-anchor="middle">lock → meter → settle</text>
+          <rect class="svg-node" x="580" y="40" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="68" text-anchor="middle">Beneficiary</text>
+          <text class="svg-ncode" x="656" y="90" text-anchor="middle">收到實際補償</text>
+          <line class="svg-flow" x1="180" y1="75" x2="302" y2="75" marker-end="url(#aa-zh-gas)"></line>
+          <line class="svg-flow" x1="456" y1="75" x2="578" y2="75" marker-end="url(#aa-zh-gas)"></line>
+          <text class="svg-flowlabel" x="241" y="64" text-anchor="middle">handleOps()</text>
+          <text class="svg-flowlabel" x="517" y="64" text-anchor="middle">actualGasCost</text>
+          <rect class="svg-node" x="86" y="200" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="176" y="228" text-anchor="middle">Account deposit</text>
+          <text class="svg-ncode" x="176" y="250" text-anchor="middle">self-funded payer</text>
+          <text class="svg-label" x="356" y="240" text-anchor="middle">或</text>
+          <rect class="svg-node" x="446" y="200" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="536" y="228" text-anchor="middle">Paymaster deposit</text>
+          <text class="svg-ncode" x="536" y="250" text-anchor="middle">sponsored payer</text>
+          <line class="svg-flow-a" x1="210" y1="198" x2="342" y2="112" marker-end="url(#aa-zh-gasa)"></line>
+          <line class="svg-flow-a" x1="502" y1="198" x2="418" y2="112" marker-end="url(#aa-zh-gasa)"></line>
+          <text class="svg-step" x="380" y="164" text-anchor="middle">先鎖 requiredPrefund；結算後把 surplus 退回 payer deposit</text>
+          <text class="svg-mono-a" x="380" y="300" text-anchor="middle">target revert 仍會消耗 gas；UserOp success 與 gas payment 是兩件事</text>
+        </svg>
+      </div>
+      <figcaption>Bundler transaction receipt 的 <code>gasUsed</code> 是整個 bundle；單一 UserOperation 應查看 <code>UserOperationEvent</code>／Bundler receipt 的 <code>actualGasUsed</code> 與 <code>actualGasCost</code>，不能把整筆 transaction gas 全算給一個使用者。</figcaption>
+    </figure>
+
+    <p><strong>估算順序：</strong>先建立接近最終形狀的 UserOp，取得 Paymaster stub data，再呼叫 <code>eth_estimateUserOperationGas</code>，填入最終 paymaster data／signature 後若長度或邏輯改變就重新估算。不要把 gas limits 設成無限大：除了 prefund 過高，v0.9 unused-gas penalty 也會讓過度 padding 真正花錢。L2 還要確認 Bundler 如何把 calldata／data-availability fee 納入 <code>preVerificationGas</code>。</p>
+
     <h2>四條必須分清楚的 call path</h2>
     <ol>
       <li><strong>已部署帳戶、自付 gas：</strong><code>validateUserOp → account deposit/prefund → account.execute → target</code>。</li>
@@ -333,6 +404,91 @@ token.balanceOf(smartAccount); <span class="c">// 獨立 4337 account 的餘額�
       <figcaption>EntryPoint、Bundler 與 Paymaster 都不持有使用者的 ERC-20。它們參與驗證、提交與 gas 結算；token balance 永遠跟著 ERC-20 mapping 裡的 holder address。</figcaption>
     </figure>
 
+    <h2>L1、L2、L3：相同地址不等於相同帳戶狀態</h2>
+    <p>EOA 通常在各 EVM chain 有相同地址；CREATE2 Smart Account 也可能刻意部署到相同地址。但每條 chain 仍有獨立的 code、storage、nonce、balance、modules、owner policy、EntryPoint deposit 與 7702 delegation。某鏈上的 owner rotation 或 session-key revocation，不會自動同步到另一條鏈。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>環境</th><th>Smart Account 特別要檢查</th><th>失效／退出假設</th></tr></thead>
+      <tbody>
+        <tr><td><strong>L1</strong></td><td>EntryPoint 版本、Bundler 支援、較高 verification／calldata 成本</td><td>L1 finality、base fee；通常是最終 settlement layer</td></tr>
+        <tr><td><strong>L2 rollup</strong></td><td>sequencer endpoint、L1 data fee 如何進入 <code>preVerificationGas</code>、原生 gas token、system contracts</td><td>soft confirmation ≠ L1 finality；檢查 forced inclusion／withdrawal、challenge 或 validity-proof 狀態</td></tr>
+        <tr><td><strong>L3／appchain</strong></td><td>除了 L2 風險，再確認它結算到哪條 L2、使用哪個 DA layer、bridge 與 account stack 是否相容</td><td>通常同時依賴 L3 operator、L2、L1 與 DA；escape hatch 可能更弱或根本不存在</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><strong>相同 4337 地址：</strong>只有 Factory address、CREATE2 salt、完整 init code 與 deployer semantics 都一致時才可預測；還要逐鏈驗證 Factory／implementation code hash，不能只比較地址。</li>
+      <li><strong>相同 EOA／7702 地址：</strong>delegation 是每鏈 state。<code>chain_id = 0</code> authorization 可能在 nonce 符合的其他鏈被使用，而相同 delegate address 在另一鏈甚至可能是不同 code。</li>
+      <li><strong>Gas：</strong>Account／Paymaster 的 EntryPoint deposit 各鏈獨立；L1 有錢不代表 L2 可付 gas，某鏈 sponsor policy 也不代表另一鏈接受。</li>
+      <li><strong>Recovery：</strong>要明確決定 owner、guardian、module registry 與 upgrade 是否逐鏈管理，或透過可信 cross-chain governance 同步；同步延遲期間必須定義哪條鏈是 authority source。</li>
+    </ul>
+
+    <h2>Cross-chain：不是一筆原子 transaction</h2>
+    <p>ERC-4337 UserOperation 的 hash 綁定 <code>chainId</code> 與 EntryPoint，所以 Chain A 的 UserOp 不能直接拿到 Chain B 執行。跨鏈操作通常是兩筆以上的 transaction，加上一段 bridge／messaging／intent settlement：</p>
+    <ol>
+      <li>Source chain 的 Smart Account 授權並鎖定／燃燒資產或送出 message。</li>
+      <li>等待 source finality、bridge proof／validator／relayer，以及 destination inclusion。</li>
+      <li>Destination bridge／receiver 驗證 source chain、original sender、destination、nonce/message ID 後，才由當地 account 或 executor 執行。</li>
+    </ol>
+    <p>任何一步都可能獨立失敗，因此「A 成功、B 失敗」是正常 failure mode。產品必須有 expiry、refund／retry、idempotency、message replay protection、partial-completion UI 與 incident runbook。Destination contract 看到的 <code>msg.sender</code> 通常是 bridge receiver，不是 source Smart Account；不可只靠 <code>msg.sender</code> 推斷原始使用者。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 360" role="img" aria-label="跨鏈 Smart Account 與 reserve 模型：Chain A 與 Chain B 的相同 account address 各自有獨立 state；source account 經 bridge escrow 和非同步 message 到 destination receiver；bridged token liability 需由 source escrow reserve 支持。">
+          <defs>
+            <marker id="aa-zh-chain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-zh-chaina" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="24" y="30">Chain A / source</text>
+          <text class="svg-label" x="568" y="30">Chain B / destination</text>
+          <rect class="svg-node" x="24" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="106" y="102" text-anchor="middle">owner / nonce / modules A</text>
+          <rect class="svg-node-a" x="298" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="80" text-anchor="middle">Bridge / mailbox</text>
+          <text class="svg-ncode" x="380" y="102" text-anchor="middle">async proof + message ID</text>
+          <rect class="svg-node" x="572" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="654" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="654" y="102" text-anchor="middle">owner / nonce / modules B</text>
+          <line class="svg-flow" x1="188" y1="89" x2="296" y2="89" marker-end="url(#aa-zh-chain)"></line>
+          <line class="svg-flow" x1="462" y1="89" x2="570" y2="89" marker-end="url(#aa-zh-chain)"></line>
+          <text class="svg-flowlabel" x="242" y="78" text-anchor="middle">lock / message</text>
+          <text class="svg-flowlabel" x="516" y="78" text-anchor="middle">mint / execute</text>
+          <text class="svg-mono-a" x="380" y="158" text-anchor="middle">相同 address，兩份 state；message 非同步且可能只完成一邊</text>
+          <rect class="svg-node-a" x="92" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="197" y="248" text-anchor="middle">Source escrow reserve</text>
+          <text class="svg-ncode" x="197" y="272" text-anchor="middle">locked canonical token</text>
+          <rect class="svg-node" x="458" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="563" y="248" text-anchor="middle">Destination liability</text>
+          <text class="svg-ncode" x="563" y="272" text-anchor="middle">bridged token supply</text>
+          <line class="svg-flow-a" x1="302" y1="259" x2="456" y2="259" marker-end="url(#aa-zh-chaina)"></line>
+          <text class="svg-step" x="379" y="248" text-anchor="middle">reserve ≥ redeemable liability</text>
+          <text class="svg-mono-a" x="380" y="338" text-anchor="middle">還要扣除借出／受限 reserve，並計入 pending messages 與所有 destination chains</text>
+        </svg>
+      </div>
+      <figcaption>地址一致只改善 UX，不會帶來共享 storage 或原子性。真正的跨鏈安全來自 message authentication、finality、DA、bridge upgrade keys、replay protection 與可用的退出路徑。</figcaption>
+    </figure>
+
+    <h2>Proof of reserve：證明有資產，不等於證明可償付</h2>
+    <p><strong>原生 ERC-20：</strong>如果 token 直接持有在 Smart Account，該鏈的 <code>balanceOf(account)</code> 已能證明帳戶持有多少 token units，不需要額外 PoR 來證明 ownership。但若 token 本身代表法幣、黃金或其他 off-chain claim，發行方的 backing 仍要另行驗證。Wallet 顯示的「多鏈總資產」只是 indexer 把各鏈 balance 加總的 view，不是一份共享鏈上 balance。</p>
+    <p><strong>Bridged／wrapped asset：</strong>destination token 是負債憑證，應檢查 source escrow 的可贖回 reserve 是否覆蓋所有 destination liabilities：</p>
+<pre><code>usableReserve =
+    canonicalAssetsLocked
+  - borrowedOrEncumberedAssets
+  - protocolFeesAndKnownShortfalls;
+
+totalLiability =
+    Σ destinationRedeemableSupply
+  + pendingOutboundClaims
+  - provablyBurnedPendingRedemptions;
+
+usableReserve &gt;= totalLiability;</code></pre>
+    <ul>
+      <li>核對 reserve address、token mapping、mint／burn authority、proxy upgrade admin、multisig threshold 與證明時間。</li>
+      <li>把 in-flight messages、不同 L2/L3 的總 supply、提款 queue、challenge period 與已被借出／再質押的 reserve 納入。</li>
+      <li>Merkle proof、auditor attestation 或 reserve wallet signature 只證明某個時間點的資產；沒有完整 proof of liabilities、資產權利與可提款性，就不是 solvency proof。</li>
+      <li>Intent solver／liquidity provider 先墊 destination 資產時，PoR／liquidity risk 屬於 solver，不是 Smart Account 本身；使用者仍承擔 solver、bridge 與最終 settlement 失敗風險。</li>
+      <li>Rollup 的 state root／fraud proof／validity proof 證明 state transition；DA 保證你能重建／退出。它們與「bridge escrow 是否 1:1 backed」是不同問題。</li>
+    </ul>
+
     <h2>如何撤銷、取消、移除或「銷毀」？</h2>
     <p>這四個動作不是同一件事，也沒有一個適用所有 Smart Accounts 的全域 cancel API：</p>
     <ul>
@@ -412,7 +568,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
 <pre><code>0xef0100 ‖ delegate implementation address</code></pre>
     <p>之後 CALL 該 EOA 時，會載入 delegate 的 code，但在 EOA 自己的 address、balance 與 storage context 執行，類似固定於帳戶地址的 delegation。它不是單筆交易後自動消失的暫時授權；要更換 delegate 必須再授權另一地址，授權 <code>address(0)</code> 則清除 delegation。</p>
     <ul>
-      <li><code>chain_id = 0</code> 可跨鏈重播同一 authorization；除非刻意需要，應綁定實際 chain ID。</li>
+      <li><code>chain_id = 0</code> 令同一 authorization 可能在 authority nonce 符合的其他鏈使用；除非刻意需要，應綁定實際 chain ID。</li>
       <li>authorization nonce 保護「設定 code」不被重放，但 delegate 的 <code>execute</code>、session 與簽章仍要自行做 domain separation 和 replay protection。</li>
       <li>delegate 沒有 constructor；初始化必須防搶跑。與 4337 組合時，初始化呼叫必須只接受 <code>entryPoint.senderCreator()</code>。</li>
       <li>delegate implementation 被銷毀或行為改變會直接影響 EOA；不要把未固定、可任意升級的 implementation 當成無信任基礎。</li>
@@ -531,6 +687,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a>／<a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a>／<a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a>／<a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a>／<a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a>／<a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a>／<a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
+      <li><a href="https://ethereum.org/developers/docs/scaling/">Ethereum scaling</a>／<a href="https://ethereum.org/developers/docs/data-availability/">Data availability</a>／<a href="https://eips.ethereum.org/EIPS/eip-7964">ERC-7964 cross-chain signatures（draft）</a></li>
       <li><a href="https://github.com/eth-infinitism/account-abstraction">Reference implementation</a>／<a href="https://github.com/eth-infinitism/account-abstraction/releases">official releases and deployments</a></li>
       <li><a href="https://docs.erc4337.io/">ERC-4337 developer documentation</a></li>
     </ul>
@@ -692,6 +849,77 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     </ol>
     <p><code>validationData</code> combines a signature aggregator with <code>validAfter</code> and <code>validUntil</code>. v0.9 may use the top bit to express block-number validity. Account and paymaster validity windows are intersected.</p>
 
+    <h2>Gas: who fronts it, how much is reserved, and what is charged</h2>
+    <p><strong>The Bundler fronts ETH for the whole bundle transaction. After execution, EntryPoint charges the Account or Paymaster deposit and compensates the beneficiary.</strong> Sponsorship changes the final payer; it does not make gas free. Even when a user pays in ERC-20, some EntryPoint deposit ultimately settles the network fee in native currency.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Field</th><th>Phase covered</th><th>Common underestimation cause</th></tr></thead>
+      <tbody>
+        <tr><td><code>preVerificationGas</code></td><td>calldata, fixed bundle overhead, and off-chain/L2 data costs EntryPoint cannot meter directly</td><td>signature/paymaster-data length, L2 data fee, 7702 authorization</td></tr>
+        <tr><td><code>verificationGasLimit</code></td><td>sender creation and Account validation budget</td><td>first deployment, multisig/passkey, cold storage access</td></tr>
+        <tr><td><code>paymasterVerificationGasLimit</code></td><td>Paymaster validation</td><td>oracle, quota, or complex sponsorship policy</td></tr>
+        <tr><td><code>callGasLimit</code></td><td>Account execution and target calls</td><td>batches, first token approval, external-protocol branches</td></tr>
+        <tr><td><code>paymasterPostOpGasLimit</code></td><td>Paymaster <code>postOp</code></td><td>token charging, accounting, and target-revert handling</td></tr>
+        <tr><td><code>maxFeePerGas</code>/<code>maxPriorityFeePerGas</code></td><td>maximum price per unit of gas</td><td>base fee rising before inclusion</td></tr>
+      </tbody>
+    </table></div>
+<pre><code><span class="c">// EntryPoint v0.9 maximum prefund, shown without packing</span>
+requiredGas =
+    verificationGasLimit +
+    callGasLimit +
+    paymasterVerificationGasLimit +
+    paymasterPostOpGasLimit +
+    preVerificationGas;
+
+requiredPrefund = requiredGas * maxFeePerGas;
+
+actualUserOpFeePerGas = min(maxFeePerGas, block.basefee + maxPriorityFeePerGas);
+actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
+    <ul>
+      <li><strong>Self-funded:</strong> the Account already has an EntryPoint deposit or sends <code>missingAccountFunds</code> during <code>validateUserOp</code>; EntryPoint debits that deposit.</li>
+      <li><strong>Sponsored:</strong> EntryPoint debits the Paymaster deposit. If target execution reverts, the sponsor still pays gas consumed by validation, execution, and <code>postOp</code>.</li>
+      <li><strong>Refund:</strong> prefund is a maximum reservation. The surplus returns to the original payer's EntryPoint deposit, not to the Bundler.</li>
+      <li><strong>Unused-gas penalty:</strong> v0.9 charges 10% on substantially unused <code>callGasLimit</code>/paymaster postOp gas; no penalty applies when no more than 40,000 gas is unused. This prevents a UserOp from reserving bundle capacity without using it.</li>
+      <li><strong>7702:</strong> when authorization is present, the Bundler includes the unobservable <code>PER_EMPTY_ACCOUNT_COST = 25,000</code> gas in <code>preVerificationGas</code>.</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 310" role="img" aria-label="ERC-4337 gas funding flow: Bundler first pays for the handleOps transaction; EntryPoint locks an Account or Paymaster deposit, settles beneficiary according to charged gas used and effective gas price, then returns prefund surplus to the payer deposit.">
+          <defs>
+            <marker id="aa-en-gas" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-en-gasa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="28" y="40" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="68" text-anchor="middle">Bundler EOA</text>
+          <text class="svg-ncode" x="104" y="90" text-anchor="middle">fronts bundle tx gas</text>
+          <rect class="svg-node-a" x="304" y="40" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="68" text-anchor="middle">EntryPoint</text>
+          <text class="svg-ncode" x="380" y="90" text-anchor="middle">lock → meter → settle</text>
+          <rect class="svg-node" x="580" y="40" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="68" text-anchor="middle">Beneficiary</text>
+          <text class="svg-ncode" x="656" y="90" text-anchor="middle">receives compensation</text>
+          <line class="svg-flow" x1="180" y1="75" x2="302" y2="75" marker-end="url(#aa-en-gas)"></line>
+          <line class="svg-flow" x1="456" y1="75" x2="578" y2="75" marker-end="url(#aa-en-gas)"></line>
+          <text class="svg-flowlabel" x="241" y="64" text-anchor="middle">handleOps()</text>
+          <text class="svg-flowlabel" x="517" y="64" text-anchor="middle">actualGasCost</text>
+          <rect class="svg-node" x="86" y="200" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="176" y="228" text-anchor="middle">Account deposit</text>
+          <text class="svg-ncode" x="176" y="250" text-anchor="middle">self-funded payer</text>
+          <text class="svg-label" x="356" y="240" text-anchor="middle">or</text>
+          <rect class="svg-node" x="446" y="200" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="536" y="228" text-anchor="middle">Paymaster deposit</text>
+          <text class="svg-ncode" x="536" y="250" text-anchor="middle">sponsored payer</text>
+          <line class="svg-flow-a" x1="210" y1="198" x2="342" y2="112" marker-end="url(#aa-en-gasa)"></line>
+          <line class="svg-flow-a" x1="502" y1="198" x2="418" y2="112" marker-end="url(#aa-en-gasa)"></line>
+          <text class="svg-step" x="380" y="164" text-anchor="middle">lock requiredPrefund first; return surplus to payer deposit after settlement</text>
+          <text class="svg-mono-a" x="380" y="300" text-anchor="middle">target revert still consumes gas; UserOp success and gas payment are separate</text>
+        </svg>
+      </div>
+      <figcaption>The transaction receipt's <code>gasUsed</code> covers the entire bundle. For one UserOperation, use <code>UserOperationEvent</code> or the Bundler receipt's <code>actualGasUsed</code> and <code>actualGasCost</code>; do not assign the whole transaction's gas to one user.</figcaption>
+    </figure>
+
+    <p><strong>Estimation sequence:</strong> build a near-final UserOp, fetch Paymaster stub data, call <code>eth_estimateUserOperationGas</code>, then re-estimate if final paymaster data/signature changes size or behavior. Do not set unlimited gas budgets: besides excessive prefund, v0.9 unused-gas penalties make extreme padding cost real money. On L2, verify how the Bundler includes calldata/data-availability fees in <code>preVerificationGas</code>.</p>
+
     <h2>Four call paths to distinguish</h2>
     <ol>
       <li><strong>Deployed account, self-funded:</strong> <code>validateUserOp → account deposit/prefund → account.execute → target</code>.</li>
@@ -838,6 +1066,91 @@ token.balanceOf(smartAccount); <span class="c">// separate 4337 account balance,
       <figcaption>EntryPoint, Bundler, and Paymaster do not hold the user's ERC-20s. They validate, submit, and settle gas; token balances remain keyed by the holder address in the token contract.</figcaption>
     </figure>
 
+    <h2>L1, L2, and L3: the same address is not the same account state</h2>
+    <p>An EOA usually has the same address across EVM chains, and a CREATE2 Smart Account may deliberately be deployed to the same address. Each chain still has independent code, storage, nonce, balance, modules, owner policy, EntryPoint deposit, and 7702 delegation. Rotating an owner or revoking a session key on one chain does not automatically update another.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Environment</th><th>Smart Account checks</th><th>Failure/exit assumptions</th></tr></thead>
+      <tbody>
+        <tr><td><strong>L1</strong></td><td>EntryPoint version, Bundler support, and higher verification/calldata cost</td><td>L1 finality and base fee; commonly the final settlement layer</td></tr>
+        <tr><td><strong>L2 rollup</strong></td><td>sequencer endpoint, how L1 data fee enters <code>preVerificationGas</code>, native gas token, and system contracts</td><td>soft confirmation ≠ L1 finality; inspect forced inclusion/withdrawal plus challenge or validity-proof status</td></tr>
+        <tr><td><strong>L3/appchain</strong></td><td>in addition to L2 risks, identify the settlement L2, DA layer, bridge, and account-stack compatibility</td><td>often depends on L3 operator, L2, L1, and DA; escape hatches may be weaker or absent</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><strong>Same 4337 address:</strong> requires matching Factory address, CREATE2 salt, complete init code, and deployer semantics. Verify Factory/implementation code hash on every chain; address equality alone is insufficient.</li>
+      <li><strong>Same EOA/7702 address:</strong> delegation is chain-local state. A <code>chain_id = 0</code> authorization may be usable on another chain where the nonce matches, and the same delegate address may contain different code there.</li>
+      <li><strong>Gas:</strong> Account and Paymaster EntryPoint deposits are chain-specific. Funds on L1 do not pay L2 gas, and one chain's sponsorship policy does not imply another will accept it.</li>
+      <li><strong>Recovery:</strong> explicitly decide whether owner, guardians, module registry, and upgrades are managed per chain or synchronized through trusted cross-chain governance. During synchronization delay, define which chain is the authority source.</li>
+    </ul>
+
+    <h2>Cross-chain execution is not one atomic transaction</h2>
+    <p>An ERC-4337 UserOperation hash binds <code>chainId</code> and EntryPoint, so a UserOp for Chain A cannot be submitted directly on Chain B. A cross-chain action normally consists of two or more transactions plus bridge, messaging, or intent settlement:</p>
+    <ol>
+      <li>The source-chain Smart Account authorizes and locks/burns assets or emits a message.</li>
+      <li>The system waits for source finality, bridge proof/validators/relayer, and destination inclusion.</li>
+      <li>A destination bridge/receiver verifies source chain, original sender, destination, and nonce/message ID before the local account or executor acts.</li>
+    </ol>
+    <p>Each step can fail independently, so “A succeeded, B failed” is a normal failure mode. Define expiry, refund/retry, idempotency, message replay protection, partial-completion UI, and incident runbooks. The destination contract normally sees the bridge receiver as <code>msg.sender</code>, not the source Smart Account; never infer the original user from <code>msg.sender</code> alone.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 360" role="img" aria-label="Cross-chain Smart Account and reserve model: the same account address on Chain A and Chain B has independent state; source account passes through bridge escrow and asynchronous messaging to a destination receiver; bridged-token liability needs source escrow reserves.">
+          <defs>
+            <marker id="aa-en-chain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="aa-en-chaina" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="24" y="30">Chain A / source</text>
+          <text class="svg-label" x="568" y="30">Chain B / destination</text>
+          <rect class="svg-node" x="24" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="106" y="102" text-anchor="middle">owner / nonce / modules A</text>
+          <rect class="svg-node-a" x="298" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="80" text-anchor="middle">Bridge / mailbox</text>
+          <text class="svg-ncode" x="380" y="102" text-anchor="middle">async proof + message ID</text>
+          <rect class="svg-node" x="572" y="52" width="164" height="74" rx="10"></rect>
+          <text class="svg-nlabel" x="654" y="80" text-anchor="middle">Account 0xA</text>
+          <text class="svg-ncode" x="654" y="102" text-anchor="middle">owner / nonce / modules B</text>
+          <line class="svg-flow" x1="188" y1="89" x2="296" y2="89" marker-end="url(#aa-en-chain)"></line>
+          <line class="svg-flow" x1="462" y1="89" x2="570" y2="89" marker-end="url(#aa-en-chain)"></line>
+          <text class="svg-flowlabel" x="242" y="78" text-anchor="middle">lock / message</text>
+          <text class="svg-flowlabel" x="516" y="78" text-anchor="middle">mint / execute</text>
+          <text class="svg-mono-a" x="380" y="158" text-anchor="middle">same address, separate state; async message may complete on only one side</text>
+          <rect class="svg-node-a" x="92" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="197" y="248" text-anchor="middle">Source escrow reserve</text>
+          <text class="svg-ncode" x="197" y="272" text-anchor="middle">locked canonical token</text>
+          <rect class="svg-node" x="458" y="218" width="210" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="563" y="248" text-anchor="middle">Destination liability</text>
+          <text class="svg-ncode" x="563" y="272" text-anchor="middle">bridged token supply</text>
+          <line class="svg-flow-a" x1="302" y1="259" x2="456" y2="259" marker-end="url(#aa-en-chaina)"></line>
+          <text class="svg-step" x="379" y="248" text-anchor="middle">reserve ≥ redeemable liability</text>
+          <text class="svg-mono-a" x="380" y="338" text-anchor="middle">subtract lent/encumbered reserves; include pending messages and every destination chain</text>
+        </svg>
+      </div>
+      <figcaption>Address equality improves UX but gives neither shared storage nor atomicity. Cross-chain security comes from message authentication, finality, DA, bridge upgrade keys, replay protection, and a usable exit path.</figcaption>
+    </figure>
+
+    <h2>Proof of reserve: assets are not the same as solvency</h2>
+    <p><strong>Native ERC-20:</strong> if a Smart Account directly holds a token, <code>balanceOf(account)</code> proves how many token units it owns on that chain; no extra PoR is needed to prove ownership. If the token itself represents fiat, gold, or another off-chain claim, issuer backing still requires separate verification. A wallet's “total across chains” is an indexer view summing separate balances, not one shared on-chain balance.</p>
+    <p><strong>Bridged/wrapped asset:</strong> a destination token is a liability claim. Redeemable reserves in source escrow should cover liabilities across every destination:</p>
+<pre><code>usableReserve =
+    canonicalAssetsLocked
+  - borrowedOrEncumberedAssets
+  - protocolFeesAndKnownShortfalls;
+
+totalLiability =
+    Σ destinationRedeemableSupply
+  + pendingOutboundClaims
+  - provablyBurnedPendingRedemptions;
+
+usableReserve &gt;= totalLiability;</code></pre>
+    <ul>
+      <li>Verify reserve address, token mapping, mint/burn authority, proxy upgrade admin, multisig threshold, and proof timestamp.</li>
+      <li>Include in-flight messages, total supply across all L2/L3s, withdrawal queues, challenge periods, and lent or rehypothecated reserves.</li>
+      <li>A Merkle proof, auditor attestation, or reserve-wallet signature proves assets at one point in time. Without complete liabilities, legal claim, and withdrawal availability, it is not proof of solvency.</li>
+      <li>When an intent solver or liquidity provider fronts destination assets, PoR/liquidity risk belongs to that solver, not the Smart Account. The user still bears solver, bridge, and final-settlement failure risk.</li>
+      <li>A rollup state root plus fraud/validity proof proves state transitions; DA lets users reconstruct state and exit. Those are different from whether bridge escrow is 1:1 backed.</li>
+    </ul>
+
     <h2>How do removal, revocation, cancellation, and “destruction” differ?</h2>
     <p>These are separate operations, and no universal cancel API applies to every Smart Account:</p>
     <ul>
@@ -917,7 +1230,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
 <pre><code>0xef0100 ‖ delegate implementation address</code></pre>
     <p>A CALL to that EOA loads delegate code but executes in the EOA's own address, balance, and storage context. This is not a temporary one-transaction authorization: it persists until another delegate is authorized or <code>address(0)</code> clears the delegation.</p>
     <ul>
-      <li><code>chain_id = 0</code> permits cross-chain replay of the authorization; bind the actual chain unless that is explicitly intended.</li>
+      <li><code>chain_id = 0</code> allows the authorization to be used on another chain where the authority nonce matches; bind the actual chain unless that is explicitly intended.</li>
       <li>The authorization nonce protects setting code, not delegate <code>execute</code>, sessions, or signatures; those still require domain separation and replay protection.</li>
       <li>There is no delegate constructor. Initialization must resist front-running; with 4337 it must only accept <code>entryPoint.senderCreator()</code>.</li>
       <li>Destroyed or mutable delegate implementations directly affect the EOA; do not treat an arbitrarily upgradeable implementation as trustless.</li>
@@ -1036,6 +1349,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a> / <a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a> / <a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a> / <a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a> / <a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a> / <a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a> / <a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
+      <li><a href="https://ethereum.org/developers/docs/scaling/">Ethereum scaling</a> / <a href="https://ethereum.org/developers/docs/data-availability/">Data availability</a> / <a href="https://eips.ethereum.org/EIPS/eip-7964">ERC-7964 cross-chain signatures (draft)</a></li>
       <li><a href="https://github.com/eth-infinitism/account-abstraction">Reference implementation</a> / <a href="https://github.com/eth-infinitism/account-abstraction/releases">official releases and deployments</a></li>
       <li><a href="https://docs.erc4337.io/">ERC-4337 developer documentation</a></li>
     </ul>
