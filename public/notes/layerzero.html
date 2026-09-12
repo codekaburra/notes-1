@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LayerZero 跨鏈訊息</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="LayerZero 跨鏈訊息" data-title-en="Cross-chain messaging with LayerZero">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>LayerZero 跨鏈訊息</h1>
+    <p class="meta">2026-09-11 · LayerZero V2 · OApp · OFT · DVN · 開發者指南</p>
+
+    <p><strong>LayerZero 不是 rollup，也不是 canonical 橋。</strong>它是一條可配置的跨鏈訊息層：來源鏈的合約把 bytes 交給 Endpoint，一組你選定的驗證者（DVN）在目的鏈證明「這則封包確實存在」，再由 Executor（或任何人）呼叫目的合約。資產怎麼鎖、燒、鑄，是 OApp／OFT 自己的事，不是協議替你保證的 L1 最終性。合約作者要寫對的是 peer 的 bytes32 packing、Endpoint 守衛、enforced options、compose 的重入，以及「Executor 不是權限來源」。</p>
+    <blockquote><p>把 OP／ZK 的出入金想成「L2 狀態機的門」；把 LayerZero 想成「任意兩條鏈上兩份合約之間的掛號信」。信件的真實性取決於你選的郵差，不取決於 Ethereum 的挑戰期或 zk verifier。</p></blockquote>
+
+    <h2>V2 的元件</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>元件</th><th>職責</th><th>信任</th></tr></thead>
+      <tbody>
+        <tr><td><strong>EndpointV2</strong></td><td>每條鏈一個入口；<code>send</code>／<code>lzReceive</code>、nonce、餘額</td><td>不可升級的薄層（以官方部署為準）；OApp 面對的唯一介面</td></tr>
+        <tr><td><strong>MessageLib（ULN 302）</strong></td><td>對封包雜湊、向 worker 派工、收驗證</td><td>OApp 可選 Send／Receive lib；多數走 Ultra Light Node</td></tr>
+        <tr><td><strong>DVN</strong></td><td>獨立驗證來源鏈上確有此封包</td><td><strong>安全在這裡</strong>：X of Y 的組合就是你的安全模型</td></tr>
+        <tr><td><strong>Executor</strong></td><td>目的鏈上代付 gas、呼叫 <code>lzReceive</code></td><td>活性，不是安全；驗證過後任何人都能執行</td></tr>
+        <tr><td><strong>OApp</strong></td><td>你的合約：編碼訊息、處理 <code>_lzReceive</code></td><td>必須自己驗證 <code>origin.sender</code> 是 peer</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="LayerZero V2 路徑：來源 OApp 呼叫 Endpoint.send，SendLib 向 DVN 與 Executor 派工；目的鏈上 DVN 驗證封包，門檻達到後 Executor 呼叫 Endpoint.lzReceive，再進入目的 OApp。">
+          <defs>
+            <marker id="lz-zh-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="lz-zh-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="28">來源鏈</text>
+          <rect class="svg-node" x="28" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="103" y="70" text-anchor="middle">OApp._lzSend</text>
+          <text class="svg-ncode" x="103" y="90" text-anchor="middle">payload + options</text>
+          <rect class="svg-node-a" x="214" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="289" y="70" text-anchor="middle">Endpoint.send</text>
+          <text class="svg-ncode" x="289" y="90" text-anchor="middle">nonce · fee</text>
+          <rect class="svg-node" x="400" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="70" text-anchor="middle">SendUln302</text>
+          <text class="svg-ncode" x="475" y="90" text-anchor="middle">派工 DVN / Exec</text>
+          <line class="svg-flow" x1="178" y1="76" x2="212" y2="76" marker-end="url(#lz-zh-1)"></line>
+          <line class="svg-flow-a" x1="364" y1="76" x2="398" y2="76" marker-end="url(#lz-zh-1a)"></line>
+          <line class="svg-axis" x1="28" y1="132" x2="732" y2="132"></line>
+          <text class="svg-label" x="28" y="158">目的鏈</text>
+          <rect class="svg-node" x="28" y="176" width="160" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="108" y="204" text-anchor="middle">DVNs verify</text>
+          <text class="svg-ncode" x="108" y="224" text-anchor="middle">required + optional</text>
+          <rect class="svg-node-a" x="228" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="313" y="204" text-anchor="middle">ReceiveUln302</text>
+          <text class="svg-ncode" x="313" y="224" text-anchor="middle">門檻達成 → verified</text>
+          <rect class="svg-node" x="438" y="176" width="140" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="508" y="204" text-anchor="middle">Executor</text>
+          <text class="svg-ncode" x="508" y="224" text-anchor="middle">lzReceive</text>
+          <rect class="svg-node-a" x="616" y="176" width="116" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="674" y="204" text-anchor="middle">OApp</text>
+          <text class="svg-ncode" x="674" y="224" text-anchor="middle">_lzReceive</text>
+          <line class="svg-flow-a" x1="188" y1="211" x2="226" y2="211" marker-end="url(#lz-zh-1a)"></line>
+          <line class="svg-flow" x1="398" y1="211" x2="436" y2="211" marker-end="url(#lz-zh-1)"></line>
+          <line class="svg-flow-a" x1="578" y1="211" x2="614" y2="211" marker-end="url(#lz-zh-1a)"></line>
+          <text class="svg-mono-a" x="380" y="274" text-anchor="middle">驗證與執行分離：沒有 Executor 時，封包仍可被手動執行</text>
+        </svg>
+      </div>
+      <figcaption>V1 把 Oracle 與 Relayer 綁成一對。V2 把驗證拆成可插拔的 DVN 集合，執行拆成 Executor。安全參數是 OApp 在每條 pathway（srcEid → dstEid）上自己設的，不是全網共用一份。</figcaption>
+    </figure>
+
+    <h2>Security stack：你選的 X of Y</h2>
+    <p>每條 pathway 設定兩組 DVN：</p>
+    <ul>
+      <li><strong>Required DVNs：</strong>每一個都必須提交驗證，少一個封包就不能 verified。</li>
+      <li><strong>Optional DVNs + threshold：</strong>N 個候選裡要湊滿 <code>optionalThreshold</code> 個。</li>
+    </ul>
+    <p>通過條件是「全部 required <em>且</em> 足夠 optional」。把 LayerZero Labs、Google Cloud、某個 zk DVN、某條鏈的 native bridge adapter 塞進同一 stack，攻擊者必須同時收買或同時騙過這一批。反過來說：若 required 只有你自己的 DVN，那這條通路的安全就等於你自己的伺服器。</p>
+    <blockquote><p>讀 OFT 或跨鏈治理時，先打開 <code>getConfig</code>／Scan 上看 Security Stack。APY 文案不會告訴你這條通路是 2-of-2 還是「單一 labs DVN」。</p></blockquote>
+
+    <h2>OApp：最小跨鏈合約</h2>
+    <p>OApp 繼承官方 base，做三件事：設定 peer、送訊息、收訊息。Peer 是「目的鏈上那個被允許對我說話的 bytes32 地址」。少了這層檢查，任何人都能從任意鏈偽造 <code>_lzReceive</code> 的業務語意——Endpoint 只保證「這則封包被你的 DVN 驗證過」，不保證「發送者是你想要的合約」。</p>
+<pre><code>struct Origin {
+    uint32 srcEid;
+    bytes32 sender;
+    uint64 nonce;
+}
+
+function send(uint32 dstEid, bytes calldata message, bytes calldata options)
+    external payable
+{
+    _lzSend(dstEid, message, options, MessagingFee(msg.value, 0), payable(msg.sender));
+}
+
+function _lzReceive(
+    Origin calldata origin,
+    bytes32 guid,
+    bytes calldata message,
+    address executor,
+    bytes calldata extraData
+) internal override {
+    <span class="c">// base 已檢查 peers[origin.srcEid] == origin.sender</span>
+    (address to, uint256 amount) = abi.decode(message, (address, uint256));
+    _credit(to, amount);
+}</code></pre>
+    <p><code>guid</code> 全域唯一，可當冪等鍵。<code>nonce</code> 對每個 <code>(srcEid, sender, receiver)</code> 在 Endpoint 上嚴格遞增，但 V2 <strong>預設是無序送達</strong>：nonce 3 可以在 nonce 2 之前執行。業務層若假設「先到先處理」，會被重排。要有序，必須自己 override <code>nextNonce</code>／<code>_acceptNonce</code>，並且在 send 的 options 加上 <code>addExecutorOrderedExecutionOption()</code>——只改合約、不加這個 option，Executor 仍會亂序嘗試，然後在你的 nonce 檢查 revert。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="LayerZero V2 預設無序送達：nonce 3 可以先於 nonce 2 執行；有序模式要自己檢查 nonce 並加 OrderedExecution option。">
+          <text class="svg-label" x="28" y="28">預設 · 無序</text>
+          <rect class="svg-node" x="28" y="44" width="120" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="88" y="78" text-anchor="middle">n=1</text>
+          <rect class="svg-node-a" x="168" y="44" width="120" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="228" y="78" text-anchor="middle">n=3 先到</text>
+          <rect class="svg-node" x="308" y="44" width="120" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="368" y="78" text-anchor="middle">n=2 後到</text>
+          <text class="svg-label" x="28" y="128">有序 · 自己開</text>
+          <rect class="svg-node" x="28" y="144" width="120" height="48" rx="10"></rect>
+          <text class="svg-nlabel" x="88" y="174" text-anchor="middle">n=1</text>
+          <rect class="svg-node" x="168" y="144" width="120" height="48" rx="10"></rect>
+          <text class="svg-nlabel" x="228" y="174" text-anchor="middle">n=2</text>
+          <rect class="svg-node-a" x="308" y="144" width="200" height="48" rx="10"></rect>
+          <text class="svg-nlabel" x="408" y="174" text-anchor="middle">n=3 卡住等 2</text>
+          <text class="svg-mono-a" x="560" y="78">OFT 預設無序</text>
+          <text class="svg-mono-a" x="560" y="174">nextNonce + option</text>
+        </svg>
+      </div>
+      <figcaption>把 nonce 想成掛號信編號。櫃台（Endpoint）有編號，郵差（Executor）預設可以先送 3 再送 2。要排隊，合約跟 options 兩邊都要寫。</figcaption>
+    </figure>
+    <p>Peer 是 <code>bytes32</code>，不是 <code>address</code>。EVM 地址要右對齊（高位填 0）；左對齊會讓 peer 對不上，看起來「訊息過了 DVN」卻在 <code>_lzReceive</code> 被 OApp base revert <code>NoPeer</code>／<code>OnlyPeer</code>。非 EVM（Solana 等）本來就是 32 bytes，不要 <code>address(uint160(uint256(peer)))</code> 截斷。</p>
+<pre><code>function toPeer(address a) internal pure returns (bytes32) {
+    return bytes32(uint256(uint160(a)));   <span class="c">// 右對齊；錯誤寫法是 bytes32(bytes20(a))</span>
+}
+function fromPeer(bytes32 p) internal pure returns (address) {
+    return address(uint160(uint256(p)));
+}
+
+function setPeer(uint32 eid, bytes32 peer) public onlyOwner {
+    peers[eid] = peer;                     <span class="c">// A→B 與 B→A 要兩邊都設，互為獨立 pathway</span>
+}</code></pre>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 220" role="img" aria-label="EVM 地址轉成 LayerZero peer 必須右對齊：左邊填 12 個零位元組，地址在右邊 20 位元組。">
+          <text class="svg-label" x="28" y="28">正確 · 右對齊</text>
+          <rect class="svg-bit-off" x="28" y="44" width="216" height="40" rx="6"></rect>
+          <text class="svg-ncode" x="136" y="68" text-anchor="middle">12 bytes 的 0x00</text>
+          <rect class="svg-node-a" x="252" y="44" width="360" height="40" rx="6"></rect>
+          <text class="svg-nlabel" x="432" y="68" text-anchor="middle">20-byte 地址 0xAAA…</text>
+          <text class="svg-label" x="28" y="112">錯誤 · 左對齊</text>
+          <rect class="svg-liq" x="28" y="128" width="360" height="40" rx="6"></rect>
+          <text class="svg-nlabel" x="208" y="152" text-anchor="middle">地址被塞在左邊</text>
+          <rect class="svg-bit-off" x="396" y="128" width="216" height="40" rx="6"></rect>
+          <text class="svg-ncode" x="504" y="152" text-anchor="middle">後面變成別的值</text>
+          <text class="svg-mono-a" x="380" y="196" text-anchor="middle">DVN 仍會放行封包；你的 OApp 在 peer 檢查直接 revert NoPeer</text>
+        </svg>
+      </div>
+      <figcaption>把 20-byte 地址想成寫在 32 格紙的<strong>右邊</strong>。寫在左邊，櫃台（DVN）覺得信是真的，收件合約卻認不得寄件人。</figcaption>
+    </figure>
+    <p><code>_lzReceive</code> 的 <code>msg.sender</code> 是 Endpoint（OApp.lzReceive 有 <code>onlyEndpoint</code>），<strong>不是</strong> Executor。任何人在封包 verified 之後都能呼叫 <code>endpoint.lzReceive</code>；不要用 <code>executor</code> 參數當授權。業務層只信任 <code>origin.srcEid</code> + <code>origin.sender == peers[srcEid]</code>（base 已做）以及你自己解出來的 payload。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Executor 只負責按鈴，Endpoint 才是進入你合約的 msg.sender；授權看 peer，不看 executor。">
+          <defs>
+            <marker id="lz-zh-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="44" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="72" text-anchor="middle">Executor</text>
+          <text class="svg-ncode" x="99" y="92" text-anchor="middle">任何人都可以</text>
+          <rect class="svg-node-a" x="230" y="44" width="170" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="72" text-anchor="middle">Endpoint</text>
+          <text class="svg-ncode" x="315" y="92" text-anchor="middle">msg.sender 是它</text>
+          <rect class="svg-node" x="456" y="44" width="276" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="594" y="72" text-anchor="middle">你的 OApp._lzReceive</text>
+          <text class="svg-ncode" x="594" y="92" text-anchor="middle">只信 origin.sender == peer</text>
+          <line class="svg-flow" x1="174" y1="80" x2="228" y2="80" marker-end="url(#lz-zh-3)"></line>
+          <line class="svg-flow-a" x1="400" y1="80" x2="454" y2="80" marker-end="url(#lz-zh-3)"></line>
+          <text class="svg-cap" x="380" y="148" text-anchor="middle">Executor 像按電梯按鈕的路人：他按了，不代表他有你房子的鑰匙。</text>
+          <text class="svg-mono-a" x="380" y="178" text-anchor="middle">授權 = DVN 驗證過的封包 + peer 對得上，不是 executor 位址</text>
+        </svg>
+      </div>
+      <figcaption>新手常寫 <code>require(executor == myRelayer)</code>。那會在官方 Executor 換人、或使用者手動執行時把合法訊息擋掉——而且擋不住惡意 executor。</figcaption>
+    </figure>
+    <p>路徑是<strong>有向的</strong>：A 上 <code>setPeer(eidB, peerB)</code> 不會自動在 B 上設回來，Security Stack 也是每條方向一份。Delegate（<code>setDelegate</code>）可以改 DVN／options 而不必是 owner——熱錢包 delegate 等於熱錢包能改橋的安全模型。換 peer 或 MessageLib 前先暫停出站、等 Scan 上 in-flight 全部 delivered；半路把 peer 指到新合約，舊封包會卡在 <code>NoPeer</code>。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="LayerZero pathway 是有向的：A 指向 B 與 B 指向 A 要分別 setPeer，不會自動對稱。">
+          <defs>
+            <marker id="lz-zh-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="80" y="50" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="170" y="78" text-anchor="middle">OApp on chain A</text>
+          <text class="svg-ncode" x="170" y="98" text-anchor="middle">peers[eidB] = B</text>
+          <rect class="svg-node" x="500" y="50" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="590" y="78" text-anchor="middle">OApp on chain B</text>
+          <text class="svg-ncode" x="590" y="98" text-anchor="middle">peers[eidA] = A</text>
+          <line class="svg-flow-a" x1="260" y1="70" x2="498" y2="70" marker-end="url(#lz-zh-4)"></line>
+          <line class="svg-flow-a" x1="500" y1="102" x2="262" y2="102" marker-end="url(#lz-zh-4)"></line>
+          <text class="svg-step" x="380" y="58" text-anchor="middle">A → B 一條路</text>
+          <text class="svg-step" x="380" y="128" text-anchor="middle">B → A 另一條路</text>
+          <text class="svg-mono-a" x="380" y="172" text-anchor="middle">只設一邊：去得了、回不來。部署腳本要印兩次 setPeer</text>
+        </svg>
+      </div>
+      <figcaption>這不是「兩個合約互相加好友就自動雙向」。你要各寫一筆 peer，像兩張單程車票。</figcaption>
+    </figure>
+
+    <h3>enforcedOptions、重入、compose</h3>
+    <p>使用者可以在 send 時把 destination gas 設到 0。OApp 應繼承 <code>OAppOptionsType3</code>，用 <code>_setEnforcedOptions</code> 設下限，send／quote 走 <code>combineOptions</code>。<strong>同型 option 是相加，不是取 max</strong>：enforced 50_000 + 使用者 20_000 = 70_000。沒有下限，Executor 一執行就 OOG，封包停在 verified-but-unexecuted，看起來像「橋壞了」。有 compose 時還要另加 <code>addExecutorLzComposeOption(index, gas, value)</code>，漏了則 receive 成功、compose 永遠跑不起來。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="封包先被 DVN 驗證，再被執行；gas 不足時停在已驗證未執行，可以補 gas 重試。">
+          <rect class="svg-node" x="24" y="40" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="70" text-anchor="middle">1. DVNs verify</text>
+          <text class="svg-ncode" x="124" y="92" text-anchor="middle">信是真的</text>
+          <rect class="svg-node-a" x="280" y="40" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="70" text-anchor="middle">2. 已驗證</text>
+          <text class="svg-ncode" x="380" y="92" text-anchor="middle">還沒拆信</text>
+          <rect class="svg-node" x="536" y="40" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="636" y="70" text-anchor="middle">3. lzReceive 成功</text>
+          <text class="svg-ncode" x="636" y="92" text-anchor="middle">你的合約跑完</text>
+          <text class="svg-cap" x="380" y="146" text-anchor="middle">步驟 2 → 3 若 gas 不夠：錢沒丟，只是卡在「已驗證」。補 gas 再執行。</text>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">enforcedOptions 下限就是為了少停在步驟 2</text>
+        </svg>
+      </div>
+      <figcaption>「橋卡住」多半是步驟 2，不是被盜。LayerZero Scan 上看 verified / delivered 兩個狀態要分開讀。</figcaption>
+    </figure>
+<pre><code>function _lzReceive(
+    Origin calldata origin,
+    bytes32 guid,
+    bytes calldata message,
+    address /* executor */,
+    bytes calldata /* extraData */
+) internal override {
+    (address to, uint256 amount, bytes memory composeMsg) = abi.decode(message, (address, uint256, bytes));
+    _credit(to, amount);                   <span class="c">// 先記帳，CEI；不要在 credit 前外部呼叫</span>
+    if (composeMsg.length > 0) {
+        endpoint.sendCompose(composer, guid, 0, composeMsg);  <span class="c">// composer 常是另一份合約</span>
+    }
+}
+
+function lzCompose(
+    address fromOApp,
+    bytes32 guid,
+    bytes calldata message,
+    address /* executor */,
+    bytes calldata /* extraData */
+) external {
+    require(msg.sender == address(endpoint), "not endpoint");
+    require(fromOApp == trustedOApp, "not oapp");  <span class="c">// 不要寫 address(this)，除非 composer 就是 OApp</span>
+    require(!_used[guid], "replay");       <span class="c">// compose 失敗會被重試，必須冪等</span>
+    _used[guid] = true;
+    _handleCompose(message);
+}</code></pre>
+    <p>Compose 是同鏈、非同步的第二筆呼叫：receive 先過，再由 Executor（或任何人）跑 <code>lzCompose</code>。<code>sendCompose</code> 的第一個參數是 composer 合約，常常<strong>不是</strong> OApp 自己；composer 裡要檢查 <code>msg.sender == endpoint</code> 且 <code>fromOApp == trustedOApp</code>，不要寫 <code>address(this)</code>。在 <code>_lzReceive</code> 裡直接 <code>ITarget(to).onReceive{value: ...}()</code> 很容易把 receive gas 打爆，或讓惡意 <code>to</code> 在 credit 完成前重入 <code>send</code>。需要目的鏈原生幣時，用 <code>addExecutorNativeDropOption(amount, receiver)</code> 讓 Executor 代轉，不要假設 <code>_lzReceive</code> 裡 <code>msg.value != 0</code>（預設是 0，除非 options 帶了 value）。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="Compose 是同鏈第二步：先 credit，再非同步 lzCompose；失敗會重試，所以必須用 guid 去重。">
+          <defs>
+            <marker id="lz-zh-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="66" text-anchor="middle">1. _lzReceive</text>
+          <text class="svg-ncode" x="124" y="88" text-anchor="middle">先 credit，CEI</text>
+          <rect class="svg-node-a" x="280" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="66" text-anchor="middle">2. sendCompose</text>
+          <text class="svg-ncode" x="380" y="88" text-anchor="middle">同鏈、還沒跑</text>
+          <rect class="svg-node" x="536" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="636" y="66" text-anchor="middle">3. lzCompose</text>
+          <text class="svg-ncode" x="636" y="88" text-anchor="middle">任何人可執行</text>
+          <line class="svg-flow-a" x1="224" y1="76" x2="278" y2="76" marker-end="url(#lz-zh-5)"></line>
+          <line class="svg-flow-a" x1="480" y1="76" x2="534" y2="76" marker-end="url(#lz-zh-5)"></line>
+          <path class="svg-flow" d="M636,116 C636,168 500,168 500,116" fill="none" marker-end="url(#lz-zh-5)"></path>
+          <text class="svg-step" x="568" y="172" text-anchor="middle">失敗 → 重試</text>
+          <text class="svg-cap" x="380" y="196" text-anchor="middle">步驟 1 已入帳；步驟 3 可能跑兩次。用 guid 當冪等鍵，不要在 1 裡直接呼叫 to。</text>
+          <text class="svg-mono-a" x="380" y="218" text-anchor="middle">credit 完成 ≠ compose 完成。兩筆交易、兩個 gas 上限</text>
+        </svg>
+      </div>
+      <figcaption>把 compose 想成「信拆完了，再另叫一輛同城快遞」。第一輛車已經卸貨；第二輛車遲到或撞了，卸貨不能再做一次。</figcaption>
+    </figure>
+    <p>從 <code>_lzReceive</code> 再 <code>_lzSend</code> 出去（hop／ping-pong）時，來源這筆的 options 必須覆蓋目的鏈上「執行 receive + 再 quote 下一跳」的 gas。漏了，第一跳成功、第二跳永遠發不出。Foundry 用官方 <code>TestHelperOz5</code>（devtools-evm-foundry）：在測試裡 <code>setUpEndpoints</code>、部署兩份 OApp、<code>wireOApps</code>，然後 <code>verifyPackets(dstEid, toAddress)</code> 模擬 DVN+Executor。不要自己 mock Endpoint 卻忘了 nonce／peer 檢查。</p>
+
+    <h3>Options 與 quote</h3>
+    <p>Options 是給 Executor 的 gas／value 指示，用 <code>OptionsBuilder</code> 組，不要手拼 bytes：</p>
+<pre><code>bytes memory options = OptionsBuilder.newOptions()
+    .addExecutorLzReceiveOption(200_000, 0);   <span class="c">// gas, msg.value on dst</span>
+
+MessagingFee memory fee = _quote(dstEid, message, options, false);
+_lzSend(dstEid, message, options, fee, payable(msg.sender));</code></pre>
+    <p>目的鏈 gas 估太低，Executor 會執行失敗，封包停在 verified-but-unexecuted。任何人（含使用者自己）可以補 gas 再執行。這不是丟錢，是「信已驗證、還沒拆」。另外還有 <code>lzCompose</code>：<code>_lzReceive</code> 先入帳，再非同步呼叫同鏈另一個合約，避免在 receive 裡做重型外部呼叫把 gas 上限打爆。</p>
+
+    <h2>OFT：跨鏈同質代幣</h2>
+    <p>OFT 是 OApp 的一種：來源 <code>_debit</code>，目的 <code>_credit</code>。預設是 <strong>burn / mint</strong>——總供給在所有鏈的加總不變。若某條鏈已有官方 canonical token（例如以太坊主網的 USDC），改用 <strong>OFT Adapter</strong>：來源鎖進 adapter，目的鏈 mint OFT；回來時 burn OFT、adapter 解鎖。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 240" role="img" aria-label="OFT burn/mint 與 OFT Adapter lock/unlock 對照：前者在來源燒、目的鑄，後者在有 canonical 供給的鏈上鎖定，在其他鏈鑄造 OFT。">
+          <defs>
+            <marker id="lz-zh-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="40" y="32">OFT · burn / mint</text>
+          <rect class="svg-node" x="40" y="52" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="78" text-anchor="middle">Chain A OFT</text>
+          <text class="svg-ncode" x="115" y="96" text-anchor="middle">_debit = burn</text>
+          <rect class="svg-node-a" x="230" y="52" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="295" y="78" text-anchor="middle">LayerZero</text>
+          <text class="svg-ncode" x="295" y="96" text-anchor="middle">send amount SD</text>
+          <rect class="svg-node" x="400" y="52" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="78" text-anchor="middle">Chain B OFT</text>
+          <text class="svg-ncode" x="475" y="96" text-anchor="middle">_credit = mint</text>
+          <line class="svg-flow-a" x1="190" y1="82" x2="228" y2="82" marker-end="url(#lz-zh-2)"></line>
+          <line class="svg-flow-a" x1="360" y1="82" x2="398" y2="82" marker-end="url(#lz-zh-2)"></line>
+          <text class="svg-label" x="40" y="148">Adapter · lock / mint</text>
+          <rect class="svg-node" x="40" y="168" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="194" text-anchor="middle">L1 USDC 鎖倉</text>
+          <text class="svg-ncode" x="115" y="212" text-anchor="middle">_debit = lock</text>
+          <rect class="svg-node-a" x="230" y="168" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="295" y="194" text-anchor="middle">LayerZero</text>
+          <text class="svg-ncode" x="295" y="212" text-anchor="middle">send amount SD</text>
+          <rect class="svg-node" x="400" y="168" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="194" text-anchor="middle">遠端 OFT</text>
+          <text class="svg-ncode" x="475" y="212" text-anchor="middle">_credit = mint</text>
+          <line class="svg-flow-a" x1="190" y1="198" x2="228" y2="198" marker-end="url(#lz-zh-2)"></line>
+          <line class="svg-flow-a" x1="360" y1="198" x2="398" y2="198" marker-end="url(#lz-zh-2)"></line>
+          <text class="svg-mono-a" x="640" y="88" text-anchor="middle">共享供給</text>
+          <text class="svg-mono-a" x="640" y="204" text-anchor="middle">對映 canonical</text>
+        </svg>
+      </div>
+      <figcaption>金額以 <code>sharedDecimals</code>（常見 6）在鏈間傳遞，本地 decimals 再乘 <code>decimalConversionRate</code>。除不盡的灰塵會留在來源，這是刻意的，避免遠端鑄出比來源多的最小單位。</figcaption>
+    </figure>
+<pre><code>struct SendParam {
+    uint32 dstEid;
+    bytes32 to;
+    uint256 amountLD;       <span class="c">// local decimals</span>
+    uint256 minAmountLD;    <span class="c">// 滑點／灰塵保護</span>
+    bytes extraOptions;
+    bytes composeMsg;
+    bytes oftCmd;
+}
+
+oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
+    <p><code>to</code> 同樣是 bytes32。EVM 目標用 <code>bytes32(uint256(uint160(recipient)))</code>。自訂 payload 用 <code>abi.encode</code>／<code>abi.decode</code> 成對；<code>abi.encodePacked(address)</code> <strong>不能</strong>再 <code>abi.decode(..., (address))</code>。OFT 標準路徑走 <code>SendParam.to</code>，弄錯 packing 代幣會鑄到 <code>address(0)</code> 或一個你不擁有的位址。</p>
+    <p>Adapter 鎖的是既有 ERC-20：使用者要先 <code>approve</code> adapter，<code>_debit</code> 才 <code>transferFrom</code>。Fee-on-transfer、rebasing、有 hook 的 token 會讓「來源扣的量 ≠ 目的鑄的量」，OFT 預設不管這件事——供給會漂。這類 token 不要套 OFT；要嘛包一層先轉成內部會計單位，要嘛拒收。</p>
+    <p><code>decimalConversionRate = 10^(localDecimals - sharedDecimals)</code>。18→6 時，少於 1e12 的灰塵留在來源。UI 若顯示「全額到帳」是錯的；合約要用 <code>_removeDust</code> 後的 <code>amountReceivedLD</code> 當準。</p>
+    <p>量級控制是 OFT 自己的事，不是 Endpoint 的：官方 <code>RateLimiter</code> 是線性衰減的 in-flight 額度，不是每分鐘歸零的計數器。出站限額在 send 前擋下，失敗乾淨；入站限額在 credit 時擋，來源已 burn／lock，會變成「半邊完成」要能 retry。另設 pause 與每條 pathway 的 mint cap，避免單一 peer 被盜後鑄爆。</p>
+
+    <h2>什麼時候不該用 LayerZero</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>需求</th><th>該用</th><th>原因</th></tr></thead>
+      <tbody>
+        <tr><td>把 ETH 從 OP Mainnet 提回 Ethereum</td><td>Canonical Portal</td><td>你要的是 L2 狀態機的出金，不是另一種 wrapped ETH</td></tr>
+        <tr><td>同一套治理／NFT／ERC-20 出現在十條鏈</td><td>OApp / OFT</td><td>沒有共享 L1 狀態機可推導；需要訊息層</td></tr>
+        <tr><td>「這就是官方 USDC」</td><td>Circle CCTP 或官方 native mint</td><td>OFT adapter 再包一層，對使用者是另一個 token</td></tr>
+        <tr><td>要繼承 rollup 的詐欺／有效性證明</td><td>該 rollup 的 messenger</td><td>LayerZero 的證明來自 DVN，不是 Cannon 或 zk verifier</td></tr>
+      </tbody>
+    </table></div>
+    <p>實務上很多 L2 會<strong>同時</strong>有 canonical ETH、Circle USDC、以及若干 OFT。錢包顯示的 ticker 相同，贖回路徑與對手方完全不同。產品文案寫「跨鏈」時，要寫清走哪一扇門。</p>
+
+    <h2>開發者檢查清單</h2>
+    <ul>
+      <li>每條 pathway 顯式 <code>setPeer</code>，bytes32 右對齊；部署腳本把 eid ↔ 地址雙向印出來對。Peer 設錯等於把鑄幣權交給陌生人。</li>
+      <li>把 Security Stack 當協議參數一樣審：required DVN 集合、optional threshold、誰有權 <code>setConfig</code>／<code>setDelegate</code>。Owner 或 delegate 熱錢包能改 DVN，等於能改橋的安全模型。</li>
+      <li><code>_lzReceive</code> 只信 Endpoint + peer；不要用 executor 當授權。先記帳再外部呼叫；compose 必須冪等（guid 去重），composer 信的是 <code>trustedOApp</code> 不是 <code>address(this)</code>。</li>
+      <li>設 <code>enforcedOptions</code> 下限並用 <code>combineOptions</code>；同型 gas 是相加。測試「使用者 gas = 0 → 只有下限」以及「仍不夠 → verified 未執行 → 手動 retry」。預設無序；要 FIFO 才加 <code>OrderedExecution</code>。</li>
+      <li>Quote 的原生手續費在來源鏈付；目的鏈 gas／native drop 在 options 裡。Hop 下一跳要把下一跳的 quote 算進這一跳的 options。</li>
+      <li>OFT 只與自己的 peer OFT／adapter 對打。拒絕 fee-on-transfer。Adapter 測未 approve、短收、灰塵。設 rate limit／pause／mint cap；入站限額失敗要能 retry。</li>
+      <li>用 <code>TestHelperOz5</code> 測雙鏈 round-trip、錯 peer、亂序 nonce、compose 重試。監控 <code>PacketSent</code>／<code>PacketDelivered</code>、verified-but-not-executed 堆積、DVN 延遲。</li>
+    </ul>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://docs.layerzero.network/v2">LayerZero V2 docs</a>／<a href="https://docs.layerzero.network/v2/developers/evm/oapp/overview">OApp</a>／<a href="https://docs.layerzero.network/v2/developers/evm/oft/quickstart">OFT</a></li>
+      <li><a href="https://docs.layerzero.network/v2/concepts/modular-security/security-stack-dvns">Security stack / DVNs</a>／<a href="https://docs.layerzero.network/v2/concepts/protocol/executors">Executors</a>／<a href="https://docs.layerzero.network/v2/concepts/message-ordering">Message ordering</a></li>
+      <li><a href="https://layerzeroscan.com/">LayerZero Scan</a>／<a href="https://github.com/LayerZero-Labs/LayerZero-v2">LayerZero-v2 contracts</a>／<a href="https://github.com/LayerZero-Labs/devtools">devtools-evm-foundry（TestHelperOz5）</a></li>
+    </ul>
+    <p class="meta">內容最後核對：2026-09-11</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Cross-chain messaging with LayerZero</h1>
+    <p class="meta">2026-09-11 · LayerZero V2 · OApp · OFT · DVN · Developer guide</p>
+
+    <p><strong>LayerZero is not a rollup and not a canonical bridge.</strong> It is a configurable messaging layer: a contract on the source chain hands bytes to an Endpoint, a DVN set you chose attests on the destination that "this packet really exists," and an Executor (or anyone) calls the destination contract. How assets lock, burn, or mint is the OApp / OFT's job — not L1 finality the protocol guarantees for you. Contract authors need peer bytes32 packing, the Endpoint guard, enforced options, compose reentrancy, and the rule that "the Executor is not an authority."</p>
+    <blockquote><p>Think of OP / ZK deposits and withdrawals as doors on an L2 state machine. Think of LayerZero as registered mail between two contracts on arbitrary chains. Authenticity of the letter depends on the couriers you picked, not Ethereum's challenge period or a zk verifier.</p></blockquote>
+
+    <h2>V2 pieces</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Piece</th><th>Job</th><th>Trust</th></tr></thead>
+      <tbody>
+        <tr><td><strong>EndpointV2</strong></td><td>One per chain; <code>send</code> / <code>lzReceive</code>, nonce, fees</td><td>A thin layer (see official deployments); the only interface an OApp talks to</td></tr>
+        <tr><td><strong>MessageLib (ULN 302)</strong></td><td>Hashes the packet, assigns workers, collects verifications</td><td>OApp can pick send / receive libs; most use the Ultra Light Node</td></tr>
+        <tr><td><strong>DVN</strong></td><td>Independently verifies the packet exists on the source chain</td><td><strong>Security lives here</strong>: your X-of-Y set is your security model</td></tr>
+        <tr><td><strong>Executor</strong></td><td>Pays gas on the destination and calls <code>lzReceive</code></td><td>Liveness, not safety; anyone can execute once verified</td></tr>
+        <tr><td><strong>OApp</strong></td><td>Your contract: encode the message, handle <code>_lzReceive</code></td><td>Must check <code>origin.sender</code> is the peer</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 300" role="img" aria-label="LayerZero V2 path: the source OApp calls Endpoint.send, SendLib assigns DVNs and an Executor; on the destination DVNs verify the packet, and once the threshold is met the Executor calls Endpoint.lzReceive into the destination OApp.">
+          <defs>
+            <marker id="lz-en-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="lz-en-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="28">Source chain</text>
+          <rect class="svg-node" x="28" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="103" y="70" text-anchor="middle">OApp._lzSend</text>
+          <text class="svg-ncode" x="103" y="90" text-anchor="middle">payload + options</text>
+          <rect class="svg-node-a" x="214" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="289" y="70" text-anchor="middle">Endpoint.send</text>
+          <text class="svg-ncode" x="289" y="90" text-anchor="middle">nonce · fee</text>
+          <rect class="svg-node" x="400" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="70" text-anchor="middle">SendUln302</text>
+          <text class="svg-ncode" x="475" y="90" text-anchor="middle">assign DVN / Exec</text>
+          <line class="svg-flow" x1="178" y1="76" x2="212" y2="76" marker-end="url(#lz-en-1)"></line>
+          <line class="svg-flow-a" x1="364" y1="76" x2="398" y2="76" marker-end="url(#lz-en-1a)"></line>
+          <line class="svg-axis" x1="28" y1="132" x2="732" y2="132"></line>
+          <text class="svg-label" x="28" y="158">Destination chain</text>
+          <rect class="svg-node" x="28" y="176" width="160" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="108" y="204" text-anchor="middle">DVNs verify</text>
+          <text class="svg-ncode" x="108" y="224" text-anchor="middle">required + optional</text>
+          <rect class="svg-node-a" x="228" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="313" y="204" text-anchor="middle">ReceiveUln302</text>
+          <text class="svg-ncode" x="313" y="224" text-anchor="middle">threshold → verified</text>
+          <rect class="svg-node" x="438" y="176" width="140" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="508" y="204" text-anchor="middle">Executor</text>
+          <text class="svg-ncode" x="508" y="224" text-anchor="middle">lzReceive</text>
+          <rect class="svg-node-a" x="616" y="176" width="116" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="674" y="204" text-anchor="middle">OApp</text>
+          <text class="svg-ncode" x="674" y="224" text-anchor="middle">_lzReceive</text>
+          <line class="svg-flow-a" x1="188" y1="211" x2="226" y2="211" marker-end="url(#lz-en-1a)"></line>
+          <line class="svg-flow" x1="398" y1="211" x2="436" y2="211" marker-end="url(#lz-en-1)"></line>
+          <line class="svg-flow-a" x1="578" y1="211" x2="614" y2="211" marker-end="url(#lz-en-1a)"></line>
+          <text class="svg-mono-a" x="380" y="274" text-anchor="middle">Verify and execute are separate: without an Executor, the packet can still be run by hand</text>
+        </svg>
+      </div>
+      <figcaption>V1 bound an Oracle and a Relayer as a pair. V2 splits verification into a pluggable DVN set and execution into an Executor. Security parameters are set per pathway (srcEid → dstEid) by the OApp, not shared by the whole network.</figcaption>
+    </figure>
+
+    <h2>Security stack: the X of Y you choose</h2>
+    <p>Each pathway configures two DVN groups:</p>
+    <ul>
+      <li><strong>Required DVNs:</strong> every one must submit a verification; miss one and the packet never becomes verified.</li>
+      <li><strong>Optional DVNs + threshold:</strong> out of N candidates you need <code>optionalThreshold</code> of them.</li>
+    </ul>
+    <p>The pass condition is "all required <em>and</em> enough optional." Put LayerZero Labs, Google Cloud, a zk DVN, and a native-bridge adapter in the same stack, and an attacker has to bribe or fool that whole set at once. Conversely: if the only required DVN is yours, this pathway's security equals your server.</p>
+    <blockquote><p>When you read an OFT or cross-chain governor, open <code>getConfig</code> / LayerZero Scan and look at the Security Stack. The APY copy will not tell you whether the pathway is 2-of-2 or "a single labs DVN."</p></blockquote>
+
+    <h2>OApp: the smallest cross-chain contract</h2>
+    <p>An OApp inherits the official base and does three things: set peers, send, receive. A peer is "the bytes32 address on the destination that is allowed to talk to me." Skip that check and anyone can forge the business meaning of <code>_lzReceive</code> from any chain — the Endpoint only guarantees "this packet was verified by your DVNs," not "the sender is the contract you meant."</p>
+<pre><code>struct Origin {
+    uint32 srcEid;
+    bytes32 sender;
+    uint64 nonce;
+}
+
+function send(uint32 dstEid, bytes calldata message, bytes calldata options)
+    external payable
+{
+    _lzSend(dstEid, message, options, MessagingFee(msg.value, 0), payable(msg.sender));
+}
+
+function _lzReceive(
+    Origin calldata origin,
+    bytes32 guid,
+    bytes calldata message,
+    address executor,
+    bytes calldata extraData
+) internal override {
+    <span class="c">// base already requires peers[origin.srcEid] == origin.sender</span>
+    (address to, uint256 amount) = abi.decode(message, (address, uint256));
+    _credit(to, amount);
+}</code></pre>
+    <p><code>guid</code> is globally unique and works as an idempotency key. <code>nonce</code> increases strictly per <code>(srcEid, sender, receiver)</code> on the Endpoint, but V2 <strong>delivers unordered by default</strong>: nonce 3 can execute before nonce 2. If your business logic assumes FIFO, it will be reordered. Ordered delivery means overriding <code>nextNonce</code> / <code>_acceptNonce</code> <em>and</em> appending <code>addExecutorOrderedExecutionOption()</code> on send — change only the contract and the Executor still tries out of order, then your nonce check reverts.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="LayerZero V2 default is unordered: nonce 3 can run before nonce 2; ordered mode needs your nonce check plus the OrderedExecution option.">
+          <text class="svg-label" x="28" y="28">Default · unordered</text>
+          <rect class="svg-node" x="28" y="44" width="120" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="88" y="78" text-anchor="middle">n=1</text>
+          <rect class="svg-node-a" x="168" y="44" width="120" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="228" y="78" text-anchor="middle">n=3 first</text>
+          <rect class="svg-node" x="308" y="44" width="120" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="368" y="78" text-anchor="middle">n=2 later</text>
+          <text class="svg-label" x="28" y="128">Ordered · opt-in</text>
+          <rect class="svg-node" x="28" y="144" width="120" height="48" rx="10"></rect>
+          <text class="svg-nlabel" x="88" y="174" text-anchor="middle">n=1</text>
+          <rect class="svg-node" x="168" y="144" width="120" height="48" rx="10"></rect>
+          <text class="svg-nlabel" x="228" y="174" text-anchor="middle">n=2</text>
+          <rect class="svg-node-a" x="308" y="144" width="200" height="48" rx="10"></rect>
+          <text class="svg-nlabel" x="408" y="174" text-anchor="middle">n=3 waits for 2</text>
+          <text class="svg-mono-a" x="560" y="78">OFT default</text>
+          <text class="svg-mono-a" x="560" y="174">nextNonce + option</text>
+        </svg>
+      </div>
+      <figcaption>Think of nonce as a registered-mail number. The desk (Endpoint) numbers letters; the courier (Executor) may deliver 3 before 2. To queue them, write it in both the contract and the options.</figcaption>
+    </figure>
+    <p>A peer is <code>bytes32</code>, not <code>address</code>. EVM addresses are right-aligned (high bytes zero); left-align and the peer will not match — DVNs pass the packet, then OApp base reverts <code>NoPeer</code> / <code>OnlyPeer</code>. Non-EVM (Solana, …) is 32 bytes already; do not truncate with <code>address(uint160(uint256(peer)))</code>.</p>
+<pre><code>function toPeer(address a) internal pure returns (bytes32) {
+    return bytes32(uint256(uint160(a)));   <span class="c">// right-align; bytes32(bytes20(a)) is the bug</span>
+}
+function fromPeer(bytes32 p) internal pure returns (address) {
+    return address(uint160(uint256(p)));
+}
+
+function setPeer(uint32 eid, bytes32 peer) public onlyOwner {
+    peers[eid] = peer;                     <span class="c">// A→B and B→A are separate pathways; set both</span>
+}</code></pre>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 220" role="img" aria-label="An EVM address becomes a LayerZero peer by right-aligning: twelve zero bytes on the left, the 20-byte address on the right.">
+          <text class="svg-label" x="28" y="28">Right · correct</text>
+          <rect class="svg-bit-off" x="28" y="44" width="216" height="40" rx="6"></rect>
+          <text class="svg-ncode" x="136" y="68" text-anchor="middle">12 bytes of 0x00</text>
+          <rect class="svg-node-a" x="252" y="44" width="360" height="40" rx="6"></rect>
+          <text class="svg-nlabel" x="432" y="68" text-anchor="middle">20-byte address 0xAAA…</text>
+          <text class="svg-label" x="28" y="112">Left · wrong</text>
+          <rect class="svg-liq" x="28" y="128" width="360" height="40" rx="6"></rect>
+          <text class="svg-nlabel" x="208" y="152" text-anchor="middle">address stuffed on the left</text>
+          <rect class="svg-bit-off" x="396" y="128" width="216" height="40" rx="6"></rect>
+          <text class="svg-ncode" x="504" y="152" text-anchor="middle">tail becomes garbage</text>
+          <text class="svg-mono-a" x="380" y="196" text-anchor="middle">DVNs still pass the packet; your OApp reverts NoPeer at the peer check</text>
+        </svg>
+      </div>
+      <figcaption>Write the 20-byte address on the <strong>right</strong> of a 32-box page. Write it on the left and the desk (DVNs) still thinks the letter is real, but the receiving contract does not recognise the sender.</figcaption>
+    </figure>
+    <p><code>msg.sender</code> in <code>_lzReceive</code> is the Endpoint (OApp.lzReceive is <code>onlyEndpoint</code>), <strong>not</strong> the Executor. Anyone can call <code>endpoint.lzReceive</code> after the packet is verified; do not treat the <code>executor</code> argument as authorization. The business layer trusts <code>origin.srcEid</code> + <code>origin.sender == peers[srcEid]</code> (base already checks) and the payload you decode.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="The Executor only rings the bell; the Endpoint is msg.sender into your contract. Authorization is the peer, not the executor.">
+          <defs>
+            <marker id="lz-en-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="44" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="72" text-anchor="middle">Executor</text>
+          <text class="svg-ncode" x="99" y="92" text-anchor="middle">anyone can be this</text>
+          <rect class="svg-node-a" x="230" y="44" width="170" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="72" text-anchor="middle">Endpoint</text>
+          <text class="svg-ncode" x="315" y="92" text-anchor="middle">this is msg.sender</text>
+          <rect class="svg-node" x="456" y="44" width="276" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="594" y="72" text-anchor="middle">Your OApp._lzReceive</text>
+          <text class="svg-ncode" x="594" y="92" text-anchor="middle">trust origin.sender == peer</text>
+          <line class="svg-flow" x1="174" y1="80" x2="228" y2="80" marker-end="url(#lz-en-3)"></line>
+          <line class="svg-flow-a" x1="400" y1="80" x2="454" y2="80" marker-end="url(#lz-en-3)"></line>
+          <text class="svg-cap" x="380" y="148" text-anchor="middle">The Executor is a stranger ringing the doorbell. Ringing is not a house key.</text>
+          <text class="svg-mono-a" x="380" y="178" text-anchor="middle">Auth = DVN-verified packet + matching peer, not the executor address</text>
+        </svg>
+      </div>
+      <figcaption>Beginners write <code>require(executor == myRelayer)</code>. That drops legitimate messages when the official Executor rotates or a user executes by hand — and it does not stop a malicious executor.</figcaption>
+    </figure>
+    <p>Pathways are <strong>directional</strong>: <code>setPeer(eidB, peerB)</code> on A does not set the reverse on B, and the Security Stack is per direction too. A delegate (<code>setDelegate</code>) can change DVNs / options without being owner — a hot-wallet delegate is a hot wallet that can change the bridge's security model. Before rotating a peer or MessageLib, pause outbound and wait until Scan shows every in-flight packet delivered; pointing peer at a new contract mid-flight leaves old packets stuck on <code>NoPeer</code>.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="LayerZero pathways are directional: A pointing at B and B pointing at A need separate setPeer calls; they are not automatic.">
+          <defs>
+            <marker id="lz-en-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="80" y="50" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="170" y="78" text-anchor="middle">OApp on chain A</text>
+          <text class="svg-ncode" x="170" y="98" text-anchor="middle">peers[eidB] = B</text>
+          <rect class="svg-node" x="500" y="50" width="180" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="590" y="78" text-anchor="middle">OApp on chain B</text>
+          <text class="svg-ncode" x="590" y="98" text-anchor="middle">peers[eidA] = A</text>
+          <line class="svg-flow-a" x1="260" y1="70" x2="498" y2="70" marker-end="url(#lz-en-4)"></line>
+          <line class="svg-flow-a" x1="500" y1="102" x2="262" y2="102" marker-end="url(#lz-en-4)"></line>
+          <text class="svg-step" x="380" y="58" text-anchor="middle">A → B is one path</text>
+          <text class="svg-step" x="380" y="128" text-anchor="middle">B → A is another</text>
+          <text class="svg-mono-a" x="380" y="172" text-anchor="middle">Set only one side: you can go, you cannot return. Print setPeer twice</text>
+        </svg>
+      </div>
+      <figcaption>This is not "two contracts add each other and it becomes bidirectional." You write one peer each way — two one-way tickets.</figcaption>
+    </figure>
+
+    <h3>enforcedOptions, reentrancy, compose</h3>
+    <p>Users can set destination gas to 0 on send. The OApp should inherit <code>OAppOptionsType3</code>, <code>_setEnforcedOptions</code> a floor, and send / quote through <code>combineOptions</code>. <strong>Duplicate option types sum, they do not take max</strong>: enforced 50_000 + user 20_000 = 70_000. Without a floor, the Executor OOGs immediately, the packet sits verified-but-unexecuted, and it looks like "the bridge is broken." Compose also needs <code>addExecutorLzComposeOption(index, gas, value)</code>; miss it and receive succeeds while compose never runs.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="A packet is verified by DVNs first, then executed; if gas is short it sits verified-but-unexecuted and can be retried with more gas.">
+          <rect class="svg-node" x="24" y="40" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="70" text-anchor="middle">1. DVNs verify</text>
+          <text class="svg-ncode" x="124" y="92" text-anchor="middle">the letter is real</text>
+          <rect class="svg-node-a" x="280" y="40" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="70" text-anchor="middle">2. Verified</text>
+          <text class="svg-ncode" x="380" y="92" text-anchor="middle">not opened yet</text>
+          <rect class="svg-node" x="536" y="40" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="636" y="70" text-anchor="middle">3. lzReceive ok</text>
+          <text class="svg-ncode" x="636" y="92" text-anchor="middle">your contract ran</text>
+          <text class="svg-cap" x="380" y="146" text-anchor="middle">If 2 → 3 runs out of gas: funds are not lost; the packet is stuck verified. Top up gas and retry.</text>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">enforcedOptions floors exist so you stop at step 2 less often</text>
+        </svg>
+      </div>
+      <figcaption>"The bridge is stuck" is usually step 2, not a theft. On LayerZero Scan, read verified and delivered as two different states.</figcaption>
+    </figure>
+<pre><code>function _lzReceive(
+    Origin calldata origin,
+    bytes32 guid,
+    bytes calldata message,
+    address /* executor */,
+    bytes calldata /* extraData */
+) internal override {
+    (address to, uint256 amount, bytes memory composeMsg) = abi.decode(message, (address, uint256, bytes));
+    _credit(to, amount);                   <span class="c">// book first, CEI; no external calls before credit</span>
+    if (composeMsg.length > 0) {
+        endpoint.sendCompose(composer, guid, 0, composeMsg);  <span class="c">// composer is often a different contract</span>
+    }
+}
+
+function lzCompose(
+    address fromOApp,
+    bytes32 guid,
+    bytes calldata message,
+    address /* executor */,
+    bytes calldata /* extraData */
+) external {
+    require(msg.sender == address(endpoint), "not endpoint");
+    require(fromOApp == trustedOApp, "not oapp");  <span class="c">// not address(this), unless the composer is the OApp</span>
+    require(!_used[guid], "replay");       <span class="c">// compose retries on failure; must be idempotent</span>
+    _used[guid] = true;
+    _handleCompose(message);
+}</code></pre>
+    <p>Compose is a second, asynchronous call on the same chain: receive lands first, then the Executor (or anyone) runs <code>lzCompose</code>. The first argument of <code>sendCompose</code> is the composer contract, often <strong>not</strong> the OApp itself; the composer checks <code>msg.sender == endpoint</code> and <code>fromOApp == trustedOApp</code>, not <code>address(this)</code>. Calling <code>ITarget(to).onReceive{value: ...}()</code> inside <code>_lzReceive</code> blows the receive gas cap, or lets a malicious <code>to</code> reenter <code>send</code> before credit finishes. If you need destination native token, use <code>addExecutorNativeDropOption(amount, receiver)</code> so the Executor transfers it; do not assume <code>msg.value != 0</code> in <code>_lzReceive</code> (it is 0 unless options carry value).</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="Compose is a same-chain second step: credit first, then async lzCompose; failures retry, so dedupe on guid.">
+          <defs>
+            <marker id="lz-en-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="66" text-anchor="middle">1. _lzReceive</text>
+          <text class="svg-ncode" x="124" y="88" text-anchor="middle">credit first, CEI</text>
+          <rect class="svg-node-a" x="280" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="66" text-anchor="middle">2. sendCompose</text>
+          <text class="svg-ncode" x="380" y="88" text-anchor="middle">queued, not run</text>
+          <rect class="svg-node" x="536" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="636" y="66" text-anchor="middle">3. lzCompose</text>
+          <text class="svg-ncode" x="636" y="88" text-anchor="middle">anyone can execute</text>
+          <line class="svg-flow-a" x1="224" y1="76" x2="278" y2="76" marker-end="url(#lz-en-5)"></line>
+          <line class="svg-flow-a" x1="480" y1="76" x2="534" y2="76" marker-end="url(#lz-en-5)"></line>
+          <path class="svg-flow" d="M636,116 C636,168 500,168 500,116" fill="none" marker-end="url(#lz-en-5)"></path>
+          <text class="svg-step" x="568" y="172" text-anchor="middle">fail → retry</text>
+          <text class="svg-cap" x="380" y="196" text-anchor="middle">Step 1 already credited; step 3 may run twice. Dedupe on guid. Do not call to inside step 1.</text>
+          <text class="svg-mono-a" x="380" y="218" text-anchor="middle">credited ≠ composed. Two txs, two gas caps</text>
+        </svg>
+      </div>
+      <figcaption>Think of compose as "the letter is opened, then a second same-city courier." The first van already unloaded; if the second is late or crashes, do not unload again.</figcaption>
+    </figure>
+    <p>If <code>_lzReceive</code> <code>_lzSend</code>s onward (hop / ping-pong), this hop's options must cover "execute receive + quote the next hop" on the destination. Miss that and hop one succeeds, hop two never leaves. In Foundry use official <code>TestHelperOz5</code> (devtools-evm-foundry): <code>setUpEndpoints</code>, deploy two OApps, <code>wireOApps</code>, then <code>verifyPackets(dstEid, toAddress)</code> to simulate DVN+Executor. Do not mock the Endpoint and forget nonce / peer checks.</p>
+
+    <h3>Options and quotes</h3>
+    <p>Options tell the Executor how much gas / value to use. Build them with <code>OptionsBuilder</code>; do not hand-roll bytes:</p>
+<pre><code>bytes memory options = OptionsBuilder.newOptions()
+    .addExecutorLzReceiveOption(200_000, 0);   <span class="c">// gas, msg.value on dst</span>
+
+MessagingFee memory fee = _quote(dstEid, message, options, false);
+_lzSend(dstEid, message, options, fee, payable(msg.sender));</code></pre>
+    <p>If destination gas is too low, the Executor's call fails and the packet sits verified-but-unexecuted. Anyone (including the user) can top up gas and retry. That is not lost funds; it is "the letter is authenticated, not yet opened." There is also <code>lzCompose</code>: <code>_lzReceive</code> credits first, then asynchronously calls another contract on the same chain, so a heavy external call does not blow the receive gas cap.</p>
+
+    <h2>OFT: omnichain fungible tokens</h2>
+    <p>An OFT is one kind of OApp: <code>_debit</code> on source, <code>_credit</code> on destination. The default is <strong>burn / mint</strong> — total supply across all chains is conserved. If a chain already has the official canonical token (USDC on Ethereum L1, say), use an <strong>OFT Adapter</strong> instead: lock in the adapter on source, mint OFT on destination; coming back, burn OFT and unlock the adapter.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 240" role="img" aria-label="OFT burn/mint versus OFT Adapter lock/unlock: the former burns on source and mints on destination; the latter locks on the chain that holds canonical supply and mints OFT elsewhere.">
+          <defs>
+            <marker id="lz-en-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="40" y="32">OFT · burn / mint</text>
+          <rect class="svg-node" x="40" y="52" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="78" text-anchor="middle">Chain A OFT</text>
+          <text class="svg-ncode" x="115" y="96" text-anchor="middle">_debit = burn</text>
+          <rect class="svg-node-a" x="230" y="52" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="295" y="78" text-anchor="middle">LayerZero</text>
+          <text class="svg-ncode" x="295" y="96" text-anchor="middle">send amount SD</text>
+          <rect class="svg-node" x="400" y="52" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="78" text-anchor="middle">Chain B OFT</text>
+          <text class="svg-ncode" x="475" y="96" text-anchor="middle">_credit = mint</text>
+          <line class="svg-flow-a" x1="190" y1="82" x2="228" y2="82" marker-end="url(#lz-en-2)"></line>
+          <line class="svg-flow-a" x1="360" y1="82" x2="398" y2="82" marker-end="url(#lz-en-2)"></line>
+          <text class="svg-label" x="40" y="148">Adapter · lock / mint</text>
+          <rect class="svg-node" x="40" y="168" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="194" text-anchor="middle">L1 USDC lock</text>
+          <text class="svg-ncode" x="115" y="212" text-anchor="middle">_debit = lock</text>
+          <rect class="svg-node-a" x="230" y="168" width="130" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="295" y="194" text-anchor="middle">LayerZero</text>
+          <text class="svg-ncode" x="295" y="212" text-anchor="middle">send amount SD</text>
+          <rect class="svg-node" x="400" y="168" width="150" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="194" text-anchor="middle">Remote OFT</text>
+          <text class="svg-ncode" x="475" y="212" text-anchor="middle">_credit = mint</text>
+          <line class="svg-flow-a" x1="190" y1="198" x2="228" y2="198" marker-end="url(#lz-en-2)"></line>
+          <line class="svg-flow-a" x1="360" y1="198" x2="398" y2="198" marker-end="url(#lz-en-2)"></line>
+          <text class="svg-mono-a" x="640" y="88" text-anchor="middle">shared supply</text>
+          <text class="svg-mono-a" x="640" y="204" text-anchor="middle">map canonical</text>
+        </svg>
+      </div>
+      <figcaption>Amounts travel as <code>sharedDecimals</code> (often 6); local decimals multiply by <code>decimalConversionRate</code>. Dust that does not divide stays on the source on purpose, so the destination cannot mint a smaller unit than the source burned.</figcaption>
+    </figure>
+<pre><code>struct SendParam {
+    uint32 dstEid;
+    bytes32 to;
+    uint256 amountLD;       <span class="c">// local decimals</span>
+    uint256 minAmountLD;    <span class="c">// slippage / dust guard</span>
+    bytes extraOptions;
+    bytes composeMsg;
+    bytes oftCmd;
+}
+
+oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
+    <p><code>to</code> is also bytes32. EVM recipients use <code>bytes32(uint256(uint160(recipient)))</code>. Custom payloads should <code>abi.encode</code> / <code>abi.decode</code> as a pair; <code>abi.encodePacked(address)</code> <strong>cannot</strong> be <code>abi.decode</code>d as <code>address</code>. The OFT standard path uses <code>SendParam.to</code> — wrong packing mints to <code>address(0)</code> or an address you do not own.</p>
+    <p>An adapter locks an existing ERC-20: the user must <code>approve</code> the adapter before <code>_debit</code> <code>transferFrom</code>s. Fee-on-transfer, rebasing, and hooked tokens make "amount debited ≠ amount minted"; OFT does not handle that, and supply drifts. Do not wrap those tokens as OFT — either wrap into an internal accounting unit first, or reject them.</p>
+    <p><code>decimalConversionRate = 10^(localDecimals - sharedDecimals)</code>. From 18 to 6, dust below 1e12 stays on source. A UI that says "full amount arrives" is wrong; the contract should treat <code>amountReceivedLD</code> after <code>_removeDust</code> as truth.</p>
+    <p>Volume controls are the OFT's job, not the Endpoint's. The official <code>RateLimiter</code> is linearly decaying in-flight capacity, not a counter that snaps to zero. An outbound limit fails cleanly before send; an inbound limit fires at credit, after source already burned / locked — that is a half-finished state you must be able to retry. Add a pause and a per-pathway mint cap so a stolen peer cannot mint unbounded supply.</p>
+
+    <h2>When not to use LayerZero</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>You need</th><th>Use</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>ETH from OP Mainnet back to Ethereum</td><td>Canonical Portal</td><td>You want the L2 state machine's exit, not another wrapped ETH</td></tr>
+        <tr><td>The same governor / NFT / ERC-20 on ten chains</td><td>OApp / OFT</td><td>There is no shared L1 state machine to derive from; you need a message layer</td></tr>
+        <tr><td>"This is official USDC"</td><td>Circle CCTP or the native mint</td><td>An OFT adapter is another token as far as users are concerned</td></tr>
+        <tr><td>To inherit a rollup's fraud / validity proofs</td><td>That rollup's messenger</td><td>LayerZero attestations come from DVNs, not Cannon or a zk verifier</td></tr>
+      </tbody>
+    </table></div>
+    <p>In practice many L2s host <strong>all three</strong>: canonical ETH, Circle USDC, and several OFTs. Tickers match; redemption paths and counterparties do not. When product copy says "cross-chain," name the door.</p>
+
+    <h2>Developer checklist</h2>
+    <ul>
+      <li><code>setPeer</code> explicitly on every pathway, bytes32 right-aligned; print eid ↔ address in both directions from the deploy script. A wrong peer is mint authority handed to a stranger.</li>
+      <li>Review the Security Stack like protocol parameters: required DVN set, optional threshold, who may <code>setConfig</code> / <code>setDelegate</code>. An owner or delegate hot wallet that can change DVNs can change the bridge's security model.</li>
+      <li><code>_lzReceive</code> trusts only Endpoint + peer; do not authorize via executor. Book-keep before any external call; compose must be idempotent (dedupe on guid) and the composer trusts <code>trustedOApp</code>, not <code>address(this)</code>.</li>
+      <li>Set an <code>enforcedOptions</code> floor and send through <code>combineOptions</code>; same-type gas sums. Test "user gas = 0 → floor only" and "still short → verified but unexecuted → manual retry." Default is unordered; add <code>OrderedExecution</code> only if you need FIFO.</li>
+      <li>Native fee is paid on source; destination gas / native drop live in options. A hop must fold the next hop's quote into this hop's options.</li>
+      <li>OFTs only talk to their peer OFT / adapter. Reject fee-on-transfer. For adapters, test missing approve, short receipt, and dust. Set rate limits / pause / mint cap; inbound limit failures must be retryable.</li>
+      <li>Use <code>TestHelperOz5</code> for a two-chain round-trip, wrong peer, out-of-order nonce, compose retry. Watch <code>PacketSent</code> / <code>PacketDelivered</code>, verified-but-not-executed backlog, DVN latency.</li>
+    </ul>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://docs.layerzero.network/v2">LayerZero V2 docs</a> / <a href="https://docs.layerzero.network/v2/developers/evm/oapp/overview">OApp</a> / <a href="https://docs.layerzero.network/v2/developers/evm/oft/quickstart">OFT</a></li>
+      <li><a href="https://docs.layerzero.network/v2/concepts/modular-security/security-stack-dvns">Security stack / DVNs</a> / <a href="https://docs.layerzero.network/v2/concepts/protocol/executors">Executors</a> / <a href="https://docs.layerzero.network/v2/concepts/message-ordering">Message ordering</a></li>
+      <li><a href="https://layerzeroscan.com/">LayerZero Scan</a> / <a href="https://github.com/LayerZero-Labs/LayerZero-v2">LayerZero-v2 contracts</a> / <a href="https://github.com/LayerZero-Labs/devtools">devtools-evm-foundry (TestHelperOz5)</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-11</p>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>
