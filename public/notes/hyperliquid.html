@@ -34,27 +34,28 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Hyperliquid 架構</h1>
-    <p class="meta">2026-09-09 · 永續合約 DEX · 開發者視角 · 變動快，落地前請再查證</p>
+    <p class="meta">2026-09-12 · HyperCore · HyperEVM · 永續 DEX · 開發者指南 · 變動快，落地前請再查證</p>
 
-    <p>Hyperliquid 不是一般 DEX，而是一條<strong>為永續合約而生的 L1</strong>。對開發者而言，關鍵在於它把系統切成兩層、並用 precompile 與 CoreWriter 把兩層縫在一起——這是本則三個重點（連動、Solidity、風險）的核心。</p>
+    <p>Hyperliquid 不是「EVM 鏈外掛一座交易所」，而是一條<strong>為永續合約而生的 L1</strong>：HyperCore 跑訂單簿與清算，HyperEVM 跑 Solidity，兩邊由 precompile 與 CoreWriter 縫在一起。本則給要寫合約或 bot 的人：資產實際在哪、account mode 不是 ERC-4337、讀寫時序、gas、agent 權限、跨層 vs 跨鏈，以及儲備證明能證明什麼。</p>
+    <blockquote><p>先記住三件事：相同地址在 Core 與 EVM <em>不是</em>同一份 state；REST／WebSocket 只是提交介面，撮合仍在 HyperCore；CoreWriter 送出 ≠ 已成交。</p></blockquote>
 
-    <h2>設計理念：CLOB + 雙層</h2>
-    <p>多數鏈上永續 DEX 用預言機定價（GMX）或把訂單簿放鏈下（早期 dYdX）。Hyperliquid 反其道而行：<strong>整個中央限價訂單簿（CLOB）放上鏈</strong>，以自有共識 HyperBFT 撐低延遲，追求接近中心化交易所的體驗但保留鏈上可驗證。系統分兩層：</p>
+    <h2>設計理念：CLOB + 雙層，同一條 L1</h2>
+    <p>多數鏈上永續 DEX 用預言機定價（GMX）或把訂單簿放鏈下（早期 dYdX）。Hyperliquid 把<strong>整個中央限價訂單簿（CLOB）放上 HyperCore</strong>，以 HyperBFT 撐低延遲。HyperEVM 是同一條 L1 上的 EVM 執行環境，不是另一條 rollup。</p>
     <div class="scroll"><table>
       <thead><tr><th>層</th><th>職責</th><th>你怎麼碰它</th></tr></thead>
       <tbody>
-        <tr><td><strong>HyperCore</strong></td><td>原生層：訂單簿、撮合、清算、永續邏輯</td><td>鏈下用簽名 API 下單；鏈上用 precompile／CoreWriter</td></tr>
-        <tr><td><strong>HyperEVM</strong></td><td>相容 EVM 的通用合約層</td><td>照常部署 Solidity 合約</td></tr>
+        <tr><td><strong>HyperCore</strong></td><td>訂單簿、撮合、清算、spot／perp 餘額</td><td>簽名 API 提交動作；合約用 precompile 讀、CoreWriter 寫</td></tr>
+        <tr><td><strong>HyperEVM</strong></td><td>相容 EVM 的合約層、原生 HYPE gas</td><td>照常部署 Solidity；ERC-20 <code>balanceOf</code> 只看見這一層</td></tr>
       </tbody>
     </table></div>
-    <p>兩層共享狀態，因此 HyperEVM 的合約能<strong>直接讀 HyperCore 的價格與部位、也能把動作寫回去</strong>——不需外部預言機。這正是它跟「一般 EVM 鏈 + 外掛交易所」最大的不同。</p>
+    <p>讀取是同步的：precompile 回傳「建構這顆 EVM block 當下」的 HyperCore 狀態。寫入是非同步的：CoreWriter 只把動作排進 HyperCore 佇列。</p>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 760 300" role="img" aria-label="HyperEVM 合約與 HyperCore 的連動：HyperEVM 以起於 0x800 的讀取 precompile 同步讀取價格與部位，並透過 0x3333 的 CoreWriter 合約寫回動作，但寫入為非同步、不與本筆 EVM 交易原子成立。">
+        <svg viewBox="0 0 760 300" role="img" aria-label="HyperEVM 合約與 HyperCore 的連動：讀取 precompile 同步回傳價格與部位；CoreWriter 寫入非同步，不與本筆 EVM 交易原子成立。">
           <defs>
-            <marker id="h1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
-            <marker id="h1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="hl-zh-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="hl-zh-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
           </defs>
           <rect class="svg-node" x="30" y="60" width="200" height="90" rx="10"></rect>
           <text class="svg-nlabel" x="130" y="98" text-anchor="middle">HyperEVM 合約</text>
@@ -62,117 +63,331 @@
           <rect class="svg-node-a" x="530" y="60" width="200" height="90" rx="10"></rect>
           <text class="svg-nlabel" x="630" y="94" text-anchor="middle">HyperCore</text>
           <text class="svg-ncode" x="630" y="116" text-anchor="middle">訂單簿 · 永續 · 餘額</text>
-          <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#h1)"></line>
+          <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#hl-zh-1)"></line>
           <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① 讀 precompile　0x…0800（同步）</text>
-          <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#h1)"></line>
+          <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#hl-zh-1)"></line>
           <text class="svg-flowlabel" x="379" y="118" text-anchor="middle">回傳：價格／部位／餘額</text>
-          <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#h1a)"></line>
+          <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#hl-zh-1a)"></line>
           <text class="svg-step" x="379" y="152" text-anchor="middle">② CoreWriter 0x3333… .sendRawAction()</text>
           <rect class="svg-node-dash" x="30" y="196" width="700" height="70" rx="12"></rect>
           <text class="svg-mono-a" x="50" y="226">⚠ 寫入是「非同步」的</text>
           <text class="svg-ncode" x="50" y="248">CoreWriter 只發出動作、排入 HyperCore 佇列，稍後才執行；不與本筆 EVM 交易原子成立。</text>
         </svg>
       </div>
-      <figcaption>讀取（①）是同步的：precompile 像一次 <code>staticcall</code>，當下就拿到 HyperCore 的價格與部位，可直接用於合約邏輯。寫入（②）則是非同步：CoreWriter 發出動作後排隊，稍後才在 HyperCore 生效——<strong>不能假設「送出＝已成交」</strong>，這是最常見的踩雷點。</figcaption>
+      <figcaption>讀取（①）像一次 <code>staticcall</code>，當下就能用於合約邏輯。寫入（②）排隊後才在 HyperCore 生效——<strong>不能假設「送出＝已成交」</strong>。</figcaption>
     </figure>
 
-    <h2>Solidity：讀狀態、寫動作</h2>
-    <p><strong>讀取</strong>——以 <code>staticcall</code> 打讀取類 precompile（起於 <code>0x…0800</code>，各查詢有各自位址，實際請對照官方文件或 <code>hyper-evm-lib</code>）：</p>
-<pre><code><span class="c">// 讀取類 precompile 由 0x…0800 起；此處示意讀取某 index 的價格</span>
-address constant PX_PRECOMPILE = 0x0000000000000000000000000000000000000807;
+    <h2>Account abstraction modes：不是 ERC-4337</h2>
+    <p>Hyperliquid 的「Account Abstraction」是 <strong>spot 與 perps 保證金怎麼共用</strong>，跟 ERC-4337 的 Smart Account 無關。切換用 <code>userSetAbstraction</code>／CoreWriter action id 16。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>模式</th><th>餘額怎麼算</th><th>誰該用</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Unified</strong>（建議一般使用者）</td><td>同一資產一份餘額：現貨與該資產的 cross-margin perps 共用</td><td>一般交易</td></tr>
+        <tr><td><strong>Portfolio margin</strong></td><td>合格資產（目前 HYPE、BTC、USDC、USDT）合成一份投資組合保證金</td><td>要最高資金效率</td></tr>
+        <tr><td><strong>Standard／Manual</strong></td><td>spot、perp、各 DEX 分開；cross 只在單一 DEX 內</td><td>做市、高頻、builder</td></tr>
+        <tr><td><strong>DEX abstraction</strong></td><td>已停用</td><td>不要再用</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li>Builder-fee 收款地址必須是 Standard，否則收不到 builder fee。</li>
+      <li>Unified 與 Portfolio margin 每天最多約 5 萬筆 user action；Standard 無此上限。</li>
+      <li>API 在 Unified／PM 下，餘額與 hold 都出現在 <strong>spot clearinghouse</strong>；個別 perp DEX user state 沒有意義。</li>
+      <li>CoreWriter 的 USD class transfer（action id 7）只在「spot 與 perp 分開記帳」時有意義，<strong>不是</strong>通用餘額模型。</li>
+    </ul>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="三種 account mode：Unified 把同一資產的現貨與永續合成一份餘額；Portfolio margin 把多種合格資產合成一份保證金；Standard 把 spot、perp、各 DEX 分開。">
+          <rect class="svg-node-a" x="24" y="40" width="220" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="134" y="78" text-anchor="middle">Unified</text>
+          <text class="svg-ncode" x="134" y="100" text-anchor="middle">每種資產一份餘額</text>
+          <text class="svg-ncode" x="134" y="118" text-anchor="middle">spot + 該資產 perps</text>
+          <rect class="svg-node-a" x="270" y="40" width="220" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="78" text-anchor="middle">Portfolio margin</text>
+          <text class="svg-ncode" x="380" y="100" text-anchor="middle">HYPE/BTC/USDC/USDT</text>
+          <text class="svg-ncode" x="380" y="118" text-anchor="middle">跨資產一份保證金</text>
+          <rect class="svg-node" x="516" y="40" width="220" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="626" y="78" text-anchor="middle">Standard</text>
+          <text class="svg-ncode" x="626" y="100" text-anchor="middle">spot／perp／DEX 分開</text>
+          <text class="svg-ncode" x="626" y="118" text-anchor="middle">builder 必須用這個</text>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">這三種都只統一 HyperCore 內部，不把 Core 與 EVM 合成一份 balance</text>
+          <text class="svg-cap" x="380" y="204" text-anchor="middle">子帳戶各自獨立，即使主帳戶開了 Unified／PM。</text>
+        </svg>
+      </div>
+      <figcaption>新手常把 Unified 理解成「我在 EVM 的 USDC 也能拿去開永續」。不行。Unified 統一的是 Core 上的 spot 與 perps，不是 Core 與 EVM。</figcaption>
+    </figure>
 
-function markPx(uint32 index) public view returns (uint64) {
-    (bool ok, bytes memory ret) = PX_PRECOMPILE.staticcall(abi.encode(index));
-    require(ok, "precompile failed");
-    return abi.decode(ret, (uint64));          <span class="c">// 同步取得，可直接用於下游邏輯</span>
+    <h2>資產實際在哪：HyperCore vs HyperEVM</h2>
+    <p>同一個 20-byte 地址在兩邊各有一份帳本。合約裡的 <code>token.balanceOf(addr)</code> 只讀 HyperEVM；perp 保證金、Core spot、未成交單，都在 HyperCore。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>你看到的</th><th>實際位置</th></tr></thead>
+      <tbody>
+        <tr><td>EVM <code>balanceOf</code>／原生 HYPE</td><td>HyperEVM</td></tr>
+        <tr><td>Core spot、perp 保證金、掛單凍結</td><td>HyperCore clearinghouse</td></tr>
+        <tr><td>子帳戶</td><td>獨立 Core 帳戶，不與主帳戶合併</td></tr>
+        <tr><td>已連結的 Core spot ↔ EVM ERC-20</td><td>經 <strong>system address</strong> 互轉，不是自動共用</td></tr>
+      </tbody>
+    </table></div>
+    <p>System address：第一個 byte 為 <code>0x20</code>，其餘為 0，token index 以 big-endian 寫在尾端（例如 index 200 → <code>0x2000…00c8</code>）。HYPE 例外：<code>0x2222…2222</code>，對應 EVM 原生 gas，不是 ERC-20。</p>
+    <ul>
+      <li><strong>Core → EVM：</strong><code>sendAsset</code> 到該 token 的 system address。下一顆 EVM block 由系統以 system address 對 linked ERC-20 呼叫 <code>transfer(recipient, amount)</code>。花費約 20 萬 gas，以<strong>下一顆</strong> EVM block 的 base fee 計。</li>
+      <li><strong>EVM → Core：</strong>對 linked ERC-20（或 HYPE 轉 <code>value</code> 到 <code>0x2222…</code>）<code>Transfer</code> 到 system address。同一顆產出 EVM 的 L1 block 裡、EVM block 建完後入帳。</li>
+      <li>官方目前<strong>不檢查</strong> system address 是否有足夠供給、也不檢查合約是不是合法 ERC-20。linked 合約可以是任意 bytecode。</li>
+      <li>EVM 比 Core 多出來的 wei decimals：金額若沒對齊（末尾不是 extraWeiDecimals 個 0），非整部分會被燒毀（保證 &lt; 1 Wei）。</li>
+    </ul>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 260" role="img" aria-label="資產位置：HyperCore 放訂單簿與保證金，HyperEVM 放 ERC-20 與原生 HYPE；兩邊經 system address 互轉，同一使用者地址不是同一份餘額。">
+          <defs>
+            <marker id="hl-zh-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="28" y="36" width="280" height="120" rx="10"></rect>
+          <text class="svg-nlabel" x="168" y="70" text-anchor="middle">HyperCore · Alice 0xA</text>
+          <text class="svg-ncode" x="168" y="94" text-anchor="middle">spot／perp／掛單凍結</text>
+          <text class="svg-ncode" x="168" y="114" text-anchor="middle">API 查這個地址，不是 agent</text>
+          <rect class="svg-node-a" x="452" y="36" width="280" height="120" rx="10"></rect>
+          <text class="svg-nlabel" x="592" y="70" text-anchor="middle">HyperEVM · Alice 0xA</text>
+          <text class="svg-ncode" x="592" y="94" text-anchor="middle">ERC-20 balanceOf(0xA)</text>
+          <text class="svg-ncode" x="592" y="114" text-anchor="middle">原生 HYPE gas</text>
+          <line class="svg-flow-a" x1="308" y1="80" x2="450" y2="80" marker-end="url(#hl-zh-2)"></line>
+          <line class="svg-flow-a" x1="452" y1="112" x2="310" y2="112" marker-end="url(#hl-zh-2)"></line>
+          <text class="svg-step" x="380" y="68" text-anchor="middle">system address</text>
+          <text class="svg-mono-a" x="380" y="188" text-anchor="middle">HYPE 走 0x2222…；其他 token 走 0x20 + index</text>
+          <text class="svg-cap" x="380" y="216" text-anchor="middle">同一 0xA ≠ 同一份錢。Unified 也不會把右邊的 ERC-20 拿去開左邊的倉。</text>
+        </svg>
+      </div>
+      <figcaption>把 Core 與 EVM 想成同一門牌的兩間倉庫。鑰匙相同，庫存獨立；要搬家必須經過 system address 這扇門。</figcaption>
+    </figure>
+
+    <h2>Solidity：讀 precompile、寫 CoreWriter</h2>
+    <p><strong>讀取</strong>——<code>staticcall</code> 打讀取類 precompile（從 <code>0x…0800</code> 起，<strong>沒有 4-byte selector</strong>，參數直接 ABI encode）。價格是 raw <code>uint64</code>：永續除以 <code>10^(6 - szDecimals)</code>，現貨除以 <code>10^(8 - base szDecimals)</code>。無效資產或 vault 會讓該 call frame <strong>吃光傳入的 gas</strong>。費用約 <code>2000 + 65 * (input_len + output_len)</code>。</p>
+<pre><code><span class="c">// 示意；完整介面見 L1Read.sol / hyper-evm-lib</span>
+address constant MARK_PX   = 0x0000000000000000000000000000000000000806;
+address constant ORACLE_PX = 0x0000000000000000000000000000000000000807; <span class="c">// 不是 markPx</span>
+address constant SPOT_PX   = 0x0000000000000000000000000000000000000808;
+
+function oraclePx(uint32 index) public view returns (uint64) {
+    (bool ok, bytes memory ret) = ORACLE_PX.staticcall(abi.encode(index));
+    require(ok, "oraclePx failed");                  <span class="c">// 失敗會耗盡本 frame gas</span>
+    return abi.decode(ret, (uint64));
 }</code></pre>
-    <p><strong>寫入</strong>——透過 <code>CoreWriter</code>（<code>0x3333…3333</code>）的唯一函式 <code>sendRawAction(bytes)</code>。動作以「版本位元組 + action id + abi 編碼參數」組成。以下為官方文件的 USD class transfer 範例：</p>
+    <p><strong>寫入</strong>——<code>CoreWriter</code>（<code>0x3333…3333</code>）唯一函式 <code>sendRawAction(bytes)</code>。編碼：1 byte 版本（目前 <code>0x01</code>）+ 3 byte big-endian action id + ABI 參數。先燒掉約 25k gas，實際呼叫約 47k。以下官方 USD class transfer 範例只適用「spot／perp 分開」的帳戶；Unified／PM 不要拿它當通用轉帳。</p>
 <pre><code>interface ICoreWriter { function sendRawAction(bytes calldata data) external; }
 ICoreWriter constant CW = ICoreWriter(0x3333333333333333333333333333333333333333);
 
 function usdClassTransfer(uint64 ntl, bool toPerp) external {
     bytes memory action = abi.encode(ntl, toPerp);
     bytes memory data = new bytes(4 + action.length);
-    data[0] = 0x01; data[1] = 0x00; data[2] = 0x00; data[3] = 0x07;   <span class="c">// 版本 + action id</span>
+    data[0] = 0x01; data[1] = 0x00; data[2] = 0x00; data[3] = 0x07;   <span class="c">// 版本 + action 7</span>
     for (uint256 i = 0; i &lt; action.length; i++) data[4 + i] = action[i];
-    CW.sendRawAction(data);                     <span class="c">// 只是「發出」動作——非同步！</span>
+    CW.sendRawAction(data);                     <span class="c">// 只是發出——非同步</span>
 }</code></pre>
+    <p>動作以<strong>合約自己的 HyperCore 地址</strong>執行，不是 <code>tx.origin</code>。訂單與 vault transfer 會再延遲數秒，避免用 EVM 繞過 L1 mempool。新 Core 帳戶第一次當收款人要付 <strong>1 顆 quote token</strong>（如 1 USDC）啟動費；未啟動的地址<strong>不能</strong>送 CoreWriter。合約部署者應先對合約地址做一筆 Core 啟動轉帳。</p>
 
-    <h2>鏈下：交易 API 與簽名</h2>
-    <p>高頻交易（下單、撤單、改槓桿）走鏈下 REST／WebSocket，不走 HyperEVM。簽名機制特殊——稱為 <strong>phantom agent</strong>：</p>
+    <h2>時序：同一 L1 block 內誰先誰後</h2>
+    <p>Core → EVM 轉帳排到<strong>下一顆</strong> EVM block。EVM → Core 轉帳發生在「有產出 EVM 的那顆 L1 block」裡、EVM block 建完之後。該 L1 block 的順序是：</p>
+    <ol>
+      <li>建 L1 block</li>
+      <li>建 EVM block</li>
+      <li>處理 EVM → Core 轉帳</li>
+      <li>處理 CoreWriter 動作</li>
+    </ol>
+    <p>CoreWriter 的帳戶必須在 EVM block <em>開始前</em>就已存在於 HyperCore。<strong>同一 block 先 EVM→Core 啟動帳戶、再 CoreWriter，會被拒絕。</strong></p>
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 760 210" role="img" aria-label="Hyperliquid 鏈下下單流程：客戶端組動作並以 msgpack 序列化，算出 keccak256 的 connectionId，對 phantom agent 以 EIP-712（chainId 1337）簽名，再 POST 到 /exchange 進入 HyperCore 訂單簿。">
+        <svg viewBox="0 0 760 210" role="img" aria-label="產出 EVM 的 L1 block 順序：先 L1，再 EVM，再 EVM 到 Core 轉帳，最後 CoreWriter。同一 block 先啟動再寫入會被拒。">
           <defs>
-            <marker id="h2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="hl-zh-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
           </defs>
-          <rect class="svg-node" x="24" y="70" width="170" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="109" y="100" text-anchor="middle">客戶端 / bot</text>
-          <text class="svg-ncode" x="109" y="120" text-anchor="middle">組動作 → msgpack</text>
-          <rect class="svg-node-a" x="300" y="70" width="180" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="390" y="100" text-anchor="middle">phantom agent</text>
-          <text class="svg-ncode" x="390" y="120" text-anchor="middle">EIP-712 · chainId 1337</text>
-          <rect class="svg-node" x="586" y="70" width="150" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="661" y="100" text-anchor="middle">POST /exchange</text>
-          <text class="svg-ncode" x="661" y="120" text-anchor="middle">→ HyperCore 訂單簿</text>
-          <line class="svg-flow" x1="194" y1="105" x2="298" y2="105" marker-end="url(#h2)"></line>
-          <text class="svg-flowlabel" x="246" y="96" text-anchor="middle">簽名</text>
-          <line class="svg-flow" x1="480" y1="105" x2="584" y2="105" marker-end="url(#h2)"></line>
-          <text class="svg-flowlabel" x="532" y="96" text-anchor="middle">送出</text>
+          <rect class="svg-node" x="20" y="48" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="78" text-anchor="middle">1. L1 block</text>
+          <text class="svg-ncode" x="95" y="98" text-anchor="middle">HyperBFT</text>
+          <rect class="svg-node" x="210" y="48" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="285" y="78" text-anchor="middle">2. EVM block</text>
+          <text class="svg-ncode" x="285" y="98" text-anchor="middle">你的 Solidity</text>
+          <rect class="svg-node-a" x="400" y="48" width="160" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="480" y="78" text-anchor="middle">3. EVM→Core</text>
+          <text class="svg-ncode" x="480" y="98" text-anchor="middle">轉帳入帳</text>
+          <rect class="svg-node-a" x="590" y="48" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="665" y="78" text-anchor="middle">4. CoreWriter</text>
+          <text class="svg-ncode" x="665" y="98" text-anchor="middle">動作才執行</text>
+          <line class="svg-flow-a" x1="170" y1="84" x2="208" y2="84" marker-end="url(#hl-zh-3)"></line>
+          <line class="svg-flow-a" x1="360" y1="84" x2="398" y2="84" marker-end="url(#hl-zh-3)"></line>
+          <line class="svg-flow-a" x1="560" y1="84" x2="588" y2="84" marker-end="url(#hl-zh-3)"></line>
+          <text class="svg-mono-a" x="380" y="160" text-anchor="middle">同一 block：步驟 3 才出生的帳戶，步驟 4 仍會被拒</text>
+          <text class="svg-cap" x="380" y="186" text-anchor="middle">Core→EVM 還要再等下一顆 EVM block；訂單／vault 的 CoreWriter 另有數秒延遲。</text>
         </svg>
       </div>
-      <figcaption>動作先以 msgpack 序列化，接上 nonce 與 vault 位址後 <code>keccak256</code> 得到 <code>connectionId</code>；再把 <code>{ source, connectionId }</code> 當成一個臨時「agent」物件，以 EIP-712（L1 action 用 chainId 1337）簽名。建議用 <code>approveAgent</code> 授權的 <strong>agent 金鑰</strong>簽名——它無資金、只能簽 L1 動作，主私鑰外洩風險較低。實作請直接用官方 SDK，別手刻。</figcaption>
+      <figcaption>合約裡「先轉 HYPE 進 Core、同一筆再下單」做不到。先在前一個 block 啟動帳戶，再 CoreWriter。</figcaption>
+    </figure>
+
+    <h2>Gas：小塊、大塊與 CoreWriter</h2>
+    <p>HyperEVM 把吞吐量拆成兩種 block、兩份 mempool，block number 仍單調遞增：</p>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>小塊</th><th>大塊</th></tr></thead>
+      <tbody>
+        <tr><td>間隔</td><td>約 1 秒</td><td>約 1 分鐘</td></tr>
+        <tr><td>gas 上限</td><td>3M</td><td>30M</td></tr>
+        <tr><td>用途</td><td>一般交易、確認速度</td><td>大型部署</td></tr>
+      </tbody>
+    </table></div>
+    <p>每個地址 mempool 只收<strong>接下來 8 個 nonce</strong>；超過一天的交易會被修剪。切到大塊用 Core action <code>evmUserModify.usingBigBlocks: true</code>（這是 HyperCore 使用者旗標，要先成為 Core user）。估大塊 base fee 用 RPC <code>bigBlockGasPrice</code>，不要用普通 <code>gasPrice</code>。</p>
+    <p>Precompile 失敗會燒光該 frame 的 gas：呼叫時不要把剩餘 gas 全傳進去。CoreWriter 本身先燒 ~25k；合約還要為後續 HyperCore 執行與 20 萬 gas 的 Core→EVM 轉帳留預算。</p>
+
+    <h2>鏈下 API：提交介面，撮合仍在 HyperCore</h2>
+    <p>高頻下單、撤單、改槓桿走 REST／WebSocket，<strong>不經過 HyperEVM</strong>。這不是鏈下訂單簿：簽名動作送到交換端點後，撮合、優先順序與成交仍在 HyperCore 上發生。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="下單流程：客戶端組動作並以 phantom agent 簽名，POST 到交換端點，HyperCore 撮合後才成交。">
+          <defs>
+            <marker id="hl-zh-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="16" y="60" width="150" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="91" y="92" text-anchor="middle">客戶端 / bot</text>
+          <text class="svg-ncode" x="91" y="112" text-anchor="middle">msgpack + nonce</text>
+          <rect class="svg-node" x="200" y="60" width="160" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="280" y="92" text-anchor="middle">phantom agent</text>
+          <text class="svg-ncode" x="280" y="112" text-anchor="middle">EIP-712 · chainId 1337</text>
+          <rect class="svg-node" x="396" y="60" width="150" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="471" y="92" text-anchor="middle">POST /exchange</text>
+          <text class="svg-ncode" x="471" y="112" text-anchor="middle">只是提交</text>
+          <rect class="svg-node-a" x="580" y="60" width="164" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="662" y="92" text-anchor="middle">HyperCore CLOB</text>
+          <text class="svg-ncode" x="662" y="112" text-anchor="middle">撮合 · 成交</text>
+          <line class="svg-flow" x1="166" y1="100" x2="198" y2="100" marker-end="url(#hl-zh-4)"></line>
+          <line class="svg-flow" x1="360" y1="100" x2="394" y2="100" marker-end="url(#hl-zh-4)"></line>
+          <line class="svg-flow-a" x1="546" y1="100" x2="578" y2="100" marker-end="url(#hl-zh-4)"></line>
+          <text class="svg-mono-a" x="380" y="172" text-anchor="middle">HTTP 200 只表示動作被接受；成交要看 Core 回報</text>
+        </svg>
+      </div>
+      <figcaption>動作以 msgpack 序列化，接上 nonce 與 vault 位址後 <code>keccak256</code> 得到 <code>connectionId</code>；再把 <code>{ source, connectionId }</code> 當臨時 agent，用 EIP-712（L1 action 的 chainId 1337）簽名。實作請用官方 SDK，別手刻。</figcaption>
+    </figure>
+
+    <h2>權限：主錢包、agent、子帳戶</h2>
+    <p>API wallet（文件裡的 agent）<strong>只能簽名</strong>：能下單、改槓桿、把你送進清算，<strong>不能提款</strong>，本身也不持有資金。查餘額要傳主帳戶或子帳戶地址；傳 agent 地址會得到空結果。</p>
+    <ul>
+      <li>Nonce 跟<strong>簽署者</strong>（agent 位址）走，不是跟被代理的使用者走。每個 signer 保留最高 100 個 nonce；新 nonce 必須大於集合裡最小的、且未用過；時間窗是區塊時間 <code>(T-2 天, T+1 天)</code>。</li>
+      <li>一個 agent 簽主帳戶、vault、子帳戶，共用同一份 nonce 集合。每個程序／子帳戶用不同 agent。</li>
+      <li>Agent 被撤銷、過期、或主帳戶沒資金時，nonce 狀態可能被修剪。<strong>不要重用已撤銷的 agent 地址</strong>——修剪後舊簽名可能被重放。</li>
+      <li><code>ApproveBuilderFee</code> 必須由主錢包簽，agent 不行。</li>
+    </ul>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="主錢包持有資金與提款權；agent 只能簽名交易；子帳戶是獨立 Core 帳戶。">
+          <rect class="svg-node-a" x="28" y="40" width="210" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="133" y="76" text-anchor="middle">主錢包</text>
+          <text class="svg-ncode" x="133" y="98" text-anchor="middle">持有資金 · 能提款</text>
+          <text class="svg-ncode" x="133" y="116" text-anchor="middle">ApproveBuilderFee</text>
+          <rect class="svg-node" x="275" y="40" width="210" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="76" text-anchor="middle">API wallet / agent</text>
+          <text class="svg-ncode" x="380" y="98" text-anchor="middle">無資金 · 不能提款</text>
+          <text class="svg-ncode" x="380" y="116" text-anchor="middle">能交易／槓桿／清算你</text>
+          <rect class="svg-node" x="522" y="40" width="210" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="627" y="76" text-anchor="middle">子帳戶</text>
+          <text class="svg-ncode" x="627" y="98" text-anchor="middle">獨立 Core 帳本</text>
+          <text class="svg-ncode" x="627" y="116" text-anchor="middle">要自己的 agent</text>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">agent 外洩 ≠ 被轉走資金，但可以幫你爆倉。立刻換新 agent，不要重用舊地址。</text>
+          <text class="svg-cap" x="380" y="204" text-anchor="middle">查詢永遠傳主／子帳戶地址，不要傳 agent 地址。</text>
+        </svg>
+      </div>
+      <figcaption>把 agent 想成櫃檯印章：可以蓋單，不能開金庫。印章丟了要作廢並換新的，舊印章號碼作廢後可能被拿去重蓋舊單。</figcaption>
+    </figure>
+
+    <h2>跨層 vs 跨鏈</h2>
+    <p>HyperCore 與 HyperEVM 是<strong>同一條 HyperBFT L1 的兩層</strong>，不是兩條鏈，也沒有七日挑戰期。跨出去才是另一回事：</p>
+    <ul>
+      <li><strong>USDC：</strong>優先走 Circle <strong>CCTP</strong> 在 Hyperliquid 上原生鑄造。舊的 Arbitrum 橋已棄用。</li>
+      <li><strong>舊橋：</strong>主網 <code>0x2df1…3df7</code>。最低入金 5 USDC，低於這個<strong>不會入帳且永遠拿不回</strong>。出金只在 Hyperliquid 簽名，由驗證者在 Arbitrum 放行，約 3–4 分鐘。</li>
+    </ul>
+    <p>合約不要假設「EVM 上一筆 transfer 等於 Core 已有保證金」；也不要假設 CCTP mint 與 Core 入帳是同一筆原子交易。</p>
+
+    <h2>Proof of reserve：有資產 ≠ 可償付</h2>
+    <p>三件不同的事：</p>
+    <ol>
+      <li><strong>原生 USDC／CCTP：</strong> Circles 鑄造模型；贖回走 CCTP，不是 Hyperliquid 自建的 lock-mint。</li>
+      <li><strong>舊 Arbitrum 橋 escrow：</strong>仍鎖在橋合約裡的 USDC。這是歷史路徑的儲備，不是「全部 HyperCore USDC」。</li>
+      <li><strong>已連結的 Core／EVM token：</strong>system address 在 EVM 側應持有足以對應 Core 可贖回供給的餘額；還要核對 code hash、mint／升級權、decimals。官方不替你做這項檢查。</li>
+    </ol>
+    <p>PoR 證明不了償付能力：HLP 金庫、未成交凍結、借貸／再質押、Portfolio margin 的交叉保證金，都不會出現在「system address 有多少 token」這一個數字裡。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="三種儲備：CCTP 原生 USDC、舊橋 escrow、以及 linked token 的 system address 餘額。三者都不能代表 HLP 或未決部位的償付。">
+          <rect class="svg-node-a" x="24" y="36" width="220" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="134" y="70" text-anchor="middle">CCTP USDC</text>
+          <text class="svg-ncode" x="134" y="92" text-anchor="middle">原生鑄造／銷毀</text>
+          <rect class="svg-node" x="270" y="36" width="220" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="70" text-anchor="middle">舊橋 escrow</text>
+          <text class="svg-ncode" x="380" y="92" text-anchor="middle">Arbitrum 鎖倉</text>
+          <rect class="svg-node" x="516" y="36" width="220" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="626" y="70" text-anchor="middle">linked ERC-20</text>
+          <text class="svg-ncode" x="626" y="92" text-anchor="middle">system address 餘額</text>
+          <text class="svg-mono-a" x="380" y="156" text-anchor="middle">PoR ≠ 償付：HLP、未成交、再質押都不會出現在這三個盒子裡</text>
+          <text class="svg-cap" x="380" y="184" text-anchor="middle">linked 合約可以是任意 bytecode；只看 symbol 不夠。</text>
+        </svg>
+      </div>
+      <figcaption>產品若顯示「USDC」，先問是 CCTP 原生、舊橋、還是某個 OFT／linked 包裝。贖回路徑與對手方完全不同。</figcaption>
     </figure>
 
     <h2>智慧合約安全風險（開發者）</h2>
     <ul>
-      <li><strong>寫入非同步是頭號陷阱。</strong>CoreWriter 送出後不代表已成交；同一筆 EVM 交易內「先下單、再讀部位確認」是行不通的，狀態要等後續區塊才更新。</li>
-      <li><strong>precompile 是可信價源，但別誤用。</strong>它讀的是 HyperCore 的真實狀態（不像現貨池價可被閃電貸操縱），但仍要處理回傳解碼、gas，以及索引／市場對映錯誤。</li>
-      <li><strong>動作編碼要逐位元正確。</strong>版本位元組與 action id 錯一格，行為就不同；用經驗證的函式庫（<code>hyper-evm-lib</code>）而非自行拼 bytes。</li>
-      <li><strong>HyperEVM 仍是新環境。</strong>雙區塊（小／大 block）、gas 模型、precompile 行為都與主流 EVM 有差異；上線前在測試網把邊界跑過。</li>
+      <li><strong>寫入非同步是頭號陷阱。</strong>同一筆 EVM 交易內「先下單、再讀部位確認」行不通。同一 block 先啟動帳戶再 CoreWriter 會被拒。</li>
+      <li><strong>precompile 位址不要抄錯。</strong><code>0x0806</code> markPx、<code>0x0807</code> oraclePx、<code>0x0808</code> spotPx。無效輸入耗盡 gas；raw 價格要自己做 decimals scaling。</li>
+      <li><strong>不要把 EVM <code>balanceOf</code> 當 Core 保證金。</strong>linked 轉帳沒有官方供給檢查；非整 wei 會被燒。</li>
+      <li><strong>動作編碼要逐位正確。</strong>用 <code>hyper-evm-lib</code>，別手拼 bytes。USD class transfer 不是萬用轉帳。</li>
+      <li><strong>雙區塊與 8 nonce。</strong>大合約部署要切 big blocks；mempool 只收接下來 8 個 nonce。</li>
     </ul>
 
     <h2>使用者投資風險</h2>
-    <p>永續合約的風險遠高於現貨，務必先懂再進場：</p>
+    <p>永續的風險遠高於現貨：</p>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
       <tbody>
-        <tr><td><strong>槓桿清算</strong></td><td>永續是槓桿商品，價格反向到維持保證金以下即被強制平倉，本金可能歸零。</td></tr>
-        <tr><td><strong>資金費率</strong></td><td>多空失衡時要持續支付對手方，長抱單邊會被費率慢慢侵蝕。</td></tr>
-        <tr><td><strong>HLP 金庫回撤</strong></td><td>存入 HLP 等於當造市／清算對手方；極端行情或大額清算時，金庫可能承受可觀虧損，並非穩賺。</td></tr>
-        <tr><td><strong>自動減倉（ADL）</strong></td><td>對手方爆倉且保險金不足時，你的獲利部位可能被強制部分平倉。</td></tr>
-        <tr><td><strong>預言機／標記價</strong></td><td>清算依標記價而非最新成交價；標記價異常會觸發非預期清算。</td></tr>
-        <tr><td><strong>合約與橋風險</strong></td><td>HyperEVM 上的借貸、LST 等協議各有智慧合約風險；跨鏈資產還有橋的風險。</td></tr>
-        <tr><td><strong>代幣解鎖／集中度</strong></td><td>HYPE 等代幣的解鎖排程與持有集中度會影響價格波動。</td></tr>
+        <tr><td><strong>槓桿清算</strong></td><td>價格反向到維持保證金以下即被強制平倉，本金可能歸零。Agent 也能把你送進這個狀態。</td></tr>
+        <tr><td><strong>資金費率</strong></td><td>多空失衡時持續支付對手方。</td></tr>
+        <tr><td><strong>HLP 金庫回撤</strong></td><td>存入 HLP 等於當造市／清算對手方；極端行情可能虧損。這不是 PoR 涵蓋的範圍。</td></tr>
+        <tr><td><strong>自動減倉（ADL）</strong></td><td>對手方爆倉且保險金不足時，獲利部位可能被強制部分平倉。</td></tr>
+        <tr><td><strong>標記價</strong></td><td>清算依 mark／oracle，不是最新成交價。</td></tr>
+        <tr><td><strong>橋與 linked token</strong></td><td>舊橋低於 5 USDC 的入金會消失；linked ERC-20 的實作可能與 Core 脫鉤。</td></tr>
+        <tr><td><strong>代幣解鎖／集中度</strong></td><td>HYPE 等代幣的解鎖與持有集中度會放大波動。</td></tr>
       </tbody>
     </table></div>
-    <blockquote><p>一句話：現貨的敵人是「幣價跌」；永續多了「被清算」「付資金費」「被 ADL」——時間與槓桿都會咬人。</p></blockquote>
+    <blockquote><p>現貨的敵人是「幣價跌」；永續多了清算、資金費、ADL。時間與槓桿都會咬人。</p></blockquote>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interacting-with-hypercore">Interacting with HyperCore</a>／<a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers">Core ↔ EVM transfers</a></li>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/dual-block-architecture">Dual-block architecture</a>／<a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interaction-timings">Interaction timings</a></li>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/trading/account-abstraction-modes">Account abstraction modes</a>／<a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets">Nonces and API wallets</a></li>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/usdc">USDC / CCTP</a>／<a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/activation-gas-fee">Activation gas fee</a></li>
+      <li><a href="https://github.com/hyperliquid-dev/hyper-evm-lib">hyper-evm-lib</a></li>
+    </ul>
+    <p class="meta">內容最後核對：2026-09-12</p>
   </div>
 
   <!-- ================= English ================= -->
   <div data-l="en">
     <h1>Hyperliquid Architecture</h1>
-    <p class="meta">2026-09-09 · Perp DEX · Developer view · Moves fast, re-verify before building</p>
+    <p class="meta">2026-09-12 · HyperCore · HyperEVM · Perp DEX · Developer guide · Moves fast; re-verify before shipping</p>
 
-    <p>Hyperliquid is not an ordinary DEX but an <strong>L1 purpose-built for perpetuals</strong>. For developers the key is that it splits the system into two layers and stitches them together with precompiles and CoreWriter — the core of this note's three themes (interconnection, Solidity, risk).</p>
+    <p>Hyperliquid is not "an EVM chain with an exchange bolted on." It is an <strong>L1 purpose-built for perpetuals</strong>: HyperCore runs the book and liquidations, HyperEVM runs Solidity, and precompiles plus CoreWriter stitch the two together. This note is for people writing contracts or bots: where assets actually live, why "account abstraction" here is not ERC-4337, read/write timing, gas, agent authority, cross-layer vs cross-chain, and what a proof of reserve can actually prove.</p>
+    <blockquote><p>Three facts first: the same address on Core and EVM is <em>not</em> the same state; REST / WebSocket is a submission interface, matching stays on HyperCore; a CoreWriter send is not a fill.</p></blockquote>
 
-    <h2>Design idea: CLOB + two layers</h2>
-    <p>Most on-chain perp DEXs price via an oracle (GMX) or keep the book off-chain (early dYdX). Hyperliquid does the opposite: <strong>the whole central limit order book (CLOB) lives on-chain</strong>, with its own HyperBFT consensus for low latency — aiming for a CEX-like experience while staying verifiable. Two layers:</p>
+    <h2>Design idea: CLOB + two layers, one L1</h2>
+    <p>Most on-chain perp DEXs price via an oracle (GMX) or keep the book off-chain (early dYdX). Hyperliquid puts the <strong>whole central limit order book (CLOB) on HyperCore</strong>, with HyperBFT for low latency. HyperEVM is an EVM environment on that same L1, not a separate rollup.</p>
     <div class="scroll"><table>
       <thead><tr><th>Layer</th><th>Responsibility</th><th>How you touch it</th></tr></thead>
       <tbody>
-        <tr><td><strong>HyperCore</strong></td><td>Native: order book, matching, liquidation, perp logic</td><td>Off-chain via signed API; on-chain via precompiles / CoreWriter</td></tr>
-        <tr><td><strong>HyperEVM</strong></td><td>EVM-compatible general contract layer</td><td>Deploy Solidity as usual</td></tr>
+        <tr><td><strong>HyperCore</strong></td><td>Book, matching, liquidation, spot/perp balances</td><td>Signed API to submit; contracts read via precompiles and write via CoreWriter</td></tr>
+        <tr><td><strong>HyperEVM</strong></td><td>EVM contracts, native HYPE gas</td><td>Deploy Solidity as usual; ERC-20 <code>balanceOf</code> sees only this layer</td></tr>
       </tbody>
     </table></div>
-    <p>The two share state, so HyperEVM contracts can <strong>read HyperCore's prices and positions directly, and write actions back</strong> — no external oracle needed. That is the biggest difference from an "ordinary EVM chain plus a bolted-on exchange."</p>
+    <p>Reads are synchronous: a precompile returns HyperCore state as of the EVM block being built. Writes are asynchronous: CoreWriter only enqueues an action on HyperCore.</p>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 760 300" role="img" aria-label="How a HyperEVM contract interconnects with HyperCore: HyperEVM reads prices and positions synchronously via read precompiles starting at 0x800, and writes actions back through the CoreWriter contract at 0x3333, but writes are asynchronous and not atomic with the EVM transaction.">
+        <svg viewBox="0 0 760 300" role="img" aria-label="How a HyperEVM contract interconnects with HyperCore: read precompiles return price and position synchronously; CoreWriter writes are asynchronous and not atomic with the EVM transaction.">
           <defs>
-            <marker id="e1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
-            <marker id="e1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="hl-en-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="hl-en-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
           </defs>
           <rect class="svg-node" x="30" y="60" width="200" height="90" rx="10"></rect>
           <text class="svg-nlabel" x="130" y="98" text-anchor="middle">HyperEVM contract</text>
@@ -180,91 +395,304 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
           <rect class="svg-node-a" x="530" y="60" width="200" height="90" rx="10"></rect>
           <text class="svg-nlabel" x="630" y="94" text-anchor="middle">HyperCore</text>
           <text class="svg-ncode" x="630" y="116" text-anchor="middle">book · perps · balances</text>
-          <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#e1)"></line>
+          <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#hl-en-1)"></line>
           <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① read precompile  0x…0800 (sync)</text>
-          <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#e1)"></line>
+          <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#hl-en-1)"></line>
           <text class="svg-flowlabel" x="379" y="118" text-anchor="middle">returns: price / position / balance</text>
-          <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#e1a)"></line>
+          <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#hl-en-1a)"></line>
           <text class="svg-step" x="379" y="152" text-anchor="middle">② CoreWriter 0x3333… .sendRawAction()</text>
           <rect class="svg-node-dash" x="30" y="196" width="700" height="70" rx="12"></rect>
           <text class="svg-mono-a" x="50" y="226">⚠ writes are ASYNC</text>
           <text class="svg-ncode" x="50" y="248">CoreWriter only emits the action into HyperCore's queue; it runs later, not atomically with this EVM tx.</text>
         </svg>
       </div>
-      <figcaption>Reads (①) are synchronous: a precompile behaves like a <code>staticcall</code> and returns HyperCore's price or position right away, usable in contract logic. Writes (②) are asynchronous: CoreWriter queues the action to run later on HyperCore — <strong>never assume "sent == filled"</strong>, the single most common pitfall.</figcaption>
+      <figcaption>Reads (①) behave like a <code>staticcall</code> and are usable in contract logic. Writes (②) run later on HyperCore — <strong>never assume "sent == filled"</strong>.</figcaption>
     </figure>
 
-    <h2>Solidity: read state, write actions</h2>
-    <p><strong>Reading</strong> — <code>staticcall</code> a read precompile (starting at <code>0x…0800</code>; each query has its own address, confirm against the official docs or <code>hyper-evm-lib</code>):</p>
-<pre><code><span class="c">// read precompiles start at 0x…0800; here, reading a price for some index</span>
-address constant PX_PRECOMPILE = 0x0000000000000000000000000000000000000807;
+    <h2>Account abstraction modes: not ERC-4337</h2>
+    <p>Hyperliquid "Account Abstraction" is <strong>how spot and perp margin share balances</strong>. It has nothing to do with ERC-4337 Smart Accounts. Switch with <code>userSetAbstraction</code> / CoreWriter action id 16.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Mode</th><th>How balances work</th><th>Who it's for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Unified</strong> (recommended for most users)</td><td>One balance per asset: spot and that asset's cross-margin perps share it</td><td>Ordinary trading</td></tr>
+        <tr><td><strong>Portfolio margin</strong></td><td>Eligible assets (currently HYPE, BTC, USDC, USDT) form one portfolio margin</td><td>Maximum capital efficiency</td></tr>
+        <tr><td><strong>Standard / Manual</strong></td><td>Separate spot, perp, and per-DEX balances; cross applies inside one DEX</td><td>MMs, high-frequency, builders</td></tr>
+        <tr><td><strong>DEX abstraction</strong></td><td>Discontinued</td><td>Do not use</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li>Builder-fee recipient addresses must be in Standard mode or they do not accrue builder fees.</li>
+      <li>Unified and Portfolio margin are capped at about 50k user actions per day; Standard is not.</li>
+      <li>For API users in Unified / PM, balances and holds live in the <strong>spot clearinghouse</strong>; individual perp DEX user states are not meaningful.</li>
+      <li>CoreWriter USD class transfer (action id 7) only makes sense when spot and perp are booked separately. It is <strong>not</strong> a universal balance model.</li>
+    </ul>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="Three account modes: Unified shares one balance per asset across spot and perps; Portfolio margin unifies eligible assets; Standard keeps spot, perp, and each DEX separate.">
+          <rect class="svg-node-a" x="24" y="40" width="220" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="134" y="78" text-anchor="middle">Unified</text>
+          <text class="svg-ncode" x="134" y="100" text-anchor="middle">one balance per asset</text>
+          <text class="svg-ncode" x="134" y="118" text-anchor="middle">spot + that asset's perps</text>
+          <rect class="svg-node-a" x="270" y="40" width="220" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="78" text-anchor="middle">Portfolio margin</text>
+          <text class="svg-ncode" x="380" y="100" text-anchor="middle">HYPE/BTC/USDC/USDT</text>
+          <text class="svg-ncode" x="380" y="118" text-anchor="middle">one cross-asset margin</text>
+          <rect class="svg-node" x="516" y="40" width="220" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="626" y="78" text-anchor="middle">Standard</text>
+          <text class="svg-ncode" x="626" y="100" text-anchor="middle">spot / perp / DEX split</text>
+          <text class="svg-ncode" x="626" y="118" text-anchor="middle">required for builders</text>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">All three unify HyperCore internally. None of them merge Core with EVM balances.</text>
+          <text class="svg-cap" x="380" y="204" text-anchor="middle">Sub-accounts stay separate even if the master is Unified or PM.</text>
+        </svg>
+      </div>
+      <figcaption>Beginners often read Unified as "my EVM USDC can margin perps." It cannot. Unified unifies Core spot and perps, not Core and EVM.</figcaption>
+    </figure>
 
-function markPx(uint32 index) public view returns (uint64) {
-    (bool ok, bytes memory ret) = PX_PRECOMPILE.staticcall(abi.encode(index));
-    require(ok, "precompile failed");
-    return abi.decode(ret, (uint64));          <span class="c">// synchronous, usable downstream</span>
+    <h2>Where assets actually live: HyperCore vs HyperEVM</h2>
+    <p>The same 20-byte address has two ledgers. <code>token.balanceOf(addr)</code> in a contract reads HyperEVM only. Perp margin, Core spot, and open-order holds live on HyperCore.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>What you see</th><th>Where it sits</th></tr></thead>
+      <tbody>
+        <tr><td>EVM <code>balanceOf</code> / native HYPE</td><td>HyperEVM</td></tr>
+        <tr><td>Core spot, perp margin, resting holds</td><td>HyperCore clearinghouse</td></tr>
+        <tr><td>Sub-accounts</td><td>Separate Core accounts; not merged with master</td></tr>
+        <tr><td>Linked Core spot ↔ EVM ERC-20</td><td>Moved via a <strong>system address</strong>, not shared automatically</td></tr>
+      </tbody>
+    </table></div>
+    <p>A system address starts with byte <code>0x20</code>, the rest zeros, with the token index in big-endian at the end (index 200 → <code>0x2000…00c8</code>). HYPE is the exception: <code>0x2222…2222</code>, mapping to native EVM gas, not an ERC-20.</p>
+    <ul>
+      <li><strong>Core → EVM:</strong> <code>sendAsset</code> to that token's system address. The next EVM block, a system transaction calls <code>transfer(recipient, amount)</code> on the linked ERC-20 as the system address. Costs ~200k gas at the <strong>next</strong> EVM block's base fee.</li>
+      <li><strong>EVM → Core:</strong> ERC-20 <code>Transfer</code> to the system address (or send HYPE <code>value</code> to <code>0x2222…</code>). Credited in the same L1 block that produced the EVM block, after that EVM block is built.</li>
+      <li>Officially there is <strong>no check</strong> that the system address holds enough supply, or that the contract is a valid ERC-20. Linked bytecode can be arbitrary.</li>
+      <li>If the EVM has extra wei decimals, a non-round amount (not ending in <code>extraWeiDecimals</code> zeros) burns the dust (guaranteed &lt; 1 Wei).</li>
+    </ul>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 260" role="img" aria-label="Asset locations: HyperCore holds the book and margin, HyperEVM holds ERC-20s and native HYPE; the two move through a system address. The same user address is not the same balance.">
+          <defs>
+            <marker id="hl-en-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="28" y="36" width="280" height="120" rx="10"></rect>
+          <text class="svg-nlabel" x="168" y="70" text-anchor="middle">HyperCore · Alice 0xA</text>
+          <text class="svg-ncode" x="168" y="94" text-anchor="middle">spot / perp / order holds</text>
+          <text class="svg-ncode" x="168" y="114" text-anchor="middle">query this address, not the agent</text>
+          <rect class="svg-node-a" x="452" y="36" width="280" height="120" rx="10"></rect>
+          <text class="svg-nlabel" x="592" y="70" text-anchor="middle">HyperEVM · Alice 0xA</text>
+          <text class="svg-ncode" x="592" y="94" text-anchor="middle">ERC-20 balanceOf(0xA)</text>
+          <text class="svg-ncode" x="592" y="114" text-anchor="middle">native HYPE gas</text>
+          <line class="svg-flow-a" x1="308" y1="80" x2="450" y2="80" marker-end="url(#hl-en-2)"></line>
+          <line class="svg-flow-a" x1="452" y1="112" x2="310" y2="112" marker-end="url(#hl-en-2)"></line>
+          <text class="svg-step" x="380" y="68" text-anchor="middle">system address</text>
+          <text class="svg-mono-a" x="380" y="188" text-anchor="middle">HYPE uses 0x2222…; other tokens use 0x20 + index</text>
+          <text class="svg-cap" x="380" y="216" text-anchor="middle">Same 0xA ≠ the same money. Unified does not let the ERC-20 on the right margin the book on the left.</text>
+        </svg>
+      </div>
+      <figcaption>Think of Core and EVM as two warehouses behind one house number. Same key, separate inventory; moving stock requires the system-address door.</figcaption>
+    </figure>
+
+    <h2>Solidity: read precompiles, write CoreWriter</h2>
+    <p><strong>Reading</strong> — <code>staticcall</code> a read precompile (from <code>0x…0800</code>, <strong>no 4-byte selector</strong>; ABI-encode the args directly). Prices are raw <code>uint64</code>: divide perps by <code>10^(6 - szDecimals)</code> and spot by <code>10^(8 - base szDecimals)</code>. An invalid asset or vault <strong>consumes all gas</strong> passed into that call frame. Cost is about <code>2000 + 65 * (input_len + output_len)</code>.</p>
+<pre><code><span class="c">// schematic; full interface in L1Read.sol / hyper-evm-lib</span>
+address constant MARK_PX   = 0x0000000000000000000000000000000000000806;
+address constant ORACLE_PX = 0x0000000000000000000000000000000000000807; <span class="c">// not markPx</span>
+address constant SPOT_PX   = 0x0000000000000000000000000000000000000808;
+
+function oraclePx(uint32 index) public view returns (uint64) {
+    (bool ok, bytes memory ret) = ORACLE_PX.staticcall(abi.encode(index));
+    require(ok, "oraclePx failed");                  <span class="c">// failure burns this frame's gas</span>
+    return abi.decode(ret, (uint64));
 }</code></pre>
-    <p><strong>Writing</strong> — via <code>CoreWriter</code> (<code>0x3333…3333</code>) and its single function <code>sendRawAction(bytes)</code>. An action is "version byte + action id + abi-encoded params". Here is the official docs' USD class transfer example:</p>
+    <p><strong>Writing</strong> — <code>CoreWriter</code> (<code>0x3333…3333</code>) and its only function <code>sendRawAction(bytes)</code>. Encoding: 1-byte version (currently <code>0x01</code>) + 3-byte big-endian action id + ABI params. It burns ~25k gas first; a typical call is ~47k. The official USD class transfer example below only applies when spot and perp are booked separately — do not treat it as a universal transfer in Unified / PM.</p>
 <pre><code>interface ICoreWriter { function sendRawAction(bytes calldata data) external; }
 ICoreWriter constant CW = ICoreWriter(0x3333333333333333333333333333333333333333);
 
 function usdClassTransfer(uint64 ntl, bool toPerp) external {
     bytes memory action = abi.encode(ntl, toPerp);
     bytes memory data = new bytes(4 + action.length);
-    data[0] = 0x01; data[1] = 0x00; data[2] = 0x00; data[3] = 0x07;   <span class="c">// version + action id</span>
+    data[0] = 0x01; data[1] = 0x00; data[2] = 0x00; data[3] = 0x07;   <span class="c">// version + action 7</span>
     for (uint256 i = 0; i &lt; action.length; i++) data[4 + i] = action[i];
-    CW.sendRawAction(data);                     <span class="c">// only EMITS the action — async!</span>
+    CW.sendRawAction(data);                     <span class="c">// emit only — async</span>
 }</code></pre>
+    <p>The action runs as the <strong>contract's own HyperCore address</strong>, not <code>tx.origin</code>. Order and vault-transfer actions are delayed a few seconds so HyperEVM cannot skip the L1 mempool. A new Core account pays a <strong>1 quote-token</strong> activation fee (e.g. 1 USDC) on first receipt; an unactivated address <strong>cannot</strong> send CoreWriter actions. Contract deployers should activate the contract address on Core first.</p>
 
-    <h2>Off-chain: the trading API and signing</h2>
-    <p>High-frequency actions (orders, cancels, leverage changes) go over off-chain REST / WebSocket, not HyperEVM. The signing scheme is unusual — the <strong>phantom agent</strong>:</p>
+    <h2>Timing: who runs first inside one L1 block</h2>
+    <p>Core → EVM transfers queue until the <strong>next</strong> EVM block. EVM → Core transfers run in the same L1 block that produced the EVM block, immediately after it is built. On an L1 block that produces EVM:</p>
+    <ol>
+      <li>Build the L1 block</li>
+      <li>Build the EVM block</li>
+      <li>Process EVM → Core transfers</li>
+      <li>Process CoreWriter actions</li>
+    </ol>
+    <p>The CoreWriter account must already exist on HyperCore <em>before</em> the EVM block is built. <strong>Initializing via EVM→Core in the same block, then CoreWriter, is rejected.</strong></p>
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 760 210" role="img" aria-label="Hyperliquid off-chain order flow: the client builds an action and msgpack-serialises it, derives a keccak256 connectionId, signs a phantom agent via EIP-712 with chainId 1337, then POSTs to /exchange into the HyperCore order book.">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Order inside an L1 block that produces EVM: L1, then EVM, then EVM-to-Core transfers, then CoreWriter. Same-block init then write is rejected.">
           <defs>
-            <marker id="e2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="hl-en-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
           </defs>
-          <rect class="svg-node" x="24" y="70" width="170" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="109" y="100" text-anchor="middle">client / bot</text>
-          <text class="svg-ncode" x="109" y="120" text-anchor="middle">build action → msgpack</text>
-          <rect class="svg-node-a" x="300" y="70" width="180" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="390" y="100" text-anchor="middle">phantom agent</text>
-          <text class="svg-ncode" x="390" y="120" text-anchor="middle">EIP-712 · chainId 1337</text>
-          <rect class="svg-node" x="586" y="70" width="150" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="661" y="100" text-anchor="middle">POST /exchange</text>
-          <text class="svg-ncode" x="661" y="120" text-anchor="middle">→ HyperCore book</text>
-          <line class="svg-flow" x1="194" y1="105" x2="298" y2="105" marker-end="url(#e2)"></line>
-          <text class="svg-flowlabel" x="246" y="96" text-anchor="middle">sign</text>
-          <line class="svg-flow" x1="480" y1="105" x2="584" y2="105" marker-end="url(#e2)"></line>
-          <text class="svg-flowlabel" x="532" y="96" text-anchor="middle">submit</text>
+          <rect class="svg-node" x="20" y="48" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="78" text-anchor="middle">1. L1 block</text>
+          <text class="svg-ncode" x="95" y="98" text-anchor="middle">HyperBFT</text>
+          <rect class="svg-node" x="210" y="48" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="285" y="78" text-anchor="middle">2. EVM block</text>
+          <text class="svg-ncode" x="285" y="98" text-anchor="middle">your Solidity</text>
+          <rect class="svg-node-a" x="400" y="48" width="160" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="480" y="78" text-anchor="middle">3. EVM→Core</text>
+          <text class="svg-ncode" x="480" y="98" text-anchor="middle">transfers land</text>
+          <rect class="svg-node-a" x="590" y="48" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="665" y="78" text-anchor="middle">4. CoreWriter</text>
+          <text class="svg-ncode" x="665" y="98" text-anchor="middle">actions run</text>
+          <line class="svg-flow-a" x1="170" y1="84" x2="208" y2="84" marker-end="url(#hl-en-3)"></line>
+          <line class="svg-flow-a" x1="360" y1="84" x2="398" y2="84" marker-end="url(#hl-en-3)"></line>
+          <line class="svg-flow-a" x1="560" y1="84" x2="588" y2="84" marker-end="url(#hl-en-3)"></line>
+          <text class="svg-mono-a" x="380" y="160" text-anchor="middle">Same block: an account born in step 3 is still rejected in step 4</text>
+          <text class="svg-cap" x="380" y="186" text-anchor="middle">Core→EVM waits for the next EVM block; order/vault CoreWriter has an extra few seconds of delay.</text>
         </svg>
       </div>
-      <figcaption>The action is msgpack-serialised, appended with nonce and vault address, then <code>keccak256</code>-hashed into a <code>connectionId</code>; the object <code>{ source, connectionId }</code> is treated as a temporary "agent" and signed via EIP-712 (L1 actions use chainId 1337). Prefer an <strong>agent key</strong> authorised via <code>approveAgent</code> — it holds no funds and can only sign L1 actions, limiting exposure of your main key. Use the official SDK rather than hand-rolling it.</figcaption>
+      <figcaption>You cannot "move HYPE onto Core and place an order" in one EVM transaction. Activate the account in an earlier block, then CoreWriter.</figcaption>
+    </figure>
+
+    <h2>Gas: small blocks, big blocks, and CoreWriter</h2>
+    <p>HyperEVM splits throughput into two block types and two mempools. EVM block numbers still increase monotonically:</p>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>Small</th><th>Big</th></tr></thead>
+      <tbody>
+        <tr><td>Interval</td><td>~1 second</td><td>~1 minute</td></tr>
+        <tr><td>Gas limit</td><td>3M</td><td>30M</td></tr>
+        <tr><td>For</td><td>Ordinary txs, fast confirm</td><td>Large deploys</td></tr>
+      </tbody>
+    </table></div>
+    <p>Each address's mempool accepts only the <strong>next 8 nonces</strong>; txs older than a day are pruned. Opt into big blocks with Core action <code>evmUserModify.usingBigBlocks: true</code> (a HyperCore user flag — you must already be a Core user). Estimate the next big-block base fee with RPC <code>bigBlockGasPrice</code>, not ordinary <code>gasPrice</code>.</p>
+    <p>A failed precompile burns that frame's gas: do not forward all remaining gas. CoreWriter itself burns ~25k; still budget for later HyperCore execution and the 200k-gas Core→EVM transfer.</p>
+
+    <h2>Off-chain API: submission only; matching stays on HyperCore</h2>
+    <p>High-frequency orders, cancels, and leverage changes go over REST / WebSocket, <strong>not HyperEVM</strong>. That is not an off-chain order book: after the signed action hits the exchange endpoint, matching, priority, and fills still happen on HyperCore.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Order flow: the client builds an action and signs a phantom agent, POSTs to the exchange endpoint, and HyperCore matches before a fill exists.">
+          <defs>
+            <marker id="hl-en-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="16" y="60" width="150" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="91" y="92" text-anchor="middle">client / bot</text>
+          <text class="svg-ncode" x="91" y="112" text-anchor="middle">msgpack + nonce</text>
+          <rect class="svg-node" x="200" y="60" width="160" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="280" y="92" text-anchor="middle">phantom agent</text>
+          <text class="svg-ncode" x="280" y="112" text-anchor="middle">EIP-712 · chainId 1337</text>
+          <rect class="svg-node" x="396" y="60" width="150" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="471" y="92" text-anchor="middle">POST /exchange</text>
+          <text class="svg-ncode" x="471" y="112" text-anchor="middle">submit only</text>
+          <rect class="svg-node-a" x="580" y="60" width="164" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="662" y="92" text-anchor="middle">HyperCore CLOB</text>
+          <text class="svg-ncode" x="662" y="112" text-anchor="middle">match · fill</text>
+          <line class="svg-flow" x1="166" y1="100" x2="198" y2="100" marker-end="url(#hl-en-4)"></line>
+          <line class="svg-flow" x1="360" y1="100" x2="394" y2="100" marker-end="url(#hl-en-4)"></line>
+          <line class="svg-flow-a" x1="546" y1="100" x2="578" y2="100" marker-end="url(#hl-en-4)"></line>
+          <text class="svg-mono-a" x="380" y="172" text-anchor="middle">HTTP 200 means the action was accepted; fills come from Core</text>
+        </svg>
+      </div>
+      <figcaption>The action is msgpack-serialised, appended with nonce and vault address, then <code>keccak256</code>-hashed into a <code>connectionId</code>; <code>{ source, connectionId }</code> is signed as a temporary agent via EIP-712 (L1 actions use chainId 1337). Use the official SDK; do not hand-roll it.</figcaption>
+    </figure>
+
+    <h2>Authority: master wallet, agent, sub-account</h2>
+    <p>An API wallet (an "agent" in the docs) <strong>only signs</strong>: it can trade, change leverage, and walk you into liquidation. It <strong>cannot withdraw</strong> and holds no funds. Query balances with the master or sub-account address; the agent address returns empty.</p>
+    <ul>
+      <li>Nonces follow the <strong>signer</strong> (the agent address), not the user being proxied. Each signer keeps the 100 highest nonces; a new nonce must be larger than the smallest in that set and unused; the window is <code>(T-2 days, T+1 day)</code> around the block timestamp.</li>
+      <li>One agent signing for a master, a vault, and a sub-account shares one nonce set. Use a different agent per process / sub-account.</li>
+      <li>When an agent is deregistered, expires, or the master is empty, nonce state may be pruned. <strong>Never reuse a deregistered agent address</strong> — after prune, old signatures can replay.</li>
+      <li><code>ApproveBuilderFee</code> must be signed by the master wallet, not an agent.</li>
+    </ul>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="The master wallet holds funds and withdrawal rights; the agent can only sign trades; a sub-account is a separate Core ledger.">
+          <rect class="svg-node-a" x="28" y="40" width="210" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="133" y="76" text-anchor="middle">Master wallet</text>
+          <text class="svg-ncode" x="133" y="98" text-anchor="middle">holds funds · can withdraw</text>
+          <text class="svg-ncode" x="133" y="116" text-anchor="middle">ApproveBuilderFee</text>
+          <rect class="svg-node" x="275" y="40" width="210" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="76" text-anchor="middle">API wallet / agent</text>
+          <text class="svg-ncode" x="380" y="98" text-anchor="middle">no funds · cannot withdraw</text>
+          <text class="svg-ncode" x="380" y="116" text-anchor="middle">can trade / lever / liquidate you</text>
+          <rect class="svg-node" x="522" y="40" width="210" height="100" rx="10"></rect>
+          <text class="svg-nlabel" x="627" y="76" text-anchor="middle">Sub-account</text>
+          <text class="svg-ncode" x="627" y="98" text-anchor="middle">separate Core ledger</text>
+          <text class="svg-ncode" x="627" y="116" text-anchor="middle">needs its own agent</text>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">A leaked agent cannot drain funds, but it can blow you up. Rotate; never reuse the old address.</text>
+          <text class="svg-cap" x="380" y="204" text-anchor="middle">Always query the master / sub-account address, never the agent.</text>
+        </svg>
+      </div>
+      <figcaption>Treat the agent as a desk stamp: it can mark tickets, not open the vault. If the stamp is lost, retire it and cut a new one — after retirement, old stamps may restamp old tickets.</figcaption>
+    </figure>
+
+    <h2>Cross-layer vs cross-chain</h2>
+    <p>HyperCore and HyperEVM are <strong>two layers of one HyperBFT L1</strong>, not two chains, and there is no seven-day challenge window. Leaving the L1 is a different story:</p>
+    <ul>
+      <li><strong>USDC:</strong> prefer Circle <strong>CCTP</strong> to mint natively on Hyperliquid. The legacy Arbitrum bridge is deprecated.</li>
+      <li><strong>Legacy bridge:</strong> mainnet <code>0x2df1…3df7</code>. Minimum deposit 5 USDC; below that it is <strong>never credited and is lost</strong>. Withdrawals are signed only on Hyperliquid; validators release on Arbitrum in about 3–4 minutes.</li>
+    </ul>
+    <p>Do not assume an EVM <code>transfer</code> is Core margin, or that a CCTP mint and a Core credit are one atomic transaction.</p>
+
+    <h2>Proof of reserve: assets are not solvency</h2>
+    <p>Three different things:</p>
+    <ol>
+      <li><strong>Native USDC / CCTP:</strong> Circle's mint/burn model; redemption is CCTP, not a Hyperliquid lock-mint.</li>
+      <li><strong>Legacy Arbitrum bridge escrow:</strong> USDC still locked in the bridge contract. That is the historical path's reserve, not "all HyperCore USDC."</li>
+      <li><strong>Linked Core / EVM tokens:</strong> the system address on EVM should hold enough to cover Core redeemable supply; also check code hash, mint/upgrade authority, and decimals. Official docs do not perform this check for you.</li>
+    </ol>
+    <p>PoR does not prove solvency. HLP, resting holds, lending / rehypothecation, and portfolio-margin cross-collateral never appear in "how many tokens sit at the system address."</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Three reserves: CCTP native USDC, legacy bridge escrow, and a linked token's system-address balance. None of them represent HLP or pending positions.">
+          <rect class="svg-node-a" x="24" y="36" width="220" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="134" y="70" text-anchor="middle">CCTP USDC</text>
+          <text class="svg-ncode" x="134" y="92" text-anchor="middle">native mint / burn</text>
+          <rect class="svg-node" x="270" y="36" width="220" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="70" text-anchor="middle">Legacy escrow</text>
+          <text class="svg-ncode" x="380" y="92" text-anchor="middle">locked on Arbitrum</text>
+          <rect class="svg-node" x="516" y="36" width="220" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="626" y="70" text-anchor="middle">linked ERC-20</text>
+          <text class="svg-ncode" x="626" y="92" text-anchor="middle">system-address balance</text>
+          <text class="svg-mono-a" x="380" y="156" text-anchor="middle">PoR ≠ solvency: HLP, resting orders, rehypothecation are not in these three boxes</text>
+          <text class="svg-cap" x="380" y="184" text-anchor="middle">Linked contracts can be arbitrary bytecode; the symbol is not enough.</text>
+        </svg>
+      </div>
+      <figcaption>If a product shows "USDC," ask whether it is CCTP-native, legacy-bridge, or some OFT / linked wrapper. Redemption paths and counterparties differ.</figcaption>
     </figure>
 
     <h2>Smart-contract security (for developers)</h2>
     <ul>
-      <li><strong>Async writes are the number-one trap.</strong> A CoreWriter send does not mean filled; "place an order then read the position to confirm" within one EVM tx does not work — state updates only in later blocks.</li>
-      <li><strong>Precompiles are a trusted price source, but don't misuse them.</strong> They read HyperCore's real state (unlike a spot pool price a flash loan can push), but you still must handle decoding, gas, and index/market mapping errors.</li>
-      <li><strong>Action encoding must be byte-exact.</strong> A wrong version byte or action id changes behaviour; use a vetted library (<code>hyper-evm-lib</code>) rather than assembling bytes by hand.</li>
-      <li><strong>HyperEVM is still a new environment.</strong> Dual blocks (small/large), the gas model and precompile behaviour differ from mainstream EVM; exercise the edges on testnet before shipping.</li>
+      <li><strong>Async writes are the number-one trap.</strong> "Place then read the position" inside one EVM tx does not work. Same-block activate-then-CoreWriter is rejected.</li>
+      <li><strong>Do not mix up precompile addresses.</strong> <code>0x0806</code> markPx, <code>0x0807</code> oraclePx, <code>0x0808</code> spotPx. Invalid input burns gas; raw prices need decimal scaling.</li>
+      <li><strong>EVM <code>balanceOf</code> is not Core margin.</strong> Linked transfers have no official supply check; non-round wei is burned.</li>
+      <li><strong>Action encoding must be byte-exact.</strong> Use <code>hyper-evm-lib</code>; do not assemble bytes by hand. USD class transfer is not a universal transfer.</li>
+      <li><strong>Dual blocks and 8 nonces.</strong> Large deploys need big blocks; the mempool only takes the next 8 nonces.</li>
     </ul>
 
     <h2>User investment risk</h2>
-    <p>Perpetuals carry far more risk than spot; understand them before entering:</p>
+    <p>Perpetuals carry far more risk than spot:</p>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
       <tbody>
-        <tr><td><strong>Leverage liquidation</strong></td><td>Perps are leveraged; move against you past maintenance margin and you're force-closed — principal can go to zero.</td></tr>
-        <tr><td><strong>Funding rate</strong></td><td>When longs and shorts are imbalanced you continually pay the other side; holding one side long is eroded by funding.</td></tr>
-        <tr><td><strong>HLP vault drawdown</strong></td><td>Depositing into HLP makes you the market-maker / liquidation counterparty; in extreme moves or large liquidations the vault can take real losses — not guaranteed yield.</td></tr>
-        <tr><td><strong>Auto-deleveraging (ADL)</strong></td><td>If a counterparty blows up and the insurance fund is short, your winning position may be partially force-closed.</td></tr>
-        <tr><td><strong>Oracle / mark price</strong></td><td>Liquidation uses the mark price, not the last trade; an abnormal mark can trigger unexpected liquidation.</td></tr>
-        <tr><td><strong>Contract and bridge risk</strong></td><td>Lending, LSTs and other HyperEVM protocols each carry smart-contract risk; cross-chain assets add bridge risk.</td></tr>
-        <tr><td><strong>Token unlocks / concentration</strong></td><td>HYPE and other tokens' unlock schedules and holder concentration affect price volatility.</td></tr>
+        <tr><td><strong>Leverage liquidation</strong></td><td>Move against you past maintenance margin and you are force-closed — principal can go to zero. An agent can put you there.</td></tr>
+        <tr><td><strong>Funding rate</strong></td><td>When longs and shorts are imbalanced you continually pay the other side.</td></tr>
+        <tr><td><strong>HLP vault drawdown</strong></td><td>Depositing into HLP makes you the market-maker / liquidation counterparty; extreme moves can lose money. PoR does not cover this.</td></tr>
+        <tr><td><strong>Auto-deleveraging (ADL)</strong></td><td>If a counterparty blows up and the insurance fund is short, winning positions may be partially force-closed.</td></tr>
+        <tr><td><strong>Mark price</strong></td><td>Liquidation uses mark / oracle, not the last trade.</td></tr>
+        <tr><td><strong>Bridges and linked tokens</strong></td><td>Legacy deposits under 5 USDC vanish; a linked ERC-20's implementation can diverge from Core.</td></tr>
+        <tr><td><strong>Token unlocks / concentration</strong></td><td>HYPE and other unlock schedules and holder concentration amplify volatility.</td></tr>
       </tbody>
     </table></div>
-    <blockquote><p>In short: spot's enemy is "price falls"; perps add "getting liquidated," "paying funding," and "being ADL'd" — time and leverage both bite.</p></blockquote>
+    <blockquote><p>Spot's enemy is "price falls." Perps add liquidation, funding, and ADL. Time and leverage both bite.</p></blockquote>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interacting-with-hypercore">Interacting with HyperCore</a> / <a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers">Core ↔ EVM transfers</a></li>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/dual-block-architecture">Dual-block architecture</a> / <a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interaction-timings">Interaction timings</a></li>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/trading/account-abstraction-modes">Account abstraction modes</a> / <a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets">Nonces and API wallets</a></li>
+      <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/usdc">USDC / CCTP</a> / <a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/activation-gas-fee">Activation gas fee</a></li>
+      <li><a href="https://github.com/hyperliquid-dev/hyper-evm-lib">hyper-evm-lib</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-12</p>
   </div>
 
   <footer>
