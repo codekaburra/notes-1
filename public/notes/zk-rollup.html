@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZK Rollup：有效性證明與出入金</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="ZK Rollup：有效性證明與出入金" data-title-en="ZK Rollups: Validity Proofs and Bridging">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>ZK Rollup：有效性證明與出入金</h1>
+    <p class="meta">2026-09-11 · zkEVM · Validity Proof · Canonical Bridge · 開發者指南</p>
+
+    <p><strong>ZK rollup 用有效性證明取代「先相信、再挑戰」。</strong>Sequencer 仍然排序交易、把資料發到 L1，但狀態轉換要附上一份 SNARK／STARK：L1 上的 verifier 合約驗過，這個批次在密碼學上就是合法的。出金因此不必等七天挑戰期——瓶頸改成「證明何時做出來、何時被 L1 收進」。對象同樣是合約作者：L1→L2 的 <code>msg.sender</code> 規則、refund 位址、L2→L1 訊息怎麼跟 finalize 配對、以及 zkEVM 跟 Ethereum 哪些 opcode 不一樣。</p>
+    <blockquote><p>先對照上一則：optimistic 的安全是經濟與活性（至少一個誠實驗證者）；ZK 的安全是電路與證明系統。入金兩種 rollup 都很像（L1 鎖定 + 強制收件）；出金的等待理由完全不同。</p></blockquote>
+
+    <h2>有效性證明在保證什麼</h2>
+    <p>一份 validity proof 回答的問題是：給定舊狀態根、這批交易（或 state diff）、新狀態根，是否存在一條合法的執行軌跡把它們連起來。L1 不必重放每一筆 L2 交易，只驗證明——<strong>verifier gas 大致固定</strong>。整筆 L1 成本仍隨 DA 成長（blob／calldata／state diff 的 bytes），不要把「證明便宜」當成「批次上 L1 也便宜」。</p>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>Optimistic</th><th>ZK</th></tr></thead>
+      <tbody>
+        <tr><td><strong>L1 相信新狀態的條件</strong></td><td>挑戰期結束且無人成功挑戰</td><td>verifier 接受證明</td></tr>
+        <tr><td><strong>錯誤狀態上 L1</strong></td><td>可能短暫存在，靠挑戰撤回</td><td>過不了 verifier，批次不被接受</td></tr>
+        <tr><td><strong>Canonical 出金</strong></td><td>約 7 天空氣牆</td><td>批次 execute 之後即可（另加升級時鎖／安全委員會延遲）</td></tr>
+        <tr><td><strong>運算成本</strong></td><td>L1 便宜；挑戰時才跑重型證明</td><td>每批都要產證明，prover 是常態成本</td></tr>
+        <tr><td><strong>新的信任面</strong></td><td>verifier 軟體、資料可用性</td><td>電路正確性、trusted setup（若有）、verifier 合約、資料可用性</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="ZK rollup 批次流程：Sequencer 執行交易並產出新狀態根與 state diff，Prover 生成有效性證明，L1 Verifier 驗過後才把狀態根寫入 Rollup 合約。">
+          <defs>
+            <marker id="zk-zh-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="zk-zh-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="50" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="78" text-anchor="middle">Sequencer</text>
+          <text class="svg-ncode" x="99" y="98" text-anchor="middle">執行 L2 批次</text>
+          <rect class="svg-node" x="214" y="50" width="160" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="294" y="78" text-anchor="middle">資料上 L1</text>
+          <text class="svg-ncode" x="294" y="98" text-anchor="middle">blob / state diff</text>
+          <rect class="svg-node-a" x="414" y="50" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="489" y="78" text-anchor="middle">Prover</text>
+          <text class="svg-ncode" x="489" y="98" text-anchor="middle">SNARK / STARK</text>
+          <rect class="svg-node-a" x="604" y="50" width="132" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="670" y="78" text-anchor="middle">L1 Verifier</text>
+          <text class="svg-ncode" x="670" y="98" text-anchor="middle">verify + store</text>
+          <line class="svg-flow" x1="174" y1="86" x2="212" y2="86" marker-end="url(#zk-zh-1)"></line>
+          <line class="svg-flow-a" x1="374" y1="86" x2="412" y2="86" marker-end="url(#zk-zh-1a)"></line>
+          <line class="svg-flow-a" x1="564" y1="86" x2="602" y2="86" marker-end="url(#zk-zh-1a)"></line>
+          <rect class="svg-node-dash" x="24" y="160" width="712" height="58" rx="12"></rect>
+          <text class="svg-mono-a" x="44" y="186">軟確認（sequencer）≠ 有效（證明未上鏈）≠ 可在 L1 提款（狀態根已寫入）</text>
+          <text class="svg-ncode" x="44" y="206">出金要對「已被 verifier 接受的那份狀態根」做 Merkle 證明，不是對 sequencer 的最新區塊。</text>
+        </svg>
+      </div>
+      <figcaption>Prover 可以是中心化的——這影響活性與審查，不影響「假狀態無法通過 verifier」這件事。假若電路本身有 bug，那是另一種信任：審計、形式化驗證、升級時鎖。</figcaption>
+    </figure>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="出金等待對照：Optimistic 要過約七天挑戰期，ZK 等證明上鏈後即可 finalize，通常數十分鐘到數小時。">
+          <text class="svg-label" x="28" y="32">Optimistic 出金</text>
+          <rect class="svg-liq" x="28" y="48" width="700" height="44" rx="8"></rect>
+          <text class="svg-nlabel" x="378" y="76" text-anchor="middle">挑戰期 · 約 7 天空氣牆</text>
+          <text class="svg-label" x="28" y="124">ZK 出金</text>
+          <rect class="svg-node-a" x="28" y="140" width="240" height="44" rx="8"></rect>
+          <text class="svg-nlabel" x="148" y="168" text-anchor="middle">產證明 + 上 L1</text>
+          <rect class="svg-liq-strong" x="280" y="140" width="160" height="44" rx="8"></rect>
+          <text class="svg-bit-t" x="360" y="168">可 finalize</text>
+          <text class="svg-mono-a" x="520" y="168">沒有 7 天挑戰</text>
+        </svg>
+      </div>
+      <figcaption>新手口訣：Optimistic 是「先相信、有人可以喊停」所以要等；ZK 是「先交考卷、L1 當場批改」所以等的是批改時間，不是挑戰期。</figcaption>
+    </figure>
+
+    <h2>資料放什麼：交易 vs state diff</h2>
+    <p>Validity 保證執行正確，<strong>不自動保證你能自己重建狀態</strong>。還要把資料放到 L1（或被協議承認的 DA 層），節點才能同步、使用者才能自己構造出金證明。</p>
+    <ul>
+      <li><strong>重放型（Scroll、多數 zkEVM）：</strong>發布足夠的交易資料，完整節點可重放得出狀態。</li>
+      <li><strong>State diff 型（zkSync Era）：</strong>發布狀態變更壓縮，而不是每筆原始交易。驗證者仍能重建帳戶樹；對區塊瀏覽器與除錯的意義不同。</li>
+    </ul>
+    <p>DA 走 EIP-4844 blob 後，資料在 L1 上會過期；協議要嘛承認「blob 視窗內有人存下來就夠」，要嘛另接長期 DA。這與 optimistic rollup 相同，不是 ZK 獨有。Validium／外部 DA 則是「有證明、資料不在以太坊」——你能相信執行正確，卻可能無法自己重建狀態、也無法獨立構造出金證明。</p>
+
+    <h2>zkEVM 的四型（你實際在跑哪一種）</h2>
+    <p>Vitalik 的分類問的是：電路承諾的執行環境，離 Ethereum 有多近。越近，L1 工具與客戶端越能複用；越遠，電路越好寫、證明越快，但相容性要自己補。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>型</th><th>等價程度</th><th>實務含義</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Type 1</strong></td><td>對 Ethereum 等價</td><td>可驗證甚至替換 L1 執行；電路極重，目前少見於通用 L2</td></tr>
+        <tr><td><strong>Type 2</strong></td><td>對 EVM 等價</td><td>Solidity／opcode 行為對齊，gas 與狀態樹可不同（Scroll 目標帶）</td></tr>
+        <tr><td><strong>Type 3</strong></td><td>幾乎 EVM</td><td>少數 opcode 或 precompile 改寫；多數合約能跑，邊角要測</td></tr>
+        <tr><td><strong>Type 4</strong></td><td>高階語言等價</td><td>編譯進自有 VM（zkSync 原生 EraVM、Starknet Cairo）；要專用工具鏈</td></tr>
+      </tbody>
+    </table></div>
+    <p>同一條鏈會隨電路升級移動。不要拿「它叫 zkEVM」當「Foundry 測試能直接當 L1 用」。合約作者實際會踩到的差異：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>點</th><th>你要改的假設</th></tr></thead>
+      <tbody>
+        <tr><td><strong>zkSync native AA</strong></td><td>「EOA」也有 code。不要用 <code>extcodesize == 0</code> 判斷能否 <code>transfer</code>／擋合約。預設帳戶是合約，<code>tx.origin</code> 語意也不同。</td></tr>
+        <tr><td><strong>pubdata</strong></td><td>zkSync 的稀缺資源是寫進 state diff 的 bytes，不是單純 L2 gas。<code>l2GasPerPubdataByteLimit</code> 估低，L1→L2 呼叫會失敗。</td></tr>
+        <tr><td><strong>precompile</strong></td><td>Type 3/4 可能缺 <code>modexp</code>、blake2、或 pairing 行為不同。不要假設主網通過的密碼學函式庫在 L2 相同 gas／相同輸出。</td></tr>
+        <tr><td><strong>CREATE／CREATE2</strong></td><td>原生 EraVM（zksolc）的位址 derivation 與 Ethereum 不同。v27 起的 EVM Emulator 用標準 solc，CREATE2 與主網相同。兩條路徑不要混在同一個工廠。</td></tr>
+        <tr><td><strong>gasleft / gas 定價</strong></td><td>Type 2 也可能改 gas schedule。用 <code>gasleft()</code> 做精確經濟模型會漂。</td></tr>
+      </tbody>
+    </table></div>
+    <p>zkSync 現在兩條執行棧並存：原生 <strong>EraVM</strong>（zksolc、<code>hardhat-zksync</code>）與 <strong>EVM Emulator</strong>（標準 solc／Foundry）。<code>delegatecall</code> 不能跨這兩種 bytecode。合約要先問自己跑在哪一側，再談 CREATE2 與 gas。</p>
+
+    <h2>入金：L1 優先佇列，L2 執行</h2>
+    <p>與 optimistic 相同精神：把請求寫進 L1，L2 必須收。ZK 系統通常有一條 <strong>priority queue／mailbox</strong>，但「超時後任何人強制推進下一批」<strong>不是每條鏈都一樣</strong>：Scroll 靠 L1 訊息必須按 QueueIndex 排進區塊（Euclid 另有 permissionless batch）；zkSync 是優先佇列，強制模式依鏈配置而變；Starknet 是訊息佇列而非 EVM deposit tx。寫合約前先讀這條鏈的 forced-inclusion 文件。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="ZK rollup 入金：使用者在 L1 Bridge 或 Mailbox 鎖定資產並排入優先佇列，Sequencer 收成 L2 交易，L2 Bridge 鑄造或入帳；若 Sequencer 審查，超時後可強制收件。">
+          <defs>
+            <marker id="zk-zh-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="zk-zh-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="40" width="140" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="94" y="68" text-anchor="middle">Alice L1</text>
+          <text class="svg-ncode" x="94" y="88" text-anchor="middle">lock + request</text>
+          <rect class="svg-node-a" x="196" y="40" width="160" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="276" y="68" text-anchor="middle">Mailbox / Bridge</text>
+          <text class="svg-ncode" x="276" y="88" text-anchor="middle">priority queue</text>
+          <rect class="svg-node" x="388" y="40" width="150" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="463" y="68" text-anchor="middle">L2 執行</text>
+          <text class="svg-ncode" x="463" y="88" text-anchor="middle">mint / credit</text>
+          <rect class="svg-node" x="568" y="40" width="168" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="652" y="68" text-anchor="middle">Alice L2</text>
+          <text class="svg-ncode" x="652" y="88" text-anchor="middle">可花的餘額</text>
+          <line class="svg-flow" x1="164" y1="75" x2="194" y2="75" marker-end="url(#zk-zh-2)"></line>
+          <line class="svg-flow-a" x1="356" y1="75" x2="386" y2="75" marker-end="url(#zk-zh-2a)"></line>
+          <line class="svg-flow" x1="538" y1="75" x2="566" y2="75" marker-end="url(#zk-zh-2)"></line>
+          <text class="svg-step" x="276" y="140" text-anchor="middle">強制收件：機制依鏈而異，先讀文件再假設「任何人可推進」</text>
+          <text class="svg-cap" x="380" y="168" text-anchor="middle">L2 入帳可以很快；這是 sequencer 軟確認。對 L1 的最終性仍取決於包含此入金的批次證明。</text>
+          <text class="svg-mono-a" x="380" y="198" text-anchor="middle">實務上入金幾乎即時可用；要再從 L2 出金，才需要等到證明</text>
+        </svg>
+      </div>
+      <figcaption>zkSync 走 Bridgehub <code>requestL2TransactionDirect</code>（舊 Mailbox API 已棄用）；Starknet 走 <code>StarknetCore.sendMessageToL2</code> 再由 L2 <code>l1_handler</code> 消費；Scroll 走 <code>L1MessageQueue</code> 加 gateway。介面不同，不變量相同：L1 寫入必須可被 L2 執行。</figcaption>
+    </figure>
+
+    <h3>zkSync 入金（示意）</h3>
+<pre><code>struct L2TransactionRequestDirect {
+    uint256 chainId;
+    uint256 mintValue;
+    address l2Contract;
+    uint256 l2Value;
+    bytes l2Calldata;
+    uint256 l2GasLimit;
+    uint256 l2GasPerPubdataByteLimit;
+    bytes[] factoryDeps;
+    address refundRecipient;
+}
+
+<span class="c">// Elastic Network：經 Bridgehub，不要再用 Era-only Mailbox.requestL2Transaction</span>
+bridgehub.requestL2TransactionDirect{value: amount + l2Fee}(
+    L2TransactionRequestDirect({
+        chainId: eraChainId,
+        mintValue: amount + l2Fee,
+        l2Contract: alice,
+        l2Value: amount,
+        l2Calldata: "",
+        l2GasLimit: l2GasLimit,
+        l2GasPerPubdataByteLimit: l2GasPerPubdata,
+        factoryDeps: new bytes[](0),       <span class="c">// 經 L1 部署新合約時才需要 bytecode</span>
+        refundRecipient: alice             <span class="c">// 必須是 L2 上已存在的地址</span>
+    })
+);</code></pre>
+    <p>與 Arbitrum retryable 類似：L1 成功 ≠ L2 執行成功。L2 gas、pubdata 上限、refund recipient、<code>factoryDeps</code> 都要設對。<code>factoryDeps</code> 空陣列只適合作 EOA 轉 ETH；L1→L2 第一次部署合約漏傳 bytecode 會失敗。</p>
+
+    <h3>refundRecipient 與別名：最常見的鎖死</h3>
+    <p>L1→L2 失敗時，zkSync 把 <code>mint</code> 的 ETH 退到 <code>refundRecipient</code>——在 <strong>L2</strong>，不是退回 L1。若你填 L1 合約地址，L2 上的收款人是 aliased 位址（與 OP 同一 <code>0x1111…1111</code> 偏移）。那個門牌若沒有合約，ETH 會停在那——<strong>不要假設之後 CREATE2 部署就能救回</strong>。實務：refund 填一個 L2 上已存在的 EOA。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 220" role="img" aria-label="refundRecipient 鎖死：L1 合約地址在 L2 變成別名地址，該處若無合約，退款的 ETH 會停在那裡。">
+          <defs>
+            <marker id="zk-zh-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="40" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="109" y="68" text-anchor="middle">你填的收款人</text>
+          <text class="svg-ncode" x="109" y="88" text-anchor="middle">L1 合約 0xAAA…</text>
+          <rect class="svg-node-a" x="260" y="40" width="190" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="355" y="68" text-anchor="middle">L2 實際入帳</text>
+          <text class="svg-ncode" x="355" y="88" text-anchor="middle">0xAAA… + 0x1111</text>
+          <rect class="svg-node-dash" x="516" y="40" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="626" y="68" text-anchor="middle">這裡沒有合約</text>
+          <text class="svg-ncode" x="626" y="88" text-anchor="middle">ETH 卡住</text>
+          <line class="svg-flow-a" x1="194" y1="75" x2="258" y2="75" marker-end="url(#zk-zh-4)"></line>
+          <line class="svg-flow-a" x1="450" y1="75" x2="514" y2="75" marker-end="url(#zk-zh-4)"></line>
+          <text class="svg-cap" x="380" y="140" text-anchor="middle">退款發生在 L2，不會自動回到你的 L1 錢包。</text>
+          <text class="svg-mono-a" x="380" y="168" text-anchor="middle">正確做法：refund 填 L2 上已有的 Alice EOA，不要賭之後部署</text>
+        </svg>
+      </div>
+      <figcaption>這是 zkSync／Arbitrum 最常見的「錢消失了」。錢還在鏈上，只是進了一個你還沒蓋房子的門牌。</figcaption>
+    </figure>
+<pre><code>uint160 constant OFFSET = uint160(0x1111000000000000000000000000000000001111);
+function applyL1ToL2Alias(address l1) internal pure returns (address) {
+    unchecked { return address(uint160(l1) + OFFSET); }
+}
+
+address constant L1_MESSENGER = 0x0000000000000000000000000000000000008008; <span class="c">// L2 上的 L1Messenger</span>
+
+<span class="c">// 僅當 L1 發送者是合約：L2 msg.sender = alias(l1Contract)</span>
+<span class="c">// EOA 從 L1 打過來：L2 msg.sender 就是那個 EOA，沒有別名</span>
+address public immutable l1CounterpartAliased;
+
+constructor(address l1Counterpart) {
+    l1CounterpartAliased = applyL1ToL2Alias(l1Counterpart);
+}
+
+function finalizeLock(address user, uint256 amount) external {
+    require(msg.sender == l1CounterpartAliased, "not L1 counterpart");
+    _credit(user, amount);
+}
+
+<span class="c">// L2 → L1：sendToL1 的 bytes 必須與 L1 finalize 時傳入的 message 逐位相同</span>
+function requestExit(address user, uint256 amount) external {
+    bytes memory message = abi.encode(user, amount);
+    IL1Messenger(L1_MESSENGER).sendToL1(message);
+}</code></pre>
+    <p><code>applyL1ToL2Alias</code> 與 OP／Arbitrum 同一偏移。注意差別：OP／Scroll 的守衛是 <code>msg.sender == messenger && xDomainMessageSender() == counterpart</code>；zkSync 的 L1→L2 交易<strong>沒有再包一層 messenger call</strong>——<code>msg.sender</code> 直接是（合約才別名的）L1 發送者。寫成 OP 那套會永遠 revert。L1 發送者是 EOA 時不要套 aliased 守衛。</p>
+    <p>Scroll 比較接近 OP：<code>L1ScrollMessenger.sendMessage</code> → L2 <code>L2ScrollMessenger.relayMessage</code>，守衛同樣是 messenger + <code>xDomainMessageSender</code>。不要假設「ZK 就等於 zkSync 的 msg.sender 模型」。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="兩種 L1 到 L2 守衛：OP 與 Scroll 經 Messenger 轉送；zkSync 的 msg.sender 直接是別名後的 L1 合約。">
+          <text class="svg-label" x="28" y="28">OP / Scroll</text>
+          <rect class="svg-node" x="28" y="44" width="130" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="93" y="78" text-anchor="middle">L1 合約</text>
+          <rect class="svg-node-a" x="188" y="44" width="150" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="263" y="70" text-anchor="middle">Messenger</text>
+          <text class="svg-ncode" x="263" y="88" text-anchor="middle">轉送</text>
+          <rect class="svg-node" x="368" y="44" width="170" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="453" y="70" text-anchor="middle">你的 L2 合約</text>
+          <text class="svg-ncode" x="453" y="88" text-anchor="middle">msg.sender = messenger</text>
+          <text class="svg-label" x="28" y="140">zkSync</text>
+          <rect class="svg-node" x="28" y="156" width="130" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="93" y="190" text-anchor="middle">L1 合約</text>
+          <rect class="svg-node-a" x="220" y="156" width="318" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="379" y="182" text-anchor="middle">你的 L2 合約</text>
+          <text class="svg-ncode" x="379" y="200" text-anchor="middle">msg.sender = alias(L1 合約)</text>
+          <text class="svg-mono-a" x="560" y="80">兩道檢查</text>
+          <text class="svg-mono-a" x="560" y="192">一道檢查</text>
+          <text class="svg-cap" x="380" y="236" text-anchor="middle">抄錯模型：在 zkSync 上等 messenger，函式永遠進不去。</text>
+        </svg>
+      </div>
+      <figcaption>先問「這條鏈的 L1 來電，是櫃台轉交，還是寄件人直接出現在 msg.sender？」再寫 require。</figcaption>
+    </figure>
+
+    <h3>Starknet 入金是訊息，不是「同一筆 tx」</h3>
+<pre><code><span class="c">// L1：把訊息寫進 StarknetCore</span>
+starknet.sendMessageToL2{value: fee}(l2Contract, selector, payload);
+
+<span class="c">// L2 Cairo：l1_handler 消費；再從 L2 出金時 send_message_to_l1</span>
+<span class="c">// L1 出金：對同一 payload 呼叫 consumeMessageFromL2 後才能解鎖</span>
+starknet.consumeMessageFromL2(l2Contract, payload);</code></pre>
+    <p>Starknet 的 L1↔L2 訊息是顯式的、可重放檢查的雜湊佇列，不是 EVM 式的 deposit transaction。合約必須把「訊息已消費」當成狀態機的一環，不能假設 handler 會自動再入。</p>
+    <p>Cairo 的 <code>l1_handler</code> selector、payload 裡每個 <code>felt252</code>、uint256 拆成 low／high，都必須與 L1 <code>sendMessageToL2</code> 的陣列<strong>逐元素一致</strong>。L1 <code>consumeMessageFromL2</code> 同樣比對整份 payload 的 hash；多一個 padding、uint256 端序錯，證明過了也 consume 不了。L1 解鎖前要 <code>require(msg.sender == starknetCore)</code> 且自行檢查 payload 欄位——Core 只保證「這則 L2 訊息存在且未被消費」，不保證語意是你的協議。</p>
+
+    <h2>出金：證明之後，兩種領法</h2>
+    <p>使用者在 L2 燒毀或鎖定資產，並 enqueue 一則 L2→L1 訊息。等包含該訊息的批次被 L1 接受，才能在 L1 領。這裡有兩種領法，不要混用：</p>
+    <ul>
+      <li><strong>Merkle 日誌（zkSync、Scroll）：</strong>對已 <em>execute</em> 的批次根做 inclusion proof，再 <code>finalizeWithdrawal</code>。</li>
+      <li><strong>訊息雜湊佇列（Starknet）：</strong>L1 呼叫 <code>consumeMessageFromL2(l2Contract, payload)</code>，Core 比對雜湊；使用者不組 Merkle proof。雜湊含 L1 <code>msg.sender</code>，必須由預定的消費合約來呼叫。</li>
+    </ul>
+    <p>zkSync 還要把批次生命週期分開：<code>commit</code>（資料上 L1）→ <code>prove</code>（verifier 接受）→ <code>execute</code>（狀態根生效、L2→L1 tree 可證）。<strong>證明過了 ≠ 可出金</strong>，要等 execute。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="ZK 出金：L2 發起並寫入 L2→L1 訊息樹，Prover 對批次出證明，L1 Verifier 接受後使用者立即 finalize，無需七天挑戰期。">
+          <defs>
+            <marker id="zk-zh-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="24" y="40" width="210" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="129" y="70" text-anchor="middle">1. L2 發起</text>
+          <text class="svg-ncode" x="129" y="92" text-anchor="middle">burn + L2→L1 message</text>
+          <text class="svg-ncode" x="129" y="110" text-anchor="middle">秒～分鐘</text>
+          <rect class="svg-node" x="274" y="40" width="210" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="379" y="70" text-anchor="middle">2. 證明上 L1</text>
+          <text class="svg-ncode" x="379" y="92" text-anchor="middle">commit → prove → execute</text>
+          <text class="svg-ncode" x="379" y="110" text-anchor="middle">證明過了還要等 execute</text>
+          <rect class="svg-node-a" x="526" y="40" width="210" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="631" y="70" text-anchor="middle">3. Finalize</text>
+          <text class="svg-ncode" x="631" y="92" text-anchor="middle">Merkle proof → 放行</text>
+          <text class="svg-ncode" x="631" y="110" text-anchor="middle">無 7 天挑戰期</text>
+          <line class="svg-flow-a" x1="234" y1="84" x2="272" y2="84" marker-end="url(#zk-zh-3)"></line>
+          <line class="svg-flow-a" x1="484" y1="84" x2="524" y2="84" marker-end="url(#zk-zh-3)"></line>
+          <text class="svg-cap" x="380" y="164" text-anchor="middle">若協議另有 Security Council 升級時鎖或強制延遲，那是治理延遲，不是欺詐挑戰。</text>
+          <text class="svg-mono-a" x="380" y="188" text-anchor="middle">快速橋在 ZK 上仍然有市場：證明時間不穩定，LP 可以墊這段空窗</text>
+        </svg>
+      </div>
+      <figcaption>「ZK 出金是即時的」這句話不精確。即時的是<em>證明被接受之後</em>，不必再等挑戰。產證明、排 L1 驗證交易、blob 確認，加起來仍可能是一小時量級。</figcaption>
+    </figure>
+
+<pre><code><span class="c">// zkSync：對已 execute 的批次做 Merkle 證明（Bridgehub / L1Nullifier，不要再用 finalizeEthWithdrawal）</span>
+l1Nullifier.finalizeWithdrawal(
+    chainId,
+    l2BatchNumber,
+    l2MessageIndex,
+    l2TxNumberInBatch,
+    message,
+    merkleProof
+);
+
+<span class="c">// 同一則 message 只能 finalize 一次；證明綁定已 execute 的 L2→L1 tree</span>
+<span class="c">// message 必須與 L2 sendToL1 的 bytes 完全相同，含 abi.encode 的 padding</span></code></pre>
+    <p>L1 橋在 finalize 時通常只驗證「這則 log／message 在已執行批次的樹裡」，然後把 ETH 轉給 message 解出來的 <code>to</code>。若你自建 L1 escrow，不要只呼叫 <code>proveL2MessageInclusion</code> 就付錢：還要檢查 sender 是你的 L2 合約、selector／前綴是你的協議、這則 hash 尚未付過，並且 <strong>先 <code>paid[hash] = true</code> 再轉帳</strong>。官方 ERC-20 bridge 已經做了這些；自己 fork 時漏掉 sender 檢查，等於任何人只要能從任意 L2 合約 <code>sendToL1</code> 就能提走 escrow。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="L2 sendToL1 的 bytes 必須與 L1 finalize 傳入的 message 完全相同，並且要檢查發送者是你的 L2 合約。">
+          <rect class="svg-node" x="24" y="36" width="220" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="134" y="66" text-anchor="middle">L2 sendToL1</text>
+          <text class="svg-ncode" x="134" y="88" text-anchor="middle">abi.encode(user, amount)</text>
+          <rect class="svg-node-a" x="270" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="370" y="66" text-anchor="middle">同一串 bytes</text>
+          <text class="svg-ncode" x="370" y="88" text-anchor="middle">多 1 byte 就對不上</text>
+          <rect class="svg-node" x="496" y="36" width="240" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="616" y="66" text-anchor="middle">L1 finalize</text>
+          <text class="svg-ncode" x="616" y="88" text-anchor="middle">證明 + 檢查 L2 sender</text>
+          <text class="svg-cap" x="380" y="142" text-anchor="middle">inclusion 只證明「鏈上有這則訊息」，不證明「是你的合約說的」。</text>
+          <text class="svg-mono-a" x="380" y="170" text-anchor="middle">自己寫 escrow：bytes 相等 ∧ sender == 你的 L2 合約 ∧ 尚未付過</text>
+        </svg>
+      </div>
+      <figcaption>把 L2→L1 訊息想成支票：金額跟簽名都要對。只驗證「這張紙在樹上」卻不看簽名，等於認任何一張支票。</figcaption>
+    </figure>
+
+    <h2>證明系統與升級</h2>
+    <ul>
+      <li><strong>SNARK（Groth16、PLONK、Honk／Boojum 一類）：</strong>L1 驗證極便宜；部分系統需要 trusted setup 或 universal SRS。</li>
+      <li><strong>STARK（Starknet）：</strong>無需 trusted setup，證明較大，L1 驗證較貴，常再包一層 SNARK recursive。</li>
+      <li><strong>遞迴：</strong>先把很多區塊證成一棵證明樹，L1 只驗根。這讓出金延遲取決於「根何時提交」，不是「每一塊何時單獨證明」。</li>
+    </ul>
+    <p>電路升級等於換掉「什麼叫合法執行」。嚴肅的 ZK L2 會把 verifier 放在時鎖後面，有的還保留 Security Council 緊急路徑。讀出金延遲時，要把<strong>證明時間</strong>和<strong>治理時鎖</strong>分開算。</p>
+
+    <h2>開發者檢查清單</h2>
+    <ul>
+      <li>先確認這條鏈的 L1→L2 模型：zkSync 合約發送者是「msg.sender = 別名後的 L1 合約」，EOA 不別名；Scroll／多數 OP 風格 zkEVM 是 messenger + <code>xDomainMessageSender</code>。抄錯守衛會主網直接死。</li>
+      <li>入金參數（L2 gas、pubdata、refund recipient、factory deps）當成會失敗的路徑來測。refund 填 L2 已有的 EOA，不要填還沒部署的 L1 合約位址，也不要賭 CREATE2 救援。</li>
+      <li>L2 餘額可花，不代表 L1 橋已承認這筆入金所在的批次；需要 L1 最終性的應用要等 <em>executed</em> batch，不要等 sequencer receipt 或只看到 prove。</li>
+      <li>出金先分模型：zkSync／Scroll 是 Merkle + execute；Starknet 是 consume hash。自組 Merkle proof 是主幹 bug。L1 escrow 必須檢查 L2 sender，先標記已付再轉帳。</li>
+      <li>Token 對映仍是官方 bridge 清單，不是「L2 上叫 USDC 的東西」。許多 ZK 鏈同時存在 canonical ERC-20 與第三方 OFT。</li>
+      <li>zkSync：新代碼走 Bridgehub／L1Nullifier。不要用 <code>extcodesize == 0</code> 當 EOA 檢查；CREATE2 只在 EraVM 路徑與 L1 不同；測 factoryDeps 漏傳。EVM Emulator 與 EraVM 不要 <code>delegatecall</code> 互調。</li>
+      <li>電路／verifier 升級時，舊的 withdrawal proof 可能對不上新的 tree；升級視窗要凍結出金或提供遷移路徑。</li>
+    </ul>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://vitalik.eth.limo/general/2022/08/04/zkevm.html">Vitalik：zkEVM 類型</a>／<a href="https://ethereum.org/developers/docs/scaling/zk-rollups/">Ethereum.org ZK rollups</a></li>
+      <li><a href="https://docs.zksync.io/zksync-protocol/contracts/l1-contracts/l1-ecosystem-contracts">zkSync Bridgehub / L1 生態合約</a>／<a href="https://docs.zksync.io/zksync-protocol/era-vm/transactions/l1_l2_communication">L1/L2 communication</a></li>
+      <li><a href="https://docs.starknet.io/architecture-and-concepts/l1-l2-messaging/overview/">Starknet L1–L2 messaging</a>／<a href="https://docs.scroll.io/en/technology/bridge/cross-domain-messaging/">Scroll 跨域訊息</a>／<a href="https://docs.scroll.io/en/technology/overview/scroll-upgrades/euclid-upgrade/">Scroll Euclid</a></li>
+    </ul>
+    <p class="meta">內容最後核對：2026-09-11</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>ZK Rollups: Validity Proofs and Bridging</h1>
+    <p class="meta">2026-09-11 · zkEVM · Validity proof · Canonical bridge · Developer guide</p>
+
+    <p><strong>A ZK rollup replaces "believe then challenge" with a validity proof.</strong> The sequencer still orders transactions and publishes data to L1, but every state transition carries a SNARK or STARK. Once the L1 verifier contract accepts it, that batch is cryptographically legal. Canonical withdrawals therefore skip a seven-day challenge window — the bottleneck becomes "when is the proof produced and included on L1." This is still a contract-author note: L1→L2 <code>msg.sender</code> rules, refund addresses, pairing L2→L1 bytes with finalize, and which opcodes are not Ethereum.</p>
+    <blockquote><p>Contrast with the previous note: optimistic safety is economic and live (one honest verifier); ZK safety is circuits and the proof system. Deposits look alike (lock on L1 + forced inclusion); the reason you wait to withdraw is completely different.</p></blockquote>
+
+    <h2>What a validity proof actually guarantees</h2>
+    <p>A validity proof answers: given the old state root, this batch of transactions (or a state diff), and a new state root, does there exist a legal execution trace connecting them? L1 does not replay every L2 transaction; it checks the proof — <strong>verifier gas is roughly constant</strong>. Total L1 cost still scales with DA (blob / calldata / state-diff bytes). Cheap proofs are not cheap batches.</p>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>Optimistic</th><th>ZK</th></tr></thead>
+      <tbody>
+        <tr><td><strong>When L1 trusts a new state</strong></td><td>Challenge window ends with no successful dispute</td><td>Verifier accepts the proof</td></tr>
+        <tr><td><strong>A wrong state on L1</strong></td><td>Can exist briefly, then be rolled back</td><td>Cannot pass the verifier; the batch is rejected</td></tr>
+        <tr><td><strong>Canonical withdrawal</strong></td><td>~7-day air gap</td><td>After the batch is executed (plus any upgrade timelock / security-council delay)</td></tr>
+        <tr><td><strong>Compute cost</strong></td><td>Cheap on L1; heavy only during a challenge</td><td>Every batch is proved; the prover is a standing cost</td></tr>
+        <tr><td><strong>New trust surface</strong></td><td>Verifier software, data availability</td><td>Circuit correctness, trusted setup (if any), verifier contract, data availability</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="ZK rollup batch pipeline: the Sequencer executes transactions and produces a new state root and state diff, the Prover builds a validity proof, and the L1 Verifier accepts it before the rollup contract stores the state root.">
+          <defs>
+            <marker id="zk-en-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="zk-en-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="50" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="78" text-anchor="middle">Sequencer</text>
+          <text class="svg-ncode" x="99" y="98" text-anchor="middle">execute L2 batch</text>
+          <rect class="svg-node" x="214" y="50" width="160" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="294" y="78" text-anchor="middle">Data on L1</text>
+          <text class="svg-ncode" x="294" y="98" text-anchor="middle">blob / state diff</text>
+          <rect class="svg-node-a" x="414" y="50" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="489" y="78" text-anchor="middle">Prover</text>
+          <text class="svg-ncode" x="489" y="98" text-anchor="middle">SNARK / STARK</text>
+          <rect class="svg-node-a" x="604" y="50" width="132" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="670" y="78" text-anchor="middle">L1 Verifier</text>
+          <text class="svg-ncode" x="670" y="98" text-anchor="middle">verify + store</text>
+          <line class="svg-flow" x1="174" y1="86" x2="212" y2="86" marker-end="url(#zk-en-1)"></line>
+          <line class="svg-flow-a" x1="374" y1="86" x2="412" y2="86" marker-end="url(#zk-en-1a)"></line>
+          <line class="svg-flow-a" x1="564" y1="86" x2="602" y2="86" marker-end="url(#zk-en-1a)"></line>
+          <rect class="svg-node-dash" x="24" y="160" width="712" height="58" rx="12"></rect>
+          <text class="svg-mono-a" x="44" y="186">Soft confirm (sequencer) ≠ valid (proof not on L1) ≠ withdrawable on L1 (root stored)</text>
+          <text class="svg-ncode" x="44" y="206">Withdrawals prove against a verifier-accepted state root, not the sequencer's latest block.</text>
+        </svg>
+      </div>
+      <figcaption>The prover may be centralized — that affects liveness and censorship, not "a fake state cannot pass the verifier." A buggy circuit is a different trust assumption: audits, formal verification, upgrade timelocks.</figcaption>
+    </figure>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="Withdrawal wait compared: Optimistic needs about a seven-day challenge window; ZK can finalize after the proof lands, usually tens of minutes to hours.">
+          <text class="svg-label" x="28" y="32">Optimistic withdrawal</text>
+          <rect class="svg-liq" x="28" y="48" width="700" height="44" rx="8"></rect>
+          <text class="svg-nlabel" x="378" y="76" text-anchor="middle">challenge window · ~7-day air gap</text>
+          <text class="svg-label" x="28" y="124">ZK withdrawal</text>
+          <rect class="svg-node-a" x="28" y="140" width="240" height="44" rx="8"></rect>
+          <text class="svg-nlabel" x="148" y="168" text-anchor="middle">prove + land on L1</text>
+          <rect class="svg-liq-strong" x="280" y="140" width="160" height="44" rx="8"></rect>
+          <text class="svg-bit-t" x="360" y="168">can finalize</text>
+          <text class="svg-mono-a" x="530" y="168">no 7-day challenge</text>
+        </svg>
+      </div>
+      <figcaption>Beginner mnemonic: Optimistic is "trust first, anyone can yell stop," so you wait. ZK is "hand in the exam, L1 grades it now," so you wait for grading, not a challenge window.</figcaption>
+    </figure>
+
+    <h2>What gets published: transactions vs state diffs</h2>
+    <p>Validity says execution was correct; <strong>it does not automatically mean you can reconstruct state yourself</strong>. Data still has to land on L1 (or a DA layer the protocol accepts) so nodes can sync and users can build withdrawal proofs.</p>
+    <ul>
+      <li><strong>Replay style (Scroll, most zkEVMs):</strong> publish enough transaction data that a full node can replay to the state.</li>
+      <li><strong>State-diff style (zkSync Era):</strong> publish compressed state changes instead of raw transactions. Verifiers can still rebuild the account tree; explorers and debugging feel different.</li>
+    </ul>
+    <p>After EIP-4844, blob data expires on L1. The protocol either treats "someone stored it during the blob window" as enough, or plugs in longer-term DA. Optimistic rollups share this problem; it is not ZK-specific. Validium / external DA is "a proof, data not on Ethereum" — you can trust execution and still be unable to reconstruct state or build a withdrawal proof yourself.</p>
+
+    <h2>Four zkEVM types (which one you are actually running)</h2>
+    <p>Vitalik's taxonomy asks how close the circuit's execution environment is to Ethereum. Closer means L1 tools and clients reuse; farther means easier circuits and faster proving, with a custom toolchain.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Type</th><th>Equivalence</th><th>In practice</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Type 1</strong></td><td>Ethereum-equivalent</td><td>Can verify or even replace L1 execution; circuits are extremely heavy, rare as a general L2</td></tr>
+        <tr><td><strong>Type 2</strong></td><td>EVM-equivalent</td><td>Solidity / opcode behaviour matches; gas and the state tree may differ (Scroll's target band)</td></tr>
+        <tr><td><strong>Type 3</strong></td><td>Almost EVM</td><td>A few opcodes or precompiles rewritten; most contracts run, edges need tests</td></tr>
+        <tr><td><strong>Type 4</strong></td><td>High-level-language equivalent</td><td>Compile into a custom VM (native zkSync EraVM, Starknet Cairo); you need that toolchain</td></tr>
+      </tbody>
+    </table></div>
+    <p>A chain can move types as circuits upgrade. "It is called a zkEVM" is not "Foundry tests against L1 will just work." Differences contract authors actually hit:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Point</th><th>Assumption to drop</th></tr></thead>
+      <tbody>
+        <tr><td><strong>zkSync native AA</strong></td><td>"EOAs" have code. Do not use <code>extcodesize == 0</code> to decide <code>transfer</code> or to block contracts. The default account is a contract; <code>tx.origin</code> also differs.</td></tr>
+        <tr><td><strong>pubdata</strong></td><td>The scarce resource on zkSync is bytes written into the state diff, not L2 gas alone. Underestimate <code>l2GasPerPubdataByteLimit</code> and the L1→L2 call fails.</td></tr>
+        <tr><td><strong>precompiles</strong></td><td>Type 3/4 may lack <code>modexp</code>, blake2, or differ on pairing. Do not assume a mainnet crypto library has the same gas or the same output on L2.</td></tr>
+        <tr><td><strong>CREATE / CREATE2</strong></td><td>Native EraVM (zksolc) derives addresses differently from Ethereum. The v27+ EVM Emulator uses stock solc and matches mainnet CREATE2. Do not mix the two paths in one factory.</td></tr>
+        <tr><td><strong>gasleft / gas schedule</strong></td><td>Even Type 2 may change the schedule. Precise <code>gasleft()</code> economics will drift.</td></tr>
+      </tbody>
+    </table></div>
+    <p>zkSync now runs two stacks side by side: native <strong>EraVM</strong> (zksolc, <code>hardhat-zksync</code>) and the <strong>EVM Emulator</strong> (stock solc / Foundry). <code>delegatecall</code> does not cross those bytecodes. Ask which side you are on before talking CREATE2 or gas.</p>
+
+    <h2>Deposits: L1 priority queue, L2 execution</h2>
+    <p>Same spirit as optimistic rollups: write the request on L1, L2 must take it. ZK systems usually expose a <strong>priority queue / mailbox</strong>, but "after a timeout anyone force-advances the next batch" is <strong>not universal</strong>: Scroll requires L1 messages in QueueIndex order (Euclid also has permissionless batches); zkSync has a priority queue whose force mode depends on chain config; Starknet is a message queue, not an EVM deposit tx. Read that chain's forced-inclusion docs before you write the contract.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 230" role="img" aria-label="ZK rollup deposit: the user locks assets in the L1 Bridge or Mailbox onto a priority queue, the Sequencer turns that into an L2 transaction, the L2 Bridge mints or credits; if the Sequencer censors, anyone can force-include after a timeout.">
+          <defs>
+            <marker id="zk-en-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="zk-en-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="40" width="140" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="94" y="68" text-anchor="middle">Alice L1</text>
+          <text class="svg-ncode" x="94" y="88" text-anchor="middle">lock + request</text>
+          <rect class="svg-node-a" x="196" y="40" width="160" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="276" y="68" text-anchor="middle">Mailbox / Bridge</text>
+          <text class="svg-ncode" x="276" y="88" text-anchor="middle">priority queue</text>
+          <rect class="svg-node" x="388" y="40" width="150" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="463" y="68" text-anchor="middle">L2 execution</text>
+          <text class="svg-ncode" x="463" y="88" text-anchor="middle">mint / credit</text>
+          <rect class="svg-node" x="568" y="40" width="168" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="652" y="68" text-anchor="middle">Alice L2</text>
+          <text class="svg-ncode" x="652" y="88" text-anchor="middle">spendable balance</text>
+          <line class="svg-flow" x1="164" y1="75" x2="194" y2="75" marker-end="url(#zk-en-2)"></line>
+          <line class="svg-flow-a" x1="356" y1="75" x2="386" y2="75" marker-end="url(#zk-en-2a)"></line>
+          <line class="svg-flow" x1="538" y1="75" x2="566" y2="75" marker-end="url(#zk-en-2)"></line>
+          <text class="svg-step" x="276" y="140" text-anchor="middle">Forced inclusion: chain-specific — read the docs before assuming anyone can push</text>
+          <text class="svg-cap" x="380" y="168" text-anchor="middle">L2 credit can be fast; that is a sequencer soft confirmation. L1 finality still waits for the batch proof that contains the deposit.</text>
+          <text class="svg-mono-a" x="380" y="198" text-anchor="middle">In practice deposits are usable almost immediately; waiting on a proof starts when you exit L2</text>
+        </svg>
+      </div>
+      <figcaption>zkSync uses Bridgehub <code>requestL2TransactionDirect</code> (the Era-only Mailbox API is deprecated); Starknet uses <code>StarknetCore.sendMessageToL2</code> consumed by an L2 <code>l1_handler</code>; Scroll uses <code>L1MessageQueue</code> plus gateways. Different interfaces, same invariant: an L1 write must be executable on L2.</figcaption>
+    </figure>
+
+    <h3>zkSync deposit (sketch)</h3>
+<pre><code>struct L2TransactionRequestDirect {
+    uint256 chainId;
+    uint256 mintValue;
+    address l2Contract;
+    uint256 l2Value;
+    bytes l2Calldata;
+    uint256 l2GasLimit;
+    uint256 l2GasPerPubdataByteLimit;
+    bytes[] factoryDeps;
+    address refundRecipient;
+}
+
+<span class="c">// Elastic Network: go through Bridgehub; do not use Era-only Mailbox.requestL2Transaction</span>
+bridgehub.requestL2TransactionDirect{value: amount + l2Fee}(
+    L2TransactionRequestDirect({
+        chainId: eraChainId,
+        mintValue: amount + l2Fee,
+        l2Contract: alice,
+        l2Value: amount,
+        l2Calldata: "",
+        l2GasLimit: l2GasLimit,
+        l2GasPerPubdataByteLimit: l2GasPerPubdata,
+        factoryDeps: new bytes[](0),       <span class="c">// bytecode only when deploying a new contract via L1</span>
+        refundRecipient: alice             <span class="c">// must already exist on L2</span>
+    })
+);</code></pre>
+    <p>Same class of bug as Arbitrum retryables: L1 success ≠ L2 execution. L2 gas, pubdata limits, refund recipient, and <code>factoryDeps</code> all have to be right. An empty <code>factoryDeps</code> is fine for ETH to an EOA; skipping bytecode on a first-time L1→L2 deploy fails.</p>
+
+    <h3>refundRecipient and aliasing: the usual lockup</h3>
+    <p>When L1→L2 fails, zkSync refunds minted ETH to <code>refundRecipient</code> — on <strong>L2</strong>, not back to L1. If you pass an L1 contract, the L2 payee is the aliased address (same <code>0x1111…1111</code> offset as OP). If nothing is deployed there, ETH sits — <strong>do not assume a later CREATE2 deploy will recover it</strong>. In practice: refund an EOA that already exists on L2.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 220" role="img" aria-label="refundRecipient lockup: an L1 contract address becomes an aliased L2 address; if nothing is deployed there, refunded ETH sits.">
+          <defs>
+            <marker id="zk-en-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="40" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="109" y="68" text-anchor="middle">Recipient you typed</text>
+          <text class="svg-ncode" x="109" y="88" text-anchor="middle">L1 contract 0xAAA…</text>
+          <rect class="svg-node-a" x="260" y="40" width="190" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="355" y="68" text-anchor="middle">L2 credit goes to</text>
+          <text class="svg-ncode" x="355" y="88" text-anchor="middle">0xAAA… + 0x1111</text>
+          <rect class="svg-node-dash" x="516" y="40" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="626" y="68" text-anchor="middle">Nothing deployed</text>
+          <text class="svg-ncode" x="626" y="88" text-anchor="middle">ETH stuck</text>
+          <line class="svg-flow-a" x1="194" y1="75" x2="258" y2="75" marker-end="url(#zk-en-4)"></line>
+          <line class="svg-flow-a" x1="450" y1="75" x2="514" y2="75" marker-end="url(#zk-en-4)"></line>
+          <text class="svg-cap" x="380" y="140" text-anchor="middle">The refund is on L2. It does not bounce back to your L1 wallet.</text>
+          <text class="svg-mono-a" x="380" y="168" text-anchor="middle">Do this: refund Alice's L2 EOA. Do not bet on a later deploy</text>
+        </svg>
+      </div>
+      <figcaption>The most common zkSync / Arbitrum "funds vanished" report. The ETH is still on chain — behind a house number you have not built yet.</figcaption>
+    </figure>
+<pre><code>uint160 constant OFFSET = uint160(0x1111000000000000000000000000000000001111);
+function applyL1ToL2Alias(address l1) internal pure returns (address) {
+    unchecked { return address(uint160(l1) + OFFSET); }
+}
+
+address constant L1_MESSENGER = 0x0000000000000000000000000000000000008008; <span class="c">// L1Messenger on L2</span>
+
+<span class="c">// Only if the L1 sender is a contract: L2 msg.sender = alias(l1Contract)</span>
+<span class="c">// EOA from L1: L2 msg.sender is that EOA, no alias</span>
+address public immutable l1CounterpartAliased;
+
+constructor(address l1Counterpart) {
+    l1CounterpartAliased = applyL1ToL2Alias(l1Counterpart);
+}
+
+function finalizeLock(address user, uint256 amount) external {
+    require(msg.sender == l1CounterpartAliased, "not L1 counterpart");
+    _credit(user, amount);
+}
+
+<span class="c">// L2 → L1: sendToL1 bytes must match the message passed to L1 finalize, bit for bit</span>
+function requestExit(address user, uint256 amount) external {
+    bytes memory message = abi.encode(user, amount);
+    IL1Messenger(L1_MESSENGER).sendToL1(message);
+}</code></pre>
+    <p><code>applyL1ToL2Alias</code> is the same offset as OP / Arbitrum. The guard differs: OP / Scroll use <code>msg.sender == messenger && xDomainMessageSender() == counterpart</code>. A zkSync L1→L2 transaction has <strong>no extra messenger call</strong> — <code>msg.sender</code> is the L1 sender (aliased only if that sender is a contract). Copying the OP guard reverts forever. Do not use the aliased guard when the L1 sender is an EOA.</p>
+    <p>Scroll is closer to OP: <code>L1ScrollMessenger.sendMessage</code> → L2 <code>L2ScrollMessenger.relayMessage</code>, same messenger + <code>xDomainMessageSender</code> guard. Do not assume "ZK means zkSync's msg.sender model."</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="Two L1-to-L2 guards: OP and Scroll go through a Messenger; on zkSync msg.sender is the aliased L1 contract.">
+          <text class="svg-label" x="28" y="28">OP / Scroll</text>
+          <rect class="svg-node" x="28" y="44" width="130" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="93" y="78" text-anchor="middle">L1 contract</text>
+          <rect class="svg-node-a" x="188" y="44" width="150" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="263" y="70" text-anchor="middle">Messenger</text>
+          <text class="svg-ncode" x="263" y="88" text-anchor="middle">relays</text>
+          <rect class="svg-node" x="368" y="44" width="190" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="463" y="70" text-anchor="middle">Your L2 contract</text>
+          <text class="svg-ncode" x="463" y="88" text-anchor="middle">msg.sender = messenger</text>
+          <text class="svg-label" x="28" y="140">zkSync</text>
+          <rect class="svg-node" x="28" y="156" width="130" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="93" y="190" text-anchor="middle">L1 contract</text>
+          <rect class="svg-node-a" x="220" y="156" width="338" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="389" y="182" text-anchor="middle">Your L2 contract</text>
+          <text class="svg-ncode" x="389" y="200" text-anchor="middle">msg.sender = alias(L1 contract)</text>
+          <text class="svg-mono-a" x="580" y="80">two checks</text>
+          <text class="svg-mono-a" x="580" y="192">one check</text>
+          <text class="svg-cap" x="380" y="236" text-anchor="middle">Wrong model: waiting for a messenger on zkSync means the function never runs.</text>
+        </svg>
+      </div>
+      <figcaption>Ask first: "on this chain, does L1 mail come via a desk, or does the sender show up as msg.sender?" Then write the require.</figcaption>
+    </figure>
+
+    <h3>Starknet deposits are messages, not "the same tx"</h3>
+<pre><code><span class="c">// L1: enqueue a message on StarknetCore</span>
+starknet.sendMessageToL2{value: fee}(l2Contract, selector, payload);
+
+<span class="c">// L2 Cairo: consumed by an l1_handler; withdrawals send_message_to_l1</span>
+<span class="c">// L1 exit: consumeMessageFromL2 on the same payload, then unlock</span>
+starknet.consumeMessageFromL2(l2Contract, payload);</code></pre>
+    <p>Starknet L1↔L2 messages are an explicit, replay-checked hash queue, not an EVM-style deposit transaction. Contracts must treat "message consumed" as part of the state machine; the handler will not re-enter for you.</p>
+    <p>The Cairo <code>l1_handler</code> selector, each <code>felt252</code> in the payload, and uint256 split into low/high must match the L1 <code>sendMessageToL2</code> array <strong>element for element</strong>. <code>consumeMessageFromL2</code> hashes that whole payload; extra padding or the wrong uint256 limb order and you cannot consume even after the proof. Before unlocking on L1, <code>require(msg.sender == starknetCore)</code> and check the payload fields yourself — Core only guarantees "this L2 message exists and has not been consumed," not that it is your protocol.</p>
+
+    <h2>Withdrawals: two ways to claim after the proof</h2>
+    <p>The user burns or locks on L2 and enqueues an L2→L1 message. Only after L1 accepts the batch that contains it can they claim. There are two claim models — do not mix them:</p>
+    <ul>
+      <li><strong>Merkle logs (zkSync, Scroll):</strong> inclusion-proof against an <em>executed</em> batch root, then <code>finalizeWithdrawal</code>.</li>
+      <li><strong>Message-hash queue (Starknet):</strong> L1 calls <code>consumeMessageFromL2(l2Contract, payload)</code>; Core matches the hash. Users do not assemble a Merkle proof. The hash includes L1 <code>msg.sender</code>, so the intended consumer contract must be the caller.</li>
+    </ul>
+    <p>zkSync also splits the batch lifecycle: <code>commit</code> (data on L1) → <code>prove</code> (verifier accepts) → <code>execute</code> (state root live, L2→L1 tree provable). <strong>Proved ≠ withdrawable</strong> — wait for execute.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="ZK withdrawal: initiate on L2 and write the L2→L1 message tree, the Prover proves the batch, and after the L1 Verifier accepts the user finalizes immediately with no seven-day challenge window.">
+          <defs>
+            <marker id="zk-en-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="24" y="40" width="210" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="129" y="70" text-anchor="middle">1. Initiate on L2</text>
+          <text class="svg-ncode" x="129" y="92" text-anchor="middle">burn + L2→L1 message</text>
+          <text class="svg-ncode" x="129" y="110" text-anchor="middle">seconds–minutes</text>
+          <rect class="svg-node" x="274" y="40" width="210" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="379" y="70" text-anchor="middle">2. Proof on L1</text>
+          <text class="svg-ncode" x="379" y="92" text-anchor="middle">commit → prove → execute</text>
+          <text class="svg-ncode" x="379" y="110" text-anchor="middle">proved ≠ executable yet</text>
+          <rect class="svg-node-a" x="526" y="40" width="210" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="631" y="70" text-anchor="middle">3. Finalize</text>
+          <text class="svg-ncode" x="631" y="92" text-anchor="middle">Merkle proof → release</text>
+          <text class="svg-ncode" x="631" y="110" text-anchor="middle">no 7-day challenge</text>
+          <line class="svg-flow-a" x1="234" y1="84" x2="272" y2="84" marker-end="url(#zk-en-3)"></line>
+          <line class="svg-flow-a" x1="484" y1="84" x2="524" y2="84" marker-end="url(#zk-en-3)"></line>
+          <text class="svg-cap" x="380" y="164" text-anchor="middle">A Security Council upgrade timelock or mandatory delay is governance, not a fraud challenge.</text>
+          <text class="svg-mono-a" x="380" y="188" text-anchor="middle">Fast bridges still exist on ZK: proving time is jumpy, and LPs will front that window</text>
+        </svg>
+      </div>
+      <figcaption>"ZK withdrawals are instant" is imprecise. What is instant is <em>after the proof is accepted</em> — no extra challenge. Proving, landing the L1 verify tx, and blob confirmation can still be on the order of an hour.</figcaption>
+    </figure>
+
+<pre><code><span class="c">// zkSync: Merkle-prove an L2 log from an executed batch (Bridgehub / L1Nullifier; not finalizeEthWithdrawal)</span>
+l1Nullifier.finalizeWithdrawal(
+    chainId,
+    l2BatchNumber,
+    l2MessageIndex,
+    l2TxNumberInBatch,
+    message,
+    merkleProof
+);
+
+<span class="c">// Each message finalizes once; the proof is bound to the executed L2→L1 tree</span>
+<span class="c">// message must equal the L2 sendToL1 bytes, including abi.encode padding</span></code></pre>
+    <p>On finalize the L1 bridge typically checks "this log/message is in an executed batch's tree," then sends ETH to the <code>to</code> decoded from the message. If you roll your own L1 escrow, do not pay after <code>proveL2MessageInclusion</code> alone: check the sender is your L2 contract, the selector/prefix is yours, the hash has not been paid, and set <strong><code>paid[hash] = true</code> before the transfer</strong>. The official ERC-20 bridge already does this; fork it without a sender check and anyone who can <code>sendToL1</code> from any L2 contract drains the escrow.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="L2 sendToL1 bytes must equal the message passed to L1 finalize, and you must check the sender is your L2 contract.">
+          <rect class="svg-node" x="24" y="36" width="220" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="134" y="66" text-anchor="middle">L2 sendToL1</text>
+          <text class="svg-ncode" x="134" y="88" text-anchor="middle">abi.encode(user, amount)</text>
+          <rect class="svg-node-a" x="270" y="36" width="200" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="370" y="66" text-anchor="middle">Same bytes</text>
+          <text class="svg-ncode" x="370" y="88" text-anchor="middle">+1 byte and it misses</text>
+          <rect class="svg-node" x="496" y="36" width="240" height="80" rx="10"></rect>
+          <text class="svg-nlabel" x="616" y="66" text-anchor="middle">L1 finalize</text>
+          <text class="svg-ncode" x="616" y="88" text-anchor="middle">proof + check L2 sender</text>
+          <text class="svg-cap" x="380" y="142" text-anchor="middle">Inclusion only proves "this message exists on chain," not "your contract said it."</text>
+          <text class="svg-mono-a" x="380" y="170" text-anchor="middle">Your escrow: bytes equal ∧ sender == your L2 contract ∧ not yet paid</text>
+        </svg>
+      </div>
+      <figcaption>Treat the L2→L1 message as a cheque: amount and signature both have to match. Proving "this paper is in the tree" without the signature means you honoured any cheque.</figcaption>
+    </figure>
+
+    <h2>Proof systems and upgrades</h2>
+    <ul>
+      <li><strong>SNARKs (Groth16, PLONK, Honk / Boojum-class):</strong> verification on L1 is cheap; some need a trusted setup or a universal SRS.</li>
+      <li><strong>STARKs (Starknet):</strong> no trusted setup, larger proofs, more expensive L1 verification, often wrapped in a recursive SNARK.</li>
+      <li><strong>Recursion:</strong> many blocks collapse into a proof tree; L1 verifies the root. Withdrawal delay then tracks "when the root is posted," not "when each block is proved alone."</li>
+    </ul>
+    <p>A circuit upgrade changes the definition of legal execution. Serious ZK L2s put the verifier behind a timelock; some keep a Security Council emergency path. When you read withdrawal delay, split <strong>proving time</strong> from <strong>governance timelock</strong>.</p>
+
+    <h2>Developer checklist</h2>
+    <ul>
+      <li>Confirm the L1→L2 model: on zkSync a contract sender is "msg.sender = aliased L1 contract" (EOAs are not aliased); Scroll / most OP-style zkEVMs are messenger + <code>xDomainMessageSender</code>. The wrong guard is dead on day one.</li>
+      <li>Treat deposit parameters (L2 gas, pubdata, refund recipient, factory deps) as failing paths. Refund an EOA that exists on L2; do not pass an undeployed L1 contract, and do not bet on CREATE2 recovery.</li>
+      <li>A spendable L2 balance does not mean the L1 bridge has accepted the batch that contains the deposit. Apps that need L1 finality wait for an <em>executed</em> batch, not a sequencer receipt or a prove-only batch.</li>
+      <li>Pick the exit model first: zkSync / Scroll are Merkle + execute; Starknet is consume-hash. Hand-built Merkle proofs are the main bug factory. L1 escrow must check the L2 sender and mark paid before transferring.</li>
+      <li>Token mappings are still the official bridge list, not "whatever is called USDC on L2." Many ZK chains host both canonical ERC-20s and third-party OFTs.</li>
+      <li>zkSync: new code goes through Bridgehub / L1Nullifier. Do not use <code>extcodesize == 0</code> as an EOA check; CREATE2 differs from L1 only on the EraVM path; test missing factoryDeps. Do not <code>delegatecall</code> between EVM Emulator and EraVM.</li>
+      <li>After a circuit / verifier upgrade, old withdrawal proofs may not match the new tree; freeze exits during the window or ship a migration path.</li>
+    </ul>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://vitalik.eth.limo/general/2022/08/04/zkevm.html">Vitalik: zkEVM types</a> / <a href="https://ethereum.org/developers/docs/scaling/zk-rollups/">Ethereum.org ZK rollups</a></li>
+      <li><a href="https://docs.zksync.io/zksync-protocol/contracts/l1-contracts/l1-ecosystem-contracts">zkSync Bridgehub / L1 ecosystem contracts</a> / <a href="https://docs.zksync.io/zksync-protocol/era-vm/transactions/l1_l2_communication">L1/L2 communication</a></li>
+      <li><a href="https://docs.starknet.io/architecture-and-concepts/l1-l2-messaging/overview/">Starknet L1–L2 messaging</a> / <a href="https://docs.scroll.io/en/technology/bridge/cross-domain-messaging/">Scroll cross-domain messaging</a> / <a href="https://docs.scroll.io/en/technology/overview/scroll-upgrades/euclid-upgrade/">Scroll Euclid</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-11</p>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

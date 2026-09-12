@@ -32,7 +32,7 @@ body:not(.home) .wrap > [data-l]{max-width:49rem}
 
 .top{
   display:flex; align-items:center; justify-content:space-between; gap:2rem;
-  padding:1.65rem 0; margin-bottom:4.5rem;
+  padding:1.35rem 0; margin-bottom:2.25rem;
   border-bottom:1px solid var(--line);
 }
 .brand{
@@ -96,6 +96,7 @@ pre{
   padding:1.25rem 1.35rem; overflow-x:auto; margin:1.5rem 0;
 }
 pre code{background:none; padding:0; font-size:1em}
+pre .c{color:var(--muted)}
 blockquote{
   margin:1.5rem 0; padding:1rem 1.2rem;
   border-left:4px solid var(--accent); border-radius:0 10px 10px 0;
@@ -114,75 +115,72 @@ th{font-size:.76rem; letter-spacing:.06em; text-transform:uppercase; color:var(-
 }
 
 .hero{
-  position:relative; min-height:39rem; padding:3rem 0 6rem;
-  border-bottom:1px solid var(--line); overflow:hidden;
+  position:relative; padding:.35rem 0 2.6rem;
+  border-bottom:1px solid var(--line);
+}
+.hero-intro{
+  display:grid; grid-template-columns:minmax(0,1.15fr) minmax(16rem,.85fr);
+  gap:1.1rem 4.5rem; align-items:start;
 }
 .eyebrow{
   color:var(--accent); font-size:.66rem; font-weight:600; letter-spacing:.2em;
-  text-transform:uppercase; margin-bottom:2.2rem;
+  text-transform:uppercase; margin-bottom:1rem;
 }
-.hero h1{font-size:clamp(4rem,9.5vw,8.8rem); max-width:none; margin-bottom:2rem}
+.hero h1{
+  max-width:none; margin:0; font-size:clamp(2.15rem,3.5vw,3.1rem);
+  line-height:1.14; letter-spacing:-.03em;
+}
 .hero h1 em,.manifesto h2 em{color:var(--accent); font-weight:400}
-.hero-copy{max-width:34rem; margin-left:clamp(0rem,16vw,12rem); color:var(--muted); font-size:1.05rem}
+.hero-copy{max-width:32rem; margin:0 0 1.15rem; color:var(--muted); font-size:.98rem; line-height:1.7}
+.hero-side{padding-top:.2rem}
 .hero-link{
-  display:flex; align-items:center; justify-content:space-between; width:16rem;
-  margin:3rem 0 0 clamp(0rem,16vw,12rem); padding:.8rem 0;
+  display:inline-flex; align-items:center; justify-content:space-between; gap:1rem;
+  width:15rem; margin:0; padding:.55rem 0;
   border-bottom:1px solid var(--accent); color:var(--ink);
   font-size:.68rem; letter-spacing:.14em; text-transform:uppercase; text-decoration:none;
 }
 .hero-link:hover{color:var(--accent)}
-.hero-orbit{
-  position:absolute; right:1rem; top:9rem; width:9rem; height:9rem;
-  display:flex; align-items:center; justify-content:center; gap:.45rem;
-  border:1px solid var(--line); border-radius:50%;
-  color:var(--muted); font-size:.48rem; letter-spacing:.12em;
-}
-.hero-orbit::after{content:"✦"; position:absolute; color:var(--accent); font-size:2.2rem}
-.hero-orbit span,.hero-orbit i{transform-origin:4.5rem center}
-.hero-orbit i{width:2px; height:2px; border-radius:50%; background:var(--accent)}
-.journal{padding:5.5rem 0}
+.journal{padding:2.8rem 0 3.5rem}
 .section-head{
   display:flex; align-items:end; justify-content:space-between;
-  padding-bottom:1.5rem; border-bottom:1px solid var(--line);
+  padding-bottom:1rem; border-bottom:1px solid var(--line);
 }
 .section-head h2{
-  margin:0; font-family:var(--serif); font-size:clamp(2.2rem,4vw,3.8rem);
-  font-weight:400; letter-spacing:-.03em;
+  margin:0; font-family:var(--serif); font-size:clamp(1.4rem,2.2vw,1.8rem);
+  font-weight:400; letter-spacing:-.02em;
 }
-.section-head p{margin:0 0 .5rem; color:var(--muted); font-size:.65rem; letter-spacing:.14em; text-transform:uppercase}
+.section-head p{margin:0 0 .2rem; color:var(--muted); font-size:.65rem; letter-spacing:.14em; text-transform:uppercase}
 .notes{
-  display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:0 1.2rem;
-  list-style:none; padding:0; margin:0;
+  display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:0 2.2rem;
+  align-items:start; list-style:none; padding:0; margin:0;
 }
 .notes li{grid-column:span 6; margin:0; padding:0; border-bottom:1px solid var(--line)}
-.notes li:nth-child(1){grid-column:span 7}
-.notes li:nth-child(2){grid-column:8 / span 5}
 .notes li:last-child{grid-column:span 12}
 .notes a{
-  position:relative; display:grid; grid-template-columns:3rem 1fr auto; gap:.4rem 1.2rem;
-  min-height:17rem; padding:2rem 0; overflow:hidden; text-decoration:none; color:var(--ink);
+  position:relative; display:grid; grid-template-columns:2.4rem minmax(0,1fr) auto; gap:.15rem .9rem;
+  align-items:start; padding:1.2rem 0 1.25rem; overflow:hidden; text-decoration:none; color:var(--ink);
   transition:color .2s ease,padding .25s ease;
 }
 .notes a::after{
-  content:"↗"; grid-column:3; grid-row:3; align-self:end;
-  display:grid; place-items:center; width:2.4rem; height:2.4rem;
+  content:"↗"; grid-column:3; grid-row:2; align-self:center;
+  display:grid; place-items:center; width:2.1rem; height:2.1rem;
   border:1px solid var(--line); border-radius:50%; color:var(--accent);
   transition:transform .2s ease,border-color .2s ease;
 }
-.notes a:hover{padding-left:.7rem}
+.notes a:hover{padding-left:.55rem}
 .notes a:hover::after{transform:rotate(45deg); border-color:var(--accent)}
 .notes a:hover .n-title{color:var(--accent)}
-.n-index{grid-column:1; grid-row:1 / span 3; color:var(--accent); font-family:var(--serif); font-size:1.25rem}
+.n-index{grid-column:1; grid-row:2; color:var(--accent); font-family:var(--serif); font-size:1.05rem; padding-top:.18rem}
 .n-topic{
-  grid-column:2 / 4; color:var(--muted); font-family:var(--mono);
+  grid-column:2; color:var(--muted); font-family:var(--mono);
   font-size:.61rem; letter-spacing:.1em;
 }
 .n-title{
-  grid-column:2 / 4; display:block; max-width:15ch; margin:.85rem 0;
-  font-family:var(--serif); font-weight:400; font-size:clamp(1.8rem,3.2vw,3rem);
-  line-height:1.03; letter-spacing:-.035em; transition:color .2s ease;
+  grid-column:2; display:block; margin:.12rem 0 .4rem;
+  font-family:var(--serif); font-weight:400; font-size:clamp(1.22rem,1.9vw,1.62rem);
+  line-height:1.22; letter-spacing:-.025em; transition:color .2s ease;
 }
-.n-desc{grid-column:2; align-self:end; display:block; max-width:30rem; font-size:.82rem; color:var(--muted); line-height:1.65}
+.n-desc{grid-column:2; display:block; max-width:34rem; font-size:.84rem; color:var(--muted); line-height:1.6}
 .n-date{
   grid-column:3; grid-row:1; font-family:var(--mono);
   font-size:.61rem; color:var(--muted); letter-spacing:.05em;
@@ -202,13 +200,13 @@ th{font-size:.76rem; letter-spacing:.06em; text-transform:uppercase; color:var(-
 
 .manifesto{
   position:relative; display:grid; grid-template-columns:1fr 2fr; gap:2rem;
-  padding:5.5rem 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+  padding:3.75rem 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
 }
 .manifesto > [data-l]{grid-column:2; max-width:42rem}
-.manifesto .eyebrow{grid-column:1; grid-row:1; margin:1rem 0}
+.manifesto .eyebrow{grid-column:1; grid-row:1; margin:.4rem 0}
 .manifesto h2{
-  margin:0 0 2rem; font-family:var(--serif); font-size:clamp(2.6rem,5vw,5rem);
-  line-height:1; font-weight:400; letter-spacing:-.04em;
+  margin:0 0 1.2rem; font-family:var(--serif); font-size:clamp(1.65rem,3vw,2.45rem);
+  line-height:1.16; font-weight:400; letter-spacing:-.03em;
 }
 .manifesto p:not(.eyebrow){max-width:34rem; color:var(--muted)}
 .manifesto-mark{position:absolute; right:0; bottom:3rem; color:var(--accent); font-size:3rem}
@@ -227,21 +225,21 @@ body:not(.home) footer{margin-top:5rem; padding-top:1.5rem; border-top:1px solid
 @media (max-width:700px){
   body{font-size:16px; line-height:1.75}
   .wrap{padding:0 1.2rem 2rem}
-  .top{padding:1.15rem 0; margin-bottom:2.5rem}
+  .top{padding:1.15rem 0; margin-bottom:1.6rem}
   .brand-copy small,.nav{display:none}
   .top-actions{gap:.8rem}
-  .hero{min-height:35rem; padding:2rem 0 4rem}
-  .hero h1{font-size:clamp(3.5rem,19vw,5.6rem)}
-  .hero-copy,.hero-link{margin-left:0}
-  .hero-orbit{right:-3.5rem; top:auto; bottom:3rem; opacity:.65}
-  .journal{padding:4rem 0}
-  .section-head{align-items:start; flex-direction:column; gap:.5rem}
-  .section-head h2{font-size:2.6rem}
+  .hero{padding:.4rem 0 2rem}
+  .hero-intro{display:block}
+  .hero h1{font-size:clamp(1.85rem,8vw,2.4rem); max-width:none; margin-bottom:1rem}
+  .hero-side{margin-top:.15rem}
+  .journal{padding:2.4rem 0 3rem}
+  .section-head{align-items:start; flex-direction:column; gap:.35rem}
+  .section-head h2{font-size:1.55rem}
   .notes{display:block}
-  .notes a{grid-template-columns:2.2rem 1fr auto; min-height:15rem}
-  .n-title{font-size:2.05rem}
+  .notes a{grid-template-columns:2.2rem 1fr auto; padding:1.2rem 0 1.3rem}
+  .n-title{font-size:1.35rem; max-width:none}
   .notes li:nth-child(n){border-bottom:1px solid var(--line)}
-  .manifesto{display:block; padding:4rem 0}
+  .manifesto{display:block; padding:2.8rem 0}
   .manifesto > [data-l]{max-width:none}
   .manifesto .eyebrow{margin-bottom:1.5rem}
   .manifesto-mark{bottom:2rem}

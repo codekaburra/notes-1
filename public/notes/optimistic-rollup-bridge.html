@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Optimistic Rollup 的入金與出金</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Optimistic Rollup 的入金與出金" data-title-en="Optimistic Rollup Deposits &amp; Withdrawals">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+    </a>
+    <div class="langbar">
+      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Optimistic Rollup 的入金與出金</h1>
+    <p class="meta">2026-09-11 · OP Stack · Arbitrum · Canonical Bridge · 開發者指南</p>
+
+    <p><strong>Optimistic rollup 的跨鏈不是另一座任意橋，而是 L2 狀態如何從 L1 推導出來的一部分。</strong>入金會寫進 L1，再被 L2 的 derivation pipeline 收成一筆特殊交易；出金則是 L2 先承諾「這筆訊息存在」，等輸出根經過挑戰期、無人成功挑戰後，L1 才放行資產。本則以 OP Stack 為主線、對照 Arbitrum，對象是要在 L1／L2 <em>寫合約</em>的人：你真正要寫對的是 <code>msg.sender</code>、<code>xDomainMessageSender</code>、gas、失敗 replay，而不是「呼叫哪個 bridge UI」。</p>
+
+    <h2>先記住安全模型</h2>
+    <p>Optimistic 的意思是：proposer 先把 L2 輸出根貼上 L1，<em>假設它是對的</em>。任何人都可以在挑戰期內用欺詐證明／fault proof 反駁。因此 canonical 出金必須等這個視窗結束——OP Mainnet 與 Arbitrum One 都約是七天量級，不是因為轉帳慢，而是因為安全依賴「有人看、有人挑戰」。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>角色</th><th>做什麼</th><th>信任邊界</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Sequencer</strong></td><td>排序 L2 交易、給軟確認</td><td>可審查、可重組自己的 unpublished 佇列；不能永久擋 L1 入金</td></tr>
+        <tr><td><strong>Batcher</strong></td><td>把交易資料發到 L1 calldata／blob</td><td>資料必須在 L1 可重建，否則節點無法同步</td></tr>
+        <tr><td><strong>Proposer</strong></td><td>把 output root／dispute game 貼上 L1</td><td>錯的根可被挑戰；fault proof 上線後不必信任單一 proposer</td></tr>
+        <tr><td><strong>Verifier／Challenger</strong></td><td>重放 L2、挑戰錯誤輸出</td><td>安全假設：至少一個誠實驗證者在線，且能負擔挑戰</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>錢包顯示「已上 L2」只是 sequencer 的軟確認。資產要能在 L1 被信任，必須等到資料上 L1、輸出根定案。</p></blockquote>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 280" role="img" aria-label="Optimistic rollup 架構：使用者交易經 Sequencer 排序，Batcher 把資料發到 L1，Proposer 貼上輸出根；L1 上的 Portal 與 Bridge 負責入金與出金，挑戰者可在挑戰期內反駁錯誤輸出。">
+          <defs>
+            <marker id="op-zh-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="op-zh-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="28">L2</text>
+          <rect class="svg-node" x="28" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="103" y="70" text-anchor="middle">使用者 / dapp</text>
+          <text class="svg-ncode" x="103" y="90" text-anchor="middle">L2 tx</text>
+          <rect class="svg-node" x="214" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="289" y="70" text-anchor="middle">Sequencer</text>
+          <text class="svg-ncode" x="289" y="90" text-anchor="middle">排序 · 軟確認</text>
+          <rect class="svg-node-a" x="400" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="70" text-anchor="middle">L2 狀態</text>
+          <text class="svg-ncode" x="475" y="90" text-anchor="middle">含跨域訊息</text>
+          <rect class="svg-node" x="586" y="44" width="146" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="659" y="70" text-anchor="middle">Proposer</text>
+          <text class="svg-ncode" x="659" y="90" text-anchor="middle">output root</text>
+          <line class="svg-flow" x1="178" y1="76" x2="212" y2="76" marker-end="url(#op-zh-1)"></line>
+          <line class="svg-flow" x1="364" y1="76" x2="398" y2="76" marker-end="url(#op-zh-1)"></line>
+          <line class="svg-flow-a" x1="550" y1="76" x2="584" y2="76" marker-end="url(#op-zh-1a)"></line>
+          <line class="svg-axis" x1="28" y1="132" x2="732" y2="132"></line>
+          <text class="svg-label" x="28" y="158">L1 Ethereum</text>
+          <rect class="svg-node-a" x="28" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="113" y="204" text-anchor="middle">Portal / Inbox</text>
+          <text class="svg-ncode" x="113" y="224" text-anchor="middle">入金 · 出金放行</text>
+          <rect class="svg-node" x="230" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="204" text-anchor="middle">Batcher 資料</text>
+          <text class="svg-ncode" x="315" y="224" text-anchor="middle">blob / calldata</text>
+          <rect class="svg-node" x="432" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="517" y="204" text-anchor="middle">Dispute game</text>
+          <text class="svg-ncode" x="517" y="224" text-anchor="middle">輸出根 + 挑戰</text>
+          <rect class="svg-node" x="634" y="176" width="98" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="683" y="204" text-anchor="middle">Verifier</text>
+          <text class="svg-ncode" x="683" y="224" text-anchor="middle">挑戰</text>
+          <line class="svg-flow-a" x1="113" y1="176" x2="103" y2="110" marker-end="url(#op-zh-1a)"></line>
+          <text class="svg-step" x="148" y="150">deposit tx</text>
+        </svg>
+      </div>
+      <figcaption>L2 不是「另一條獨立鏈再外掛一座橋」。入金交易由 L1 資料推導而來，出金憑據綁在 output root 上。橋合約只是這套狀態機的出入門口。</figcaption>
+    </figure>
+
+    <h2>入金：L1 鎖定，L2 推導出一筆 deposit tx</h2>
+    <p>使用者在 L1 把 ETH 或 ERC-20 交給 canonical bridge。OP Stack 裡這會走到 <code>OptimismPortal.depositTransaction</code>，發出 <code>TransactionDeposited</code>。每個 L2 節點（含 sequencer）依 derivation 規則，把這筆事件收成 <strong>deposit transaction</strong>（交易型別 <code>0x7e</code>）：先把 <code>mint</code> 的 ETH 記入 L2 帳戶，再執行 <code>data</code> 呼叫。</p>
+    <p>常見兩條路徑：</p>
+    <ul>
+      <li><strong>只想在 L2 拿到 ETH：</strong>直接往 Portal 的 <code>receive()</code> 或 <code>depositTransaction</code> 打，L2 同位址入帳。</li>
+      <li><strong>走 StandardBridge（ETH 或 ERC-20，可指定收款人）：</strong>L1 <code>L1StandardBridge</code> → <code>L1CrossDomainMessenger</code> → Portal。L2 端由 messenger <code>relayMessage</code> 再叫 <code>L2StandardBridge.finalizeBridgeETH</code>／<code>finalizeBridgeERC20</code>。</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="Optimistic rollup 入金流程：使用者在 L1 StandardBridge 鎖資產，Messenger 經 Portal 發出 TransactionDeposited；L2 derivation 產生 deposit tx，Messenger relay 後 Bridge 把 ETH 或鑄造的 ERC-20 交給收款人。">
+          <defs>
+            <marker id="op-zh-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="op-zh-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="20" y="36" width="128" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="84" y="64" text-anchor="middle">Alice L1</text>
+          <text class="svg-ncode" x="84" y="84" text-anchor="middle">bridgeETHTo</text>
+          <rect class="svg-node" x="176" y="36" width="128" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="240" y="64" text-anchor="middle">L1 Bridge</text>
+          <text class="svg-ncode" x="240" y="84" text-anchor="middle">鎖 ETH / ERC-20</text>
+          <rect class="svg-node" x="332" y="36" width="140" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="402" y="64" text-anchor="middle">Messenger</text>
+          <text class="svg-ncode" x="402" y="84" text-anchor="middle">sendMessage</text>
+          <rect class="svg-node-a" x="500" y="36" width="236" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="618" y="64" text-anchor="middle">OptimismPortal</text>
+          <text class="svg-ncode" x="618" y="84" text-anchor="middle">TransactionDeposited</text>
+          <line class="svg-flow" x1="148" y1="70" x2="174" y2="70" marker-end="url(#op-zh-2)"></line>
+          <line class="svg-flow" x1="304" y1="70" x2="330" y2="70" marker-end="url(#op-zh-2)"></line>
+          <line class="svg-flow-a" x1="472" y1="70" x2="498" y2="70" marker-end="url(#op-zh-2a)"></line>
+          <rect class="svg-node-a" x="176" y="152" width="140" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="246" y="180" text-anchor="middle">L2 derivation</text>
+          <text class="svg-ncode" x="246" y="200" text-anchor="middle">deposit tx 0x7e</text>
+          <rect class="svg-node" x="348" y="152" width="150" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="423" y="180" text-anchor="middle">L2 Messenger</text>
+          <text class="svg-ncode" x="423" y="200" text-anchor="middle">relayMessage</text>
+          <rect class="svg-node" x="530" y="152" width="206" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="633" y="180" text-anchor="middle">L2 Bridge → Alice</text>
+          <text class="svg-ncode" x="633" y="200" text-anchor="middle">finalizeBridge*</text>
+          <line class="svg-flow-a" x1="618" y1="104" x2="246" y2="152" marker-end="url(#op-zh-2a)"></line>
+          <line class="svg-flow" x1="316" y1="186" x2="346" y2="186" marker-end="url(#op-zh-2)"></line>
+          <line class="svg-flow" x1="498" y1="186" x2="528" y2="186" marker-end="url(#op-zh-2)"></line>
+          <text class="svg-mono-a" x="380" y="242" text-anchor="middle">ETH 鎖在 Portal；ERC-20 鎖在 L1StandardBridge</text>
+        </svg>
+      </div>
+      <figcaption>入金的終局性跟 L1 區塊走。Sequencer 可以很快在 L2 放進這筆 deposit，但即使它罷工，誠實節點仍會從 L1 事件自己推導出來——這就是 forced inclusion。</figcaption>
+    </figure>
+
+    <h3>地址別名</h3>
+    <p>L1 <em>合約</em>當 sender 時，L2 上的 <code>from</code>／<code>msg.sender</code> 會加上常數偏移，避免 L1 合約與 L2 同址合約搶同一個身份。EOA 不別名。Arbitrum、zkSync 用同一條偏移。跨域訊息裡的 <code>xDomainMessageSender</code> 才是「對岸真實來源」——L2 應用合約<strong>不要</strong>把 deposit tx 的 <code>msg.sender</code> 當成 L1 使用者，那通常是 aliased messenger。</p>
+<pre><code>uint160 constant OFFSET = uint160(0x1111000000000000000000000000000000001111);
+
+function applyL1ToL2Alias(address l1) internal pure returns (address) {
+    unchecked { return address(uint160(l1) + OFFSET); }
+}
+function undoL1ToL2Alias(address l2) internal pure returns (address) {
+    unchecked { return address(uint160(l2) - OFFSET); }
+}</code></pre>
+    <p>L2→L1 <em>不會</em>再別名一次：MessagePasser 記下的是 L2 真實地址，L1 上 <code>xDomainMessageSender()</code> 就是那個 L2 合約。所以 L1／L2 成對合約常見做法是 CREATE2 部署到<strong>同一個地址</strong>，各自跟對岸 messenger 驗證「sender == 我的 counterpart」，而不是驗證 <code>msg.sender == counterpart</code>。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="地址別名：L1 合約入金後，L2 的 msg.sender 變成原址加上 0x1111 偏移；EOA 入金則兩邊地址相同。">
+          <defs>
+            <marker id="op-zh-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="40" y="28">L1 Ethereum</text>
+          <text class="svg-label" x="430" y="28">L2</text>
+          <rect class="svg-node" x="40" y="44" width="200" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="72" text-anchor="middle">L1 合約 0xAAA…</text>
+          <text class="svg-ncode" x="140" y="92" text-anchor="middle">有 code 的 sender</text>
+          <rect class="svg-node-a" x="430" y="44" width="290" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="72" text-anchor="middle">msg.sender = 0xAAA… + 0x1111</text>
+          <text class="svg-ncode" x="575" y="92" text-anchor="middle">別名後的地址，不是 0xAAA…</text>
+          <line class="svg-flow-a" x1="240" y1="79" x2="428" y2="79" marker-end="url(#op-zh-4)"></line>
+          <text class="svg-step" x="334" y="68" text-anchor="middle">+ OFFSET</text>
+          <rect class="svg-node" x="40" y="140" width="200" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="168" text-anchor="middle">Alice EOA</text>
+          <text class="svg-ncode" x="140" y="188" text-anchor="middle">沒有 code</text>
+          <rect class="svg-node" x="430" y="140" width="290" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="168" text-anchor="middle">msg.sender = Alice</text>
+          <text class="svg-ncode" x="575" y="188" text-anchor="middle">同一地址，不別名</text>
+          <line class="svg-flow" x1="240" y1="175" x2="428" y2="175" marker-end="url(#op-zh-4)"></line>
+          <text class="svg-mono-a" x="380" y="236" text-anchor="middle">新手坑：L2 上看到的 msg.sender 常常是 aliased messenger，不是使用者</text>
+        </svg>
+      </div>
+      <figcaption>記一句：合約過橋會換身分證號碼；EOA 不會。所以應用合約永遠問 messenger「對岸是誰」，不要問 <code>msg.sender</code>「你是誰」。</figcaption>
+    </figure>
+
+    <h3>Solidity：入金</h3>
+<pre><code>interface IL1StandardBridge {
+    function bridgeETHTo(address to, uint32 minGasLimit, bytes calldata extraData) external payable;
+    function bridgeERC20To(
+        address localToken, address remoteToken, address to,
+        uint256 amount, uint32 minGasLimit, bytes calldata extraData
+    ) external;
+}
+
+<span class="c">// ETH：Portal 鎖定；L2 由 derivation 鑄出對應餘額</span>
+L1_BRIDGE.bridgeETHTo{value: amount}(alice, 200_000, "");
+
+<span class="c">// ERC-20：先 approve 給 L1StandardBridge，再鎖進 bridge</span>
+IERC20(usdc).approve(address(L1_BRIDGE), amount);
+L1_BRIDGE.bridgeERC20To(usdc, l2Usdc, alice, amount, 200_000, "");</code></pre>
+    <p><code>minGasLimit</code> 是<strong>目標合約</strong>被 relay 時可用的 gas，不是整筆 deposit 的上限。Messenger 自己還要吃一截 overhead；官方建議寧可高估。設太低，L2 呼叫 revert，訊息進 <code>failedMessages</code>，資產可能卡在 messenger／bridge，要再 <code>relayMessage</code>。ERC-20 的 <code>remoteToken</code> 必須是官方對映；填錯會鑄到無人認得的 L2 token。</p>
+    <p>Portal 的 <code>depositTransaction(to, value, gasLimit, isCreation, data)</code> 裡，<code>msg.value</code> 會變成 L2 的 <code>mint</code>（先記入 <code>from</code>），參數 <code>value</code> 才是內層呼叫的 callvalue。StandardBridge 把 ETH mint 給 aliased L1 messenger，再以 callvalue 轉給 L2 bridge——自己組 deposit 時不要把兩個 value 搞反。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Deposit 交易有兩個 value：msg.value 先 mint 到 from 的餘額，參數 value 才是內層呼叫的 ETH。">
+          <defs>
+            <marker id="op-zh-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="24" y="36" width="180" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="114" y="68" text-anchor="middle">L1 msg.value</text>
+          <text class="svg-ncode" x="114" y="90" text-anchor="middle">你付給 Portal 的 ETH</text>
+          <rect class="svg-node" x="268" y="36" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="368" y="68" text-anchor="middle">L2 mint</text>
+          <text class="svg-ncode" x="368" y="90" text-anchor="middle">先加到 from 的餘額</text>
+          <rect class="svg-node" x="532" y="36" width="204" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="634" y="68" text-anchor="middle">參數 value</text>
+          <text class="svg-ncode" x="634" y="90" text-anchor="middle">內層 call 的 msg.value</text>
+          <line class="svg-flow-a" x1="204" y1="80" x2="266" y2="80" marker-end="url(#op-zh-5)"></line>
+          <line class="svg-flow" x1="468" y1="80" x2="530" y2="80" marker-end="url(#op-zh-5)"></line>
+          <text class="svg-cap" x="380" y="154" text-anchor="middle">可以 mint 1 ETH、內層再只轉 0.2 ETH；剩下留在 from。</text>
+          <text class="svg-mono-a" x="380" y="180" text-anchor="middle">兩個數字搞反，ETH 會進錯帳戶或內層呼叫沒錢</text>
+        </svg>
+      </div>
+      <figcaption>把 mint 想成「先發薪水」，value 想成「這通電話附帶多少現金」。StandardBridge 把薪水發給 messenger，再讓 messenger 把現金交給 L2 bridge。</figcaption>
+    </figure>
+
+    <h2>你的合約：跨域訊息的正確守衛</h2>
+    <p>Token 橋只是 messenger 的一個客戶。自己的協議（鎖倉、治理、NFT 遷移）也走同一條管線。L2 預部署地址在每條 OP Stack 鏈都一樣：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>預部署</th><th>地址</th></tr></thead>
+      <tbody>
+        <tr><td>L2CrossDomainMessenger</td><td><code>0x4200000000000000000000000000000000000007</code></td></tr>
+        <tr><td>L2StandardBridge</td><td><code>0x4200000000000000000000000000000000000010</code></td></tr>
+        <tr><td>L2ToL1MessagePasser</td><td><code>0x4200000000000000000000000000000000000016</code></td></tr>
+        <tr><td>L1Block</td><td><code>0x4200000000000000000000000000000000000015</code></td></tr>
+        <tr><td>GasPriceOracle</td><td><code>0x420000000000000000000000000000000000000F</code></td></tr>
+      </tbody>
+    </table></div>
+<pre><code>ICrossDomainMessenger constant MESSENGER =
+    ICrossDomainMessenger(0x4200000000000000000000000000000000000007);
+
+address public immutable l1Counterpart; <span class="c">// L1 上的成對合約，建構時寫死</span>
+
+modifier onlyFromCounterpart() {
+    require(msg.sender == address(MESSENGER), "not messenger");
+    require(MESSENGER.xDomainMessageSender() == l1Counterpart, "bad sender");
+    _;
+}
+
+<span class="c">// L1 → L2：只准對岸合約經 messenger 進來</span>
+function finalizeLock(address user, uint256 amount) external onlyFromCounterpart {
+    _credit(user, amount);
+}
+
+<span class="c">// L2 → L1：發起出金／訊息；L1 要等 prove+finalize 才收得到</span>
+function sendToL1(bytes calldata payload, uint32 minGas) external {
+    MESSENGER.sendMessage(l1Counterpart, payload, minGas);
+}</code></pre>
+    <blockquote><p>兩條 <code>require</code> 缺一不可。<code>xDomainMessageSender</code> 只在 messenger <em>正在</em> relay 時有意義：不綁 <code>msg.sender</code>，攻擊者可以在別人一筆合法 relay 的 callback 裡重入你，或讓你去讀一個假 messenger。Messenger 地址要寫死成預部署，不要當 constructor 參數隨便傳。</p></blockquote>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 240" role="img" aria-label="跨域守衛兩道鎖：L2 合約的 msg.sender 必須是 Messenger，Messenger 記錄的 xDomainMessageSender 必須是 L1 成對合約。">
+          <defs>
+            <marker id="op-zh-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="50" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="78" text-anchor="middle">L1 成對合約</text>
+          <text class="svg-ncode" x="99" y="98" text-anchor="middle">真正的發送者</text>
+          <rect class="svg-node-a" x="230" y="50" width="170" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="78" text-anchor="middle">L2 Messenger</text>
+          <text class="svg-ncode" x="315" y="98" text-anchor="middle">0x4200…0007</text>
+          <rect class="svg-node" x="456" y="50" width="276" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="594" y="78" text-anchor="middle">你的 L2 合約</text>
+          <text class="svg-ncode" x="594" y="98" text-anchor="middle">finalizeLock()</text>
+          <line class="svg-flow-a" x1="174" y1="86" x2="228" y2="86" marker-end="url(#op-zh-6)"></line>
+          <line class="svg-flow-a" x1="400" y1="86" x2="454" y2="86" marker-end="url(#op-zh-6)"></line>
+          <text class="svg-step" x="315" y="40" text-anchor="middle">① msg.sender == Messenger</text>
+          <text class="svg-step" x="594" y="40" text-anchor="middle">② xDomainSender == L1 成對合約</text>
+          <text class="svg-cap" x="380" y="160" text-anchor="middle">只做 ①：任何能進 messenger 的 L1 發送者都能叫你。</text>
+          <text class="svg-cap" x="380" y="182" text-anchor="middle">只做 ②：別人 relay 時的 callback 可以重入你，或你讀到假 messenger。</text>
+          <text class="svg-mono-a" x="380" y="214" text-anchor="middle">兩把鎖都要：誰送來的（messenger）＋對岸是誰（counterpart）</text>
+        </svg>
+      </div>
+      <figcaption>Messenger 像掛號櫃台：你先確認「信是櫃台遞給我的」，再看信封上「寄件人是不是我的對岸合約」。兩步缺一，就有人能偽造來信。</figcaption>
+    </figure>
+    <p>L1 側同一套守衛，只是 messenger 換成 <code>L1CrossDomainMessenger</code>（每條 L2 一個，地址<strong>不</strong>是 0x420…）。<code>finalizeWithdrawalTransaction</code> 成功後，Portal 會轉呼叫 L1 messenger，L1 messenger 再 call 你的 L1 合約：那時 <code>msg.sender</code> 是 L1 messenger，<code>xDomainMessageSender()</code> 是 L2 成對合約。</p>
+    <p>Foundry 測 L2 入口時不要真的跑 derivation，直接假裝 messenger：</p>
+<pre><code>vm.prank(address(MESSENGER));
+vm.mockCall(
+    address(MESSENGER),
+    abi.encodeCall(ICrossDomainMessenger.xDomainMessageSender, ()),
+    abi.encode(l1Counterpart)
+);
+app.finalizeLock(user, amount);
+
+vm.prank(address(MESSENGER));
+vm.mockCall(..., abi.encode(attacker));
+vm.expectRevert("bad sender");
+app.finalizeLock(user, amount);</code></pre>
+
+    <h3>L1Block 與 confirmation</h3>
+    <p>L2 的 <code>block.number</code>／<code>block.timestamp</code> 是 L2 自己的。要錨 L1 狀態（防 sequencer 短程重組、做 L1 TWAP、驗證「這筆入金所在的 L1 區塊」），讀 <code>L1Block</code> predeploy，不要把 L2 timestamp 當成 L1 最終性。</p>
+<pre><code>interface IL1Block {
+    function number() external view returns (uint64);
+    function timestamp() external view returns (uint64);
+    function hash() external view returns (bytes32);
+    function sequenceNumber() external view returns (uint64);
+    function basefee() external view returns (uint256);
+    function blobBaseFee() external view returns (uint256);
+}
+IL1Block constant L1_BLOCK = IL1Block(0x4200000000000000000000000000000000000015);</code></pre>
+    <p>RPC 的 <code>latest</code> 在 sequencer 上是 <strong>unsafe</strong>（軟確認）。<code>safe</code> 表示已從 L1 資料推導；<code>finalized</code> 跟著 L1 最終性。合約裡無法直接讀這三個標籤，但後端／Keeper 在證明出金、發跨域指令前，應等 <code>safe</code> 或 <code>finalized</code>，不要只看 sequencer receipt。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="三種確認：unsafe 是 sequencer 軟確認，safe 表示資料已上 L1，finalized 跟著以太坊最終性。">
+          <rect class="svg-liq" x="28" y="48" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="138" y="76" text-anchor="middle">unsafe · latest</text>
+          <text class="svg-ncode" x="138" y="96" text-anchor="middle">sequencer 說「我收到了」</text>
+          <rect class="svg-node" x="270" y="48" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="76" text-anchor="middle">safe</text>
+          <text class="svg-ncode" x="380" y="96" text-anchor="middle">L1 已有這批資料</text>
+          <rect class="svg-node-a" x="512" y="48" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="622" y="76" text-anchor="middle">finalized</text>
+          <text class="svg-ncode" x="622" y="96" text-anchor="middle">L1 本身也最終化</text>
+          <text class="svg-mono" x="138" y="140" text-anchor="middle">數秒 · 錢包綠勾</text>
+          <text class="svg-mono" x="380" y="140" text-anchor="middle">數分鐘</text>
+          <text class="svg-mono-a" x="622" y="140" text-anchor="middle">約 12–15 分鐘</text>
+          <text class="svg-cap" x="380" y="174" text-anchor="middle">合約讀 L1Block 看到的是 L1，不是 sequencer 的最新塊。出金證明請等 safe／finalized。</text>
+        </svg>
+      </div>
+      <figcaption>新手把錢包綠勾當成「已經跟以太坊一樣安全」。綠勾只是 sequencer 的承諾；資料上 L1 之後才進 safe，L1 最終化才是 finalized。</figcaption>
+    </figure>
+
+    <h2>出金：L2 承諾，L1 等挑戰期</h2>
+    <p>出金是三步，不能合併成一筆 L1 交易：</p>
+    <ol>
+      <li><strong>Initiate（L2）：</strong><code>L2StandardBridge.bridgeETHTo</code>／<code>bridgeERC20To</code> → messenger → <code>L2ToL1MessagePasser.initiateWithdrawal</code>。ETH 從 L2 流通量移除，訊息雜湊寫入 MessagePasser storage。</li>
+      <li><strong>Prove（L1）：</strong>等到包含該 L2 區塊的 output root 被提出（現在是 FaultDisputeGame），用 Merkle／storage proof 向 Portal 證明「這筆 withdrawal 在那份狀態裡」。</li>
+      <li><strong>Finalize（L1）：</strong>等 dispute game 解析完成，再加上最終化延遲（約七天空氣牆）。Portal 放行 ETH，或 StandardBridge 解鎖 ERC-20。</li>
+    </ol>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 220" role="img" aria-label="Optimistic 出金三步：L2 發起 withdrawal 並寫入 MessagePasser；L1 對 output root 提出證明；挑戰期結束後 Portal 放行資產。">
+          <defs>
+            <marker id="op-zh-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="24" y="48" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="78" text-anchor="middle">1. Initiate · L2</text>
+          <text class="svg-ncode" x="124" y="100" text-anchor="middle">MessagePasser 寫入雜湊</text>
+          <text class="svg-ncode" x="124" y="118" text-anchor="middle">秒～分鐘</text>
+          <rect class="svg-node" x="280" y="48" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="78" text-anchor="middle">2. Prove · L1</text>
+          <text class="svg-ncode" x="380" y="100" text-anchor="middle">對 dispute game 提證明</text>
+          <text class="svg-ncode" x="380" y="118" text-anchor="middle">等輸出根上 L1</text>
+          <rect class="svg-node-a" x="536" y="48" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="636" y="78" text-anchor="middle">3. Finalize · L1</text>
+          <text class="svg-ncode" x="636" y="100" text-anchor="middle">Portal 放行資產</text>
+          <text class="svg-ncode" x="636" y="118" text-anchor="middle">+ 約 7 天空氣牆</text>
+          <line class="svg-flow-a" x1="224" y1="92" x2="278" y2="92" marker-end="url(#op-zh-3)"></line>
+          <line class="svg-flow-a" x1="480" y1="92" x2="534" y2="92" marker-end="url(#op-zh-3)"></line>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">證明成功 ≠ 可提款；還要等 game 結束與最終化延遲</text>
+          <text class="svg-cap" x="380" y="198" text-anchor="middle">第三方「快速橋」是用自有流動性墊款，不是跳過這段安全模型</text>
+        </svg>
+      </div>
+      <figcaption>Prove 綁定的是某一局 dispute game 的 output root。Game 若被挑戰翻盤，這份證明作廢，要對新的根重 prove。不要在合約裡假設「prove 過就等於 L1 已放款」。</figcaption>
+    </figure>
+
+    <h3>Fault proof 之後的出金</h3>
+    <p>舊的 <code>L2OutputOracle.proposeL2Output</code> 是許可制 proposer。OP Mainnet 已改成 <code>DisputeGameFactory</code> 開 <code>FaultDisputeGame</code>（Cannon 指令集證明）：任何人都可以對某個 L2 區塊提出輸出根，也任何人都可以逐步挑戰。Portal（<code>OptimismPortal2</code>）只接受已 <code>DEFENDER_WINS</code>、且過了 <code>proofMaturityDelay</code> 的 game。Guardian／Security Council 仍能黑名單錯誤 game 或切回許可制——fault proof 不是「沒有治理後門」。</p>
+<pre><code>struct WithdrawalTransaction {
+    uint256 nonce;
+    address sender;
+    address target;
+    uint256 value;
+    uint256 gasLimit;
+    bytes data;
+}
+
+portal.proveWithdrawalTransaction(
+    withdrawalTx,
+    disputeGameIndex,
+    outputRootProof,
+    withdrawalProof          <span class="c">// MessagePasser 的 storage proof</span>
+);
+
+<span class="c">// 等 game 結束 + proofMaturityDelay（約 7 天）</span>
+portal.finalizeWithdrawalTransaction(withdrawalTx);</code></pre>
+    <p>SDK（如 <code>@eth-optimism/sdk</code> 的後繼、viem OP Stack actions、Superchain 官方 SDK）會幫你組 output proof 與 withdrawal proof。手刻 Merkle proof 很容易對錯 slot。</p>
+    <p>Portal 用兩個 mapping 防重放：<code>provenWithdrawals[hash]</code> 綁定某一局 game，<code>finalizedWithdrawals[hash]</code> 保證同一則 withdrawal 只放行一次。Game 被挑戰翻盤後必須重 prove。L1 應用合約被 messenger 呼叫時仍然要走 <code>onlyFromCounterpart</code>——Portal 不替你檢查「這則訊息是不是你的協議」。</p>
+    <p>finalize 時目標 revert，Portal <strong>仍把這筆標成已 finalize</strong>（<code>WithdrawalFinalized(..., false)</code>），ETH 不會再走同一條 withdrawal hash 重放。這跟入金失敗不一樣：L1→L2 走 messenger 的訊息進 <code>failedMessages</code>，可以再 <code>relayMessage</code>；直接打 Portal 的任意 <code>target</code> 沒有這層。自己的 L1 合約被 messenger 呼叫時，要把「先記帳再轉 ETH」寫成可重試，不要假設 Portal 會幫你 replay。</p>
+    <p><code>OptimismMintableERC20</code> 只有 L2StandardBridge 能 <code>mint</code>／<code>burn</code>。自己發「橋接代幣」卻把 mint 權交給 EOA 或任意 adapter，就不是 canonical 了。讀 <code>l1Token()</code> 對一下官方清單，不要只看 symbol。</p>
+
+    <h2>Arbitrum 對照</h2>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>OP Stack</th><th>Arbitrum Nitro</th></tr></thead>
+      <tbody>
+        <tr><td><strong>入金入口</strong></td><td>OptimismPortal deposit tx</td><td>Inbox retryable ticket</td></tr>
+        <tr><td><strong>強制收件</strong></td><td>L1 事件必被 derivation 收進 L2</td><td>Delayed Inbox；sequencer 超時後可 force include</td></tr>
+        <tr><td><strong>L1→L2 失敗</strong></td><td>messenger 可 replay</td><td>retryable 可 redeem／reschedule；要付 L2 gas 與 submission fee</td></tr>
+        <tr><td><strong>出金</strong></td><td>prove + finalize against dispute game</td><td>L2 發 Outbox 訊息，挑戰期後 <code>Outbox.executeTransaction</code></td></tr>
+        <tr><td><strong>挑戰</strong></td><td>FaultDisputeGame / Cannon</td><td>BoLD：許可制結束後的邊界延遲挑戰</td></tr>
+      </tbody>
+    </table></div>
+    <p>Arbitrum 入金的經典坑是 retryable ticket：L1 交易成功不代表 L2 已執行。submission fee 或 L2 執行 gas 不足時，ticket 會留在 retryable 佇列，必須補費再 <code>redeem</code>。對使用者來說這很像「錢在橋裡消失」——其實卡在可重放的票。</p>
+<pre><code><span class="c">// L1：Inbox.createRetryableTicket{value: l2CallValue + l2Gas + submissionFee}</span>
+<span class="c">// to, l2CallValue, maxSubmissionCost, excessFeeRefundAlias, callValueRefundAlias,</span>
+<span class="c">// gasLimit, maxFeePerGas, data</span>
+inbox.createRetryableTicket{value: msg.value}(
+    l2App, 0, maxSubmissionCost,
+    refundTo, refundTo, gasLimit, maxFeePerGas,
+    abi.encodeCall(L2App.finalizeLock, (user, amount))
+);
+
+<span class="c">// L2 出金：ArbSys(0x64).sendTxToL1(l1Target, data)</span>
+<span class="c">// L1 收：msg.sender 是 Bridge，不是 Outbox，也不是 aliased L2 發送者</span></code></pre>
+<pre><code>IBridge bridge = inbox.bridge();
+require(msg.sender == address(bridge), "NOT_FROM_BRIDGE");
+require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 sender");</code></pre>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Arbitrum L2 到 L1 兩道鎖：msg.sender 必須是 Bridge，l2ToL1Sender 必須是 L2 成對合約。不要 undo alias。">
+          <defs>
+            <marker id="op-zh-7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="44" width="160" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="72" text-anchor="middle">L2 成對合約</text>
+          <text class="svg-ncode" x="104" y="92" text-anchor="middle">真實發送者</text>
+          <rect class="svg-node-a" x="230" y="44" width="170" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="72" text-anchor="middle">L1 Bridge</text>
+          <text class="svg-ncode" x="315" y="92" text-anchor="middle">這才是 msg.sender</text>
+          <rect class="svg-node" x="456" y="44" width="276" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="594" y="72" text-anchor="middle">你的 L1 合約</text>
+          <text class="svg-ncode" x="594" y="92" text-anchor="middle">讀 l2ToL1Sender()</text>
+          <line class="svg-flow-a" x1="184" y1="80" x2="228" y2="80" marker-end="url(#op-zh-7)"></line>
+          <line class="svg-flow-a" x1="400" y1="80" x2="454" y2="80" marker-end="url(#op-zh-7)"></line>
+          <text class="svg-cap" x="380" y="148" text-anchor="middle">別名只發生在 L1→L2。L2→L1 不要 undoL1ToL2Alias。</text>
+          <text class="svg-mono-a" x="380" y="178" text-anchor="middle">兩把鎖：誰送來的（Bridge）＋對岸是誰（l2ToL1Sender）</text>
+        </svg>
+      </div>
+      <figcaption>OP 問 messenger「對岸是誰」；Arbitrum 出金問 Outbox「L2 發送者是誰」。抄 OP 的 undo-alias 會永遠對不上。</figcaption>
+    </figure>
+    <p>Arbitrum 的 L1→L2 別名與 OP 同一常數。Retryable 的 <code>excessFeeRefundAddress</code>／<code>callValueRefundAddress</code> 若填 L1 合約，L2 入帳的是<strong>別名後</strong>的地址。那個門牌若沒有合約，ETH 會停在那——<strong>不要假設之後 CREATE2 部署就能救回</strong>。實務：refund 填 L2 上已存在的 EOA 或合約。這跟 zkSync 的 <code>refundRecipient</code> 是同一類 bug。</p>
+
+    <h2>Canonical 橋 vs 快速橋</h2>
+    <p>Across、Hop、官方 Fast Withdrawal 產品用的是<strong>流動性提供者先在目標鏈墊款</strong>，再自己去走 canonical 出金回收。使用者幾分鐘拿到資金，但對手方變成 LP 與那個協議的合約，不再是「只信任 L1 + 至少一個誠實 verifier」。</p>
+    <blockquote><p>產品若顯示「L2 ETH」，要分清楚：是 canonical 鑄造／記帳的 ETH，還是 OFT、lock-mint 橋接代幣。後者的出金路徑與挑戰期無關，風險模型也完全不同——見 LayerZero 那則筆記。</p></blockquote>
+
+    <h2>開發者檢查清單</h2>
+    <ul>
+      <li>所有跨域入口：<code>msg.sender == messenger</code> <em>且</em> <code>xDomainMessageSender() == counterpart</code>。Foundry 要測「假 messenger」「真 messenger + 假 sender」兩種攻擊。</li>
+      <li>入金 ERC-20 只允許官方 token 對映；L2 側用 <code>OptimismMintableERC20Factory</code> 或官方清單，不要自己 <code>mapping[l1] = l2</code> 寫死未驗證地址。</li>
+      <li>合約 sender 入金後，L2 <code>msg.sender</code> 是別名。退款／excess fee 的收款人若是 L1 合約，填 L2 上已存在的 EOA／合約；不要賭「之後部署到 aliased 位址就能救回」。</li>
+      <li>出金合約不要在 L2 發起後立刻假設 L1 已解鎖。Portal 對 raw target 失敗不會 replay；messenger 路徑才有 <code>failedMessages</code>。L1 入口同樣要 <code>onlyFromCounterpart</code>（Arbitrum 則是 Bridge + <code>l2ToL1Sender</code>）。</li>
+      <li>估 <code>minGasLimit</code> 含目標執行＋messenger overhead；測「gas 剛好不夠 → failedMessages → replay」。</li>
+      <li>需要 L1 最終性的邏輯讀 <code>L1Block</code>，後端等 <code>safe</code>／<code>finalized</code>，不要用 L2 <code>block.timestamp</code> 或 sequencer receipt 當 L1 錨。</li>
+      <li>監控 dispute game 狀態、<code>WithdrawalProven</code>／<code>WithdrawalFinalized</code>、Portal／Bridge 餘額是否覆蓋未決出金、<code>failedMessages</code> 堆積。</li>
+      <li>Sequencer 停機時，入金仍應能從 L1 推導；出金則仍受挑戰期約束。把這兩件事分開寫進 runbook。</li>
+    </ul>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://docs.optimism.io/stack/differences">OP Stack 規格與 L1/L2 差異</a>／<a href="https://docs.optimism.io/stack/protocol/deposit-flow">Deposit flow</a>／<a href="https://docs.optimism.io/stack/protocol/withdrawal-flow">Withdrawal flow</a></li>
+      <li><a href="https://docs.optimism.io/stack/protocol/fault-proofs/overview">Fault proofs</a>／<a href="https://specs.optimism.io/">OP Stack specs</a>／<a href="https://github.com/ethereum-optimism/optimism/tree/develop/packages/contracts-bedrock">contracts-bedrock</a></li>
+      <li><a href="https://docs.arbitrum.io/how-arbitrum-works">How Arbitrum works</a>／<a href="https://docs.arbitrum.io/how-arbitrum-works/l1-to-l2-messaging">L1→L2 messaging</a>／<a href="https://docs.arbitrum.io/how-arbitrum-works/bold/gentle-introduction">BoLD</a></li>
+    </ul>
+    <p class="meta">內容最後核對：2026-09-11</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Optimistic Rollup Deposits &amp; Withdrawals</h1>
+    <p class="meta">2026-09-11 · OP Stack · Arbitrum · Canonical bridge · Developer guide</p>
+
+    <p><strong>Cross-chain movement on an optimistic rollup is not a bolt-on bridge. It is part of how L2 state is derived from L1.</strong> A deposit is written on L1 and turned into a special transaction by the L2 derivation pipeline. A withdrawal is an L2 commitment that a message exists; L1 releases funds only after the output root survives its challenge window. This note follows the OP Stack, contrasts Arbitrum, and is written for people <em>shipping contracts</em> on L1/L2: the parts you must get right are <code>msg.sender</code>, <code>xDomainMessageSender</code>, gas, and replay — not which bridge UI to click.</p>
+
+    <h2>The security model first</h2>
+    <p>Optimistic means a proposer posts an L2 output root to L1 and everyone <em>assumes it is correct</em>. Anyone may contradict it during the challenge period with a fraud / fault proof. Canonical withdrawals wait for that window — on the order of seven days on OP Mainnet and Arbitrum One — not because the transfer is slow, but because safety depends on someone watching and being able to challenge.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Role</th><th>What they do</th><th>Trust boundary</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Sequencer</strong></td><td>Orders L2 transactions and issues soft confirmations</td><td>Can censor or reorder its unpublished queue; cannot permanently suppress L1 deposits</td></tr>
+        <tr><td><strong>Batcher</strong></td><td>Publishes transaction data to L1 calldata or blobs</td><td>Data must be reconstructable from L1 or nodes cannot sync</td></tr>
+        <tr><td><strong>Proposer</strong></td><td>Posts output roots / dispute games to L1</td><td>A wrong root can be challenged; permissionless fault proofs remove a trusted proposer</td></tr>
+        <tr><td><strong>Verifier / challenger</strong></td><td>Replays L2 and disputes bad outputs</td><td>Safety assumption: at least one honest validator is live and can fund a challenge</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>A wallet saying "confirmed on L2" is the sequencer's soft confirmation. Assets are not L1-trusted until data is on L1 and the output root is finalized.</p></blockquote>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 280" role="img" aria-label="Optimistic rollup architecture: user transactions are ordered by the Sequencer, the Batcher publishes data to L1, the Proposer posts an output root; Portal and Bridge on L1 handle deposits and withdrawals, and challengers can dispute a bad output during the challenge window.">
+          <defs>
+            <marker id="op-en-1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="op-en-1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="28" y="28">L2</text>
+          <rect class="svg-node" x="28" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="103" y="70" text-anchor="middle">User / dapp</text>
+          <text class="svg-ncode" x="103" y="90" text-anchor="middle">L2 tx</text>
+          <rect class="svg-node" x="214" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="289" y="70" text-anchor="middle">Sequencer</text>
+          <text class="svg-ncode" x="289" y="90" text-anchor="middle">order · soft confirm</text>
+          <rect class="svg-node-a" x="400" y="44" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="475" y="70" text-anchor="middle">L2 state</text>
+          <text class="svg-ncode" x="475" y="90" text-anchor="middle">incl. x-domain msgs</text>
+          <rect class="svg-node" x="586" y="44" width="146" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="659" y="70" text-anchor="middle">Proposer</text>
+          <text class="svg-ncode" x="659" y="90" text-anchor="middle">output root</text>
+          <line class="svg-flow" x1="178" y1="76" x2="212" y2="76" marker-end="url(#op-en-1)"></line>
+          <line class="svg-flow" x1="364" y1="76" x2="398" y2="76" marker-end="url(#op-en-1)"></line>
+          <line class="svg-flow-a" x1="550" y1="76" x2="584" y2="76" marker-end="url(#op-en-1a)"></line>
+          <line class="svg-axis" x1="28" y1="132" x2="732" y2="132"></line>
+          <text class="svg-label" x="28" y="158">L1 Ethereum</text>
+          <rect class="svg-node-a" x="28" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="113" y="204" text-anchor="middle">Portal / Inbox</text>
+          <text class="svg-ncode" x="113" y="224" text-anchor="middle">deposits · release</text>
+          <rect class="svg-node" x="230" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="204" text-anchor="middle">Batcher data</text>
+          <text class="svg-ncode" x="315" y="224" text-anchor="middle">blob / calldata</text>
+          <rect class="svg-node" x="432" y="176" width="170" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="517" y="204" text-anchor="middle">Dispute game</text>
+          <text class="svg-ncode" x="517" y="224" text-anchor="middle">output + challenge</text>
+          <rect class="svg-node" x="634" y="176" width="98" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="683" y="204" text-anchor="middle">Verifier</text>
+          <text class="svg-ncode" x="683" y="224" text-anchor="middle">dispute</text>
+          <line class="svg-flow-a" x1="113" y1="176" x2="103" y2="110" marker-end="url(#op-en-1a)"></line>
+          <text class="svg-step" x="148" y="150">deposit tx</text>
+        </svg>
+      </div>
+      <figcaption>L2 is not "another chain plus a bridge." Deposits are derived from L1 data; withdrawal credentials are bound to an output root. Bridge contracts are the doors on that state machine.</figcaption>
+    </figure>
+
+    <h2>Deposits: lock on L1, derive a deposit tx on L2</h2>
+    <p>The user gives ETH or ERC-20 to the canonical bridge on L1. On the OP Stack this reaches <code>OptimismPortal.depositTransaction</code> and emits <code>TransactionDeposited</code>. Every L2 node (including the sequencer) turns that event into a <strong>deposit transaction</strong> (type <code>0x7e</code>): credit <code>mint</code> ETH to the L2 account, then execute <code>data</code>.</p>
+    <p>Two common paths:</p>
+    <ul>
+      <li><strong>Just receive ETH on L2:</strong> hit the Portal <code>receive()</code> or <code>depositTransaction</code>; the same address is credited on L2.</li>
+      <li><strong>StandardBridge (ETH or ERC-20, optional recipient):</strong> L1 <code>L1StandardBridge</code> → <code>L1CrossDomainMessenger</code> → Portal. On L2 the messenger <code>relayMessage</code>s into <code>L2StandardBridge.finalizeBridgeETH</code> / <code>finalizeBridgeERC20</code>.</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="Optimistic rollup deposit flow: the user locks assets in the L1 StandardBridge, the Messenger goes through the Portal and emits TransactionDeposited; L2 derivation creates a deposit tx, then the L2 Messenger relays and the Bridge credits ETH or minted ERC-20 to the recipient.">
+          <defs>
+            <marker id="op-en-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+            <marker id="op-en-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="20" y="36" width="128" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="84" y="64" text-anchor="middle">Alice L1</text>
+          <text class="svg-ncode" x="84" y="84" text-anchor="middle">bridgeETHTo</text>
+          <rect class="svg-node" x="176" y="36" width="128" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="240" y="64" text-anchor="middle">L1 Bridge</text>
+          <text class="svg-ncode" x="240" y="84" text-anchor="middle">lock ETH / ERC-20</text>
+          <rect class="svg-node" x="332" y="36" width="140" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="402" y="64" text-anchor="middle">Messenger</text>
+          <text class="svg-ncode" x="402" y="84" text-anchor="middle">sendMessage</text>
+          <rect class="svg-node-a" x="500" y="36" width="236" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="618" y="64" text-anchor="middle">OptimismPortal</text>
+          <text class="svg-ncode" x="618" y="84" text-anchor="middle">TransactionDeposited</text>
+          <line class="svg-flow" x1="148" y1="70" x2="174" y2="70" marker-end="url(#op-en-2)"></line>
+          <line class="svg-flow" x1="304" y1="70" x2="330" y2="70" marker-end="url(#op-en-2)"></line>
+          <line class="svg-flow-a" x1="472" y1="70" x2="498" y2="70" marker-end="url(#op-en-2a)"></line>
+          <rect class="svg-node-a" x="176" y="152" width="140" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="246" y="180" text-anchor="middle">L2 derivation</text>
+          <text class="svg-ncode" x="246" y="200" text-anchor="middle">deposit tx 0x7e</text>
+          <rect class="svg-node" x="348" y="152" width="150" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="423" y="180" text-anchor="middle">L2 Messenger</text>
+          <text class="svg-ncode" x="423" y="200" text-anchor="middle">relayMessage</text>
+          <rect class="svg-node" x="530" y="152" width="206" height="68" rx="10"></rect>
+          <text class="svg-nlabel" x="633" y="180" text-anchor="middle">L2 Bridge → Alice</text>
+          <text class="svg-ncode" x="633" y="200" text-anchor="middle">finalizeBridge*</text>
+          <line class="svg-flow-a" x1="618" y1="104" x2="246" y2="152" marker-end="url(#op-en-2a)"></line>
+          <line class="svg-flow" x1="316" y1="186" x2="346" y2="186" marker-end="url(#op-en-2)"></line>
+          <line class="svg-flow" x1="498" y1="186" x2="528" y2="186" marker-end="url(#op-en-2)"></line>
+          <text class="svg-mono-a" x="380" y="242" text-anchor="middle">ETH is locked in the Portal; ERC-20 is locked in L1StandardBridge</text>
+        </svg>
+      </div>
+      <figcaption>Deposit finality follows the L1 block. The sequencer may include the deposit on L2 quickly, but honest nodes will derive it from L1 even if the sequencer is down — that is forced inclusion.</figcaption>
+    </figure>
+
+    <h3>Address aliasing</h3>
+    <p>When the L1 sender is a <em>contract</em>, L2 <code>from</code> / <code>msg.sender</code> is shifted by a constant so an L1 contract and an L2 contract at the same address cannot share an identity. EOAs are not aliased. Arbitrum and zkSync use the same offset. The true remote sender lives in <code>xDomainMessageSender</code> — L2 app contracts must <strong>not</strong> treat the deposit tx <code>msg.sender</code> as the L1 user; that is usually the aliased messenger.</p>
+<pre><code>uint160 constant OFFSET = uint160(0x1111000000000000000000000000000000001111);
+
+function applyL1ToL2Alias(address l1) internal pure returns (address) {
+    unchecked { return address(uint160(l1) + OFFSET); }
+}
+function undoL1ToL2Alias(address l2) internal pure returns (address) {
+    unchecked { return address(uint160(l2) - OFFSET); }
+}</code></pre>
+    <p>L2→L1 does <em>not</em> alias again: MessagePasser records the real L2 address, and L1 <code>xDomainMessageSender()</code> is that L2 contract. Paired apps therefore CREATE2 to the <strong>same address</strong> on both sides and each checks "sender == my counterpart" against the messenger, not <code>msg.sender == counterpart</code>.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="Address aliasing: after an L1 contract deposits, L2 msg.sender is the original address plus the 0x1111 offset; an EOA deposit keeps the same address.">
+          <defs>
+            <marker id="op-en-4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <text class="svg-label" x="40" y="28">L1 Ethereum</text>
+          <text class="svg-label" x="430" y="28">L2</text>
+          <rect class="svg-node" x="40" y="44" width="200" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="72" text-anchor="middle">L1 contract 0xAAA…</text>
+          <text class="svg-ncode" x="140" y="92" text-anchor="middle">sender with code</text>
+          <rect class="svg-node-a" x="430" y="44" width="290" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="72" text-anchor="middle">msg.sender = 0xAAA… + 0x1111</text>
+          <text class="svg-ncode" x="575" y="92" text-anchor="middle">aliased; not 0xAAA…</text>
+          <line class="svg-flow-a" x1="240" y1="79" x2="428" y2="79" marker-end="url(#op-en-4)"></line>
+          <text class="svg-step" x="334" y="68" text-anchor="middle">+ OFFSET</text>
+          <rect class="svg-node" x="40" y="140" width="200" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="140" y="168" text-anchor="middle">Alice EOA</text>
+          <text class="svg-ncode" x="140" y="188" text-anchor="middle">no code</text>
+          <rect class="svg-node" x="430" y="140" width="290" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="168" text-anchor="middle">msg.sender = Alice</text>
+          <text class="svg-ncode" x="575" y="188" text-anchor="middle">same address, no alias</text>
+          <line class="svg-flow" x1="240" y1="175" x2="428" y2="175" marker-end="url(#op-en-4)"></line>
+          <text class="svg-mono-a" x="380" y="236" text-anchor="middle">Beginner trap: L2 msg.sender is often the aliased messenger, not the user</text>
+        </svg>
+      </div>
+      <figcaption>Contracts change ID when they cross the bridge; EOAs do not. App contracts always ask the messenger "who is on the other side," never <code>msg.sender</code> "who are you."</figcaption>
+    </figure>
+
+    <h3>Solidity: depositing</h3>
+<pre><code>interface IL1StandardBridge {
+    function bridgeETHTo(address to, uint32 minGasLimit, bytes calldata extraData) external payable;
+    function bridgeERC20To(
+        address localToken, address remoteToken, address to,
+        uint256 amount, uint32 minGasLimit, bytes calldata extraData
+    ) external;
+}
+
+<span class="c">// ETH: locked in the Portal; L2 credits the matching balance via derivation</span>
+L1_BRIDGE.bridgeETHTo{value: amount}(alice, 200_000, "");
+
+<span class="c">// ERC-20: approve L1StandardBridge, then lock in the bridge</span>
+IERC20(usdc).approve(address(L1_BRIDGE), amount);
+L1_BRIDGE.bridgeERC20To(usdc, l2Usdc, alice, amount, 200_000, "");</code></pre>
+    <p><code>minGasLimit</code> is the gas available to the <strong>target</strong> when relayed, not a cap on the whole deposit. The messenger also takes overhead; official guidance is to overestimate. Set it too low and the L2 call reverts, the message lands in <code>failedMessages</code>, and funds can sit in the messenger/bridge until <code>relayMessage</code>. For ERC-20, <code>remoteToken</code> must be the official mapping; a wrong address mints an L2 token nobody recognizes.</p>
+    <p>In Portal <code>depositTransaction(to, value, gasLimit, isCreation, data)</code>, <code>msg.value</code> becomes L2 <code>mint</code> (credited to <code>from</code> first); the <code>value</code> argument is the inner callvalue. StandardBridge mints ETH to the aliased L1 messenger, then forwards it as callvalue to the L2 bridge — do not swap those two values if you build deposits yourself.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="A deposit transaction has two values: msg.value is minted to from first; the value argument is ETH attached to the inner call.">
+          <defs>
+            <marker id="op-en-5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="24" y="36" width="180" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="114" y="68" text-anchor="middle">L1 msg.value</text>
+          <text class="svg-ncode" x="114" y="90" text-anchor="middle">ETH you pay the Portal</text>
+          <rect class="svg-node" x="268" y="36" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="368" y="68" text-anchor="middle">L2 mint</text>
+          <text class="svg-ncode" x="368" y="90" text-anchor="middle">credited to from first</text>
+          <rect class="svg-node" x="532" y="36" width="204" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="634" y="68" text-anchor="middle">value argument</text>
+          <text class="svg-ncode" x="634" y="90" text-anchor="middle">inner call msg.value</text>
+          <line class="svg-flow-a" x1="204" y1="80" x2="266" y2="80" marker-end="url(#op-en-5)"></line>
+          <line class="svg-flow" x1="468" y1="80" x2="530" y2="80" marker-end="url(#op-en-5)"></line>
+          <text class="svg-cap" x="380" y="154" text-anchor="middle">You can mint 1 ETH and forward only 0.2 ETH inward; the rest stays on from.</text>
+          <text class="svg-mono-a" x="380" y="180" text-anchor="middle">Swap the two numbers and ETH lands in the wrong account or the inner call is broke</text>
+        </svg>
+      </div>
+      <figcaption>Think of mint as "pay salary first" and value as "how much cash this call carries." StandardBridge pays salary to the messenger, then the messenger hands cash to the L2 bridge.</figcaption>
+    </figure>
+
+    <h2>Your contracts: the cross-domain guard</h2>
+    <p>The token bridge is just one client of the messenger. Your own protocol (locks, governors, NFT moves) uses the same pipe. L2 predeploys are identical on every OP Stack chain:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Predeploy</th><th>Address</th></tr></thead>
+      <tbody>
+        <tr><td>L2CrossDomainMessenger</td><td><code>0x4200000000000000000000000000000000000007</code></td></tr>
+        <tr><td>L2StandardBridge</td><td><code>0x4200000000000000000000000000000000000010</code></td></tr>
+        <tr><td>L2ToL1MessagePasser</td><td><code>0x4200000000000000000000000000000000000016</code></td></tr>
+        <tr><td>L1Block</td><td><code>0x4200000000000000000000000000000000000015</code></td></tr>
+        <tr><td>GasPriceOracle</td><td><code>0x420000000000000000000000000000000000000F</code></td></tr>
+      </tbody>
+    </table></div>
+<pre><code>ICrossDomainMessenger constant MESSENGER =
+    ICrossDomainMessenger(0x4200000000000000000000000000000000000007);
+
+address public immutable l1Counterpart; <span class="c">// paired L1 contract, set in the constructor</span>
+
+modifier onlyFromCounterpart() {
+    require(msg.sender == address(MESSENGER), "not messenger");
+    require(MESSENGER.xDomainMessageSender() == l1Counterpart, "bad sender");
+    _;
+}
+
+<span class="c">// L1 → L2: only the counterpart, through the messenger</span>
+function finalizeLock(address user, uint256 amount) external onlyFromCounterpart {
+    _credit(user, amount);
+}
+
+<span class="c">// L2 → L1: initiate a message; L1 sees it only after prove+finalize</span>
+function sendToL1(bytes calldata payload, uint32 minGas) external {
+    MESSENGER.sendMessage(l1Counterpart, payload, minGas);
+}</code></pre>
+    <blockquote><p>You need both checks. <code>xDomainMessageSender</code> is only meaningful <em>while</em> the messenger is relaying: skip <code>msg.sender</code> and an attacker can reenter you from another legitimate relay's callback, or point you at a fake messenger. Hardcode the predeploy; do not take the messenger as a free constructor argument.</p></blockquote>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 240" role="img" aria-label="Two locks on a cross-domain guard: L2 msg.sender must be the Messenger, and the Messenger's xDomainMessageSender must be the L1 counterpart.">
+          <defs>
+            <marker id="op-en-6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="50" width="150" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="99" y="78" text-anchor="middle">L1 counterpart</text>
+          <text class="svg-ncode" x="99" y="98" text-anchor="middle">the real sender</text>
+          <rect class="svg-node-a" x="230" y="50" width="170" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="78" text-anchor="middle">L2 Messenger</text>
+          <text class="svg-ncode" x="315" y="98" text-anchor="middle">0x4200…0007</text>
+          <rect class="svg-node" x="456" y="50" width="276" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="594" y="78" text-anchor="middle">Your L2 contract</text>
+          <text class="svg-ncode" x="594" y="98" text-anchor="middle">finalizeLock()</text>
+          <line class="svg-flow-a" x1="174" y1="86" x2="228" y2="86" marker-end="url(#op-en-6)"></line>
+          <line class="svg-flow-a" x1="400" y1="86" x2="454" y2="86" marker-end="url(#op-en-6)"></line>
+          <text class="svg-step" x="315" y="40" text-anchor="middle">① msg.sender == Messenger</text>
+          <text class="svg-step" x="594" y="40" text-anchor="middle">② xDomainSender == L1 counterpart</text>
+          <text class="svg-cap" x="380" y="160" text-anchor="middle">Only ①: any L1 sender the messenger will relay can call you.</text>
+          <text class="svg-cap" x="380" y="182" text-anchor="middle">Only ②: a callback during someone else's relay can reenter you, or you read a fake messenger.</text>
+          <text class="svg-mono-a" x="380" y="214" text-anchor="middle">Both locks: who handed it over (messenger) + who is on the other side (counterpart)</text>
+        </svg>
+      </div>
+      <figcaption>The messenger is a registered-mail desk: first confirm "the desk handed me this letter," then read "is the return address my counterpart." Skip either step and someone can forge mail.</figcaption>
+    </figure>
+    <p>The L1 side uses the same guard, with <code>L1CrossDomainMessenger</code> (one per L2, <strong>not</strong> 0x420…). After <code>finalizeWithdrawalTransaction</code>, the Portal calls the L1 messenger, which calls your L1 contract: <code>msg.sender</code> is the L1 messenger, <code>xDomainMessageSender()</code> is the L2 counterpart.</p>
+    <p>In Foundry, do not run derivation to test the L2 entrypoint — impersonate the messenger:</p>
+<pre><code>vm.prank(address(MESSENGER));
+vm.mockCall(
+    address(MESSENGER),
+    abi.encodeCall(ICrossDomainMessenger.xDomainMessageSender, ()),
+    abi.encode(l1Counterpart)
+);
+app.finalizeLock(user, amount);
+
+vm.prank(address(MESSENGER));
+vm.mockCall(..., abi.encode(attacker));
+vm.expectRevert("bad sender");
+app.finalizeLock(user, amount);</code></pre>
+
+    <h3>L1Block and confirmation</h3>
+    <p>L2 <code>block.number</code> / <code>block.timestamp</code> are L2's own. To pin L1 state (short sequencer reorgs, an L1 TWAP, "the L1 block that included this deposit"), read the <code>L1Block</code> predeploy. Do not treat the L2 timestamp as L1 finality.</p>
+<pre><code>interface IL1Block {
+    function number() external view returns (uint64);
+    function timestamp() external view returns (uint64);
+    function hash() external view returns (bytes32);
+    function sequenceNumber() external view returns (uint64);
+    function basefee() external view returns (uint256);
+    function blobBaseFee() external view returns (uint256);
+}
+IL1Block constant L1_BLOCK = IL1Block(0x4200000000000000000000000000000000000015);</code></pre>
+    <p>RPC <code>latest</code> on the sequencer is <strong>unsafe</strong> (soft confirm). <code>safe</code> means derived from L1 data; <code>finalized</code> follows L1 finality. Contracts cannot read those labels directly, but backends / keepers should wait for <code>safe</code> or <code>finalized</code> before proving a withdrawal or firing a cross-domain command — not a sequencer receipt.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 200" role="img" aria-label="Three confirmation levels: unsafe is the sequencer's soft confirm, safe means the data is on L1, finalized follows Ethereum finality.">
+          <rect class="svg-liq" x="28" y="48" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="138" y="76" text-anchor="middle">unsafe · latest</text>
+          <text class="svg-ncode" x="138" y="96" text-anchor="middle">sequencer: "I got it"</text>
+          <rect class="svg-node" x="270" y="48" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="76" text-anchor="middle">safe</text>
+          <text class="svg-ncode" x="380" y="96" text-anchor="middle">batch data is on L1</text>
+          <rect class="svg-node-a" x="512" y="48" width="220" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="622" y="76" text-anchor="middle">finalized</text>
+          <text class="svg-ncode" x="622" y="96" text-anchor="middle">L1 itself is finalized</text>
+          <text class="svg-mono" x="138" y="140" text-anchor="middle">seconds · wallet tick</text>
+          <text class="svg-mono" x="380" y="140" text-anchor="middle">minutes</text>
+          <text class="svg-mono-a" x="622" y="140" text-anchor="middle">~12–15 minutes</text>
+          <text class="svg-cap" x="380" y="174" text-anchor="middle">Contracts reading L1Block see L1, not the sequencer's latest block. Prove withdrawals at safe/finalized.</text>
+        </svg>
+      </div>
+      <figcaption>Beginners treat the wallet green tick as "as safe as Ethereum." That tick is the sequencer's promise; safe starts when data is on L1; finalized follows L1 finality.</figcaption>
+    </figure>
+
+    <h2>Withdrawals: commit on L2, wait on L1</h2>
+    <p>Withdrawal is three steps and cannot collapse into one L1 transaction:</p>
+    <ol>
+      <li><strong>Initiate (L2):</strong> <code>L2StandardBridge.bridgeETHTo</code> / <code>bridgeERC20To</code> → messenger → <code>L2ToL1MessagePasser.initiateWithdrawal</code>. ETH leaves L2 circulation; the message hash is written to MessagePasser storage.</li>
+      <li><strong>Prove (L1):</strong> once an output root covering that L2 block is posted (today a FaultDisputeGame), prove to the Portal with a Merkle / storage proof that "this withdrawal is in that state."</li>
+      <li><strong>Finalize (L1):</strong> wait for the dispute game to resolve, plus the finalization delay (about a seven-day air gap). The Portal releases ETH, or StandardBridge unlocks ERC-20.</li>
+    </ol>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 220" role="img" aria-label="Three-step optimistic withdrawal: initiate on L2 and write the MessagePasser; prove against an output root on L1; after the challenge window the Portal releases funds.">
+          <defs>
+            <marker id="op-en-3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node-a" x="24" y="48" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="78" text-anchor="middle">1. Initiate · L2</text>
+          <text class="svg-ncode" x="124" y="100" text-anchor="middle">hash in MessagePasser</text>
+          <text class="svg-ncode" x="124" y="118" text-anchor="middle">seconds–minutes</text>
+          <rect class="svg-node" x="280" y="48" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="78" text-anchor="middle">2. Prove · L1</text>
+          <text class="svg-ncode" x="380" y="100" text-anchor="middle">prove vs dispute game</text>
+          <text class="svg-ncode" x="380" y="118" text-anchor="middle">wait for output on L1</text>
+          <rect class="svg-node-a" x="536" y="48" width="200" height="88" rx="10"></rect>
+          <text class="svg-nlabel" x="636" y="78" text-anchor="middle">3. Finalize · L1</text>
+          <text class="svg-ncode" x="636" y="100" text-anchor="middle">Portal releases funds</text>
+          <text class="svg-ncode" x="636" y="118" text-anchor="middle">+ ~7-day air gap</text>
+          <line class="svg-flow-a" x1="224" y1="92" x2="278" y2="92" marker-end="url(#op-en-3)"></line>
+          <line class="svg-flow-a" x1="480" y1="92" x2="534" y2="92" marker-end="url(#op-en-3)"></line>
+          <text class="svg-mono-a" x="380" y="176" text-anchor="middle">Proven ≠ withdrawable; the game must end and the finalization delay must elapse</text>
+          <text class="svg-cap" x="380" y="198" text-anchor="middle">Third-party "fast bridges" front liquidity; they do not skip this security model</text>
+        </svg>
+      </div>
+      <figcaption>A proof is bound to one dispute game's output root. If the game is overturned, the proof is void and you prove against a new root. Do not assume in contract logic that "proven" means L1 has paid.</figcaption>
+    </figure>
+
+    <h3>Withdrawals after fault proofs</h3>
+    <p>The old <code>L2OutputOracle.proposeL2Output</code> used a permissioned proposer. OP Mainnet now opens a <code>FaultDisputeGame</code> via <code>DisputeGameFactory</code> (Cannon instruction proofs): anyone may claim an output root for an L2 block, and anyone may bisect and challenge. The Portal (<code>OptimismPortal2</code>) only accepts games that <code>DEFENDER_WINS</code> after <code>proofMaturityDelay</code>. The Guardian / Security Council can still blacklist a bad game or switch back to a permissioned game — fault proofs are not "no governance backdoor."</p>
+<pre><code>struct WithdrawalTransaction {
+    uint256 nonce;
+    address sender;
+    address target;
+    uint256 value;
+    uint256 gasLimit;
+    bytes data;
+}
+
+portal.proveWithdrawalTransaction(
+    withdrawalTx,
+    disputeGameIndex,
+    outputRootProof,
+    withdrawalProof          <span class="c">// storage proof against MessagePasser</span>
+);
+
+<span class="c">// wait for the game to finish + proofMaturityDelay (~7 days)</span>
+portal.finalizeWithdrawalTransaction(withdrawalTx);</code></pre>
+    <p>SDKs (successors of <code>@eth-optimism/sdk</code>, viem OP Stack actions, the official Superchain SDK) assemble the output and withdrawal proofs. Hand-rolled Merkle proofs are an easy way to hit the wrong slot.</p>
+    <p>The Portal anti-replays with two mappings: <code>provenWithdrawals[hash]</code> binds a game, <code>finalizedWithdrawals[hash]</code> pays each withdrawal once. If the game is overturned you must prove again. When the L1 app is called by the messenger it still needs <code>onlyFromCounterpart</code> — the Portal does not check "this message belongs to your protocol."</p>
+    <p>If the target reverts at finalize, the Portal <strong>still marks the withdrawal finalized</strong> (<code>WithdrawalFinalized(..., false)</code>). That hash will not pay again. This is not the deposit path: L1→L2 messenger failures land in <code>failedMessages</code> and can be <code>relayMessage</code>d; a raw Portal <code>target</code> has no such retry. When the messenger calls your L1 contract, make "book then transfer" retryable yourself — the Portal will not replay it for you.</p>
+    <p>Only L2StandardBridge may <code>mint</code> / <code>burn</code> an <code>OptimismMintableERC20</code>. A homegrown "bridged token" whose mint key is an EOA or a random adapter is not canonical. Read <code>l1Token()</code> against the official list; do not trust the symbol.</p>
+
+    <h2>Arbitrum, by contrast</h2>
+    <div class="scroll"><table>
+      <thead><tr><th></th><th>OP Stack</th><th>Arbitrum Nitro</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Deposit entry</strong></td><td>OptimismPortal deposit tx</td><td>Inbox retryable ticket</td></tr>
+        <tr><td><strong>Forced inclusion</strong></td><td>L1 events are always derived into L2</td><td>Delayed Inbox; force-include after sequencer timeout</td></tr>
+        <tr><td><strong>Failed L1→L2</strong></td><td>messenger replay</td><td>retryable redeem / reschedule; pay L2 gas and submission fee</td></tr>
+        <tr><td><strong>Withdrawal</strong></td><td>prove + finalize against a dispute game</td><td>L2 Outbox message, then <code>Outbox.executeTransaction</code> after the challenge period</td></tr>
+        <tr><td><strong>Challenge</strong></td><td>FaultDisputeGame / Cannon</td><td>BoLD: bounded-delay permissionless disputes</td></tr>
+      </tbody>
+    </table></div>
+    <p>Arbitrum's classic deposit footgun is the retryable ticket: L1 success does not mean L2 executed. If the submission fee or L2 gas is short, the ticket sits in the retryable queue until someone tops up and <code>redeem</code>s. To users this looks like "the bridge ate my funds" — they are stuck in a replayable ticket.</p>
+<pre><code><span class="c">// L1: Inbox.createRetryableTicket{value: l2CallValue + l2Gas + submissionFee}</span>
+<span class="c">// to, l2CallValue, maxSubmissionCost, excessFeeRefundAlias, callValueRefundAlias,</span>
+<span class="c">// gasLimit, maxFeePerGas, data</span>
+inbox.createRetryableTicket{value: msg.value}(
+    l2App, 0, maxSubmissionCost,
+    refundTo, refundTo, gasLimit, maxFeePerGas,
+    abi.encodeCall(L2App.finalizeLock, (user, amount))
+);
+
+<span class="c">// L2 exit: ArbSys(0x64).sendTxToL1(l1Target, data)</span>
+<span class="c">// L1 receive: msg.sender is the Bridge, not the Outbox, and not an aliased L2 sender</span></code></pre>
+<pre><code>IBridge bridge = inbox.bridge();
+require(msg.sender == address(bridge), "NOT_FROM_BRIDGE");
+require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 sender");</code></pre>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Arbitrum L2-to-L1 two locks: msg.sender must be the Bridge; l2ToL1Sender must be the L2 counterpart. Do not undo an alias.">
+          <defs>
+            <marker id="op-en-7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
+          </defs>
+          <rect class="svg-node" x="24" y="44" width="160" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="72" text-anchor="middle">L2 counterpart</text>
+          <text class="svg-ncode" x="104" y="92" text-anchor="middle">true sender</text>
+          <rect class="svg-node-a" x="230" y="44" width="170" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="72" text-anchor="middle">L1 Bridge</text>
+          <text class="svg-ncode" x="315" y="92" text-anchor="middle">this is msg.sender</text>
+          <rect class="svg-node" x="456" y="44" width="276" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="594" y="72" text-anchor="middle">Your L1 contract</text>
+          <text class="svg-ncode" x="594" y="92" text-anchor="middle">read l2ToL1Sender()</text>
+          <line class="svg-flow-a" x1="184" y1="80" x2="228" y2="80" marker-end="url(#op-en-7)"></line>
+          <line class="svg-flow-a" x1="400" y1="80" x2="454" y2="80" marker-end="url(#op-en-7)"></line>
+          <text class="svg-cap" x="380" y="148" text-anchor="middle">Aliasing is L1→L2 only. Do not undoL1ToL2Alias on the way back.</text>
+          <text class="svg-mono-a" x="380" y="178" text-anchor="middle">Two locks: who delivered (Bridge) + who sent (l2ToL1Sender)</text>
+        </svg>
+      </div>
+      <figcaption>OP asks the messenger "who is on the other side." Arbitrum withdrawals ask the Outbox "who was the L2 sender." Copying OP's undo-alias never matches.</figcaption>
+    </figure>
+    <p>Arbitrum's L1→L2 alias uses the same constant as OP. If <code>excessFeeRefundAddress</code> / <code>callValueRefundAddress</code> is an L1 contract, the L2 credit goes to the <strong>aliased</strong> address. If nothing is deployed there, ETH sits — <strong>do not assume a later CREATE2 deploy will recover it</strong>. In practice: refund an EOA or contract that already exists on L2. Same class of bug as zkSync <code>refundRecipient</code>.</p>
+
+    <h2>Canonical vs fast bridges</h2>
+    <p>Across, Hop, and official fast-withdrawal products work by having a <strong>liquidity provider pay you on the destination first</strong>, then recovering via the canonical withdrawal. Users get funds in minutes; the counterparty becomes the LP and that protocol, not "L1 plus one honest verifier."</p>
+    <blockquote><p>If a product shows "L2 ETH," ask whether it is canonical credited ETH or an OFT / lock-mint wrapped token. The latter's exit path has nothing to do with the challenge period — see the LayerZero note.</p></blockquote>
+
+    <h2>Developer checklist</h2>
+    <ul>
+      <li>Every cross-domain entrypoint: <code>msg.sender == messenger</code> <em>and</em> <code>xDomainMessageSender() == counterpart</code>. Foundry should hit both "fake messenger" and "real messenger + fake sender."</li>
+      <li>Only allow official ERC-20 mappings; on L2 use <code>OptimismMintableERC20Factory</code> or the official list, never a hard-coded unverified <code>mapping[l1] = l2</code>.</li>
+      <li>After a contract-sender deposit, L2 <code>msg.sender</code> is aliased. If refund / excess-fee recipients are L1 contracts, use an L2 EOA/contract that already exists; do not bet on recovering later by deploying onto the aliased address.</li>
+      <li>Do not assume L1 has unlocked funds just because L2 initiated. A failed raw Portal target is not replayed; only the messenger path has <code>failedMessages</code>. The L1 entrypoint still needs <code>onlyFromCounterpart</code> (on Arbitrum: Bridge + <code>l2ToL1Sender</code>).</li>
+      <li>Size <code>minGasLimit</code> for the target plus messenger overhead; test "gas one unit short → failedMessages → replay."</li>
+      <li>Logic that needs L1 finality reads <code>L1Block</code>; backends wait for <code>safe</code> / <code>finalized</code>. Do not use L2 <code>block.timestamp</code> or a sequencer receipt as an L1 anchor.</li>
+      <li>Watch dispute-game status, <code>WithdrawalProven</code> / <code>WithdrawalFinalized</code>, Portal / Bridge balances vs pending exits, and <code>failedMessages</code> backlog.</li>
+      <li>If the sequencer is down, deposits should still derive from L1; withdrawals still wait out the challenge period. Split those two facts in the runbook.</li>
+    </ul>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://docs.optimism.io/stack/differences">OP Stack spec and L1/L2 differences</a> / <a href="https://docs.optimism.io/stack/protocol/deposit-flow">Deposit flow</a> / <a href="https://docs.optimism.io/stack/protocol/withdrawal-flow">Withdrawal flow</a></li>
+      <li><a href="https://docs.optimism.io/stack/protocol/fault-proofs/overview">Fault proofs</a> / <a href="https://specs.optimism.io/">OP Stack specs</a> / <a href="https://github.com/ethereum-optimism/optimism/tree/develop/packages/contracts-bedrock">contracts-bedrock</a></li>
+      <li><a href="https://docs.arbitrum.io/how-arbitrum-works">How Arbitrum works</a> / <a href="https://docs.arbitrum.io/how-arbitrum-works/l1-to-l2-messaging">L1→L2 messaging</a> / <a href="https://docs.arbitrum.io/how-arbitrum-works/bold/gentle-introduction">BoLD</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-11</p>
+  </div>
+
+  <footer>
+    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
+    <span data-l="en">Written in plain HTML. No framework.</span>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

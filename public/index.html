@@ -43,20 +43,17 @@
     <section class="hero">
       <p class="eyebrow" data-l="zh">技術 · 系統 · 區塊鏈</p>
       <p class="eyebrow" data-l="en">Technology · Systems · Blockchain</p>
-      <div data-l="zh">
-        <h1>把複雜的系統，<br><em>寫得清楚。</em></h1>
-        <p class="hero-copy">關於協議、程式碼與數位基礎建設的深度筆記。用圖解、實作與第一原理，建立真正可用的理解。</p>
-      </div>
-      <div data-l="en">
-        <h1>Complex systems,<br><em>made clear.</em></h1>
-        <p class="hero-copy">Field notes on protocols, code, and digital infrastructure—explained through diagrams, implementation, and first principles.</p>
-      </div>
-      <a class="hero-link" href="#notes">
-        <span data-l="zh">閱讀最新文章</span><span data-l="en">Explore the journal</span>
-        <span aria-hidden="true">↘</span>
-      </a>
-      <div class="hero-orbit" aria-hidden="true">
-        <span>READ</span><i></i><span>THINK</span><i></i><span>BUILD</span>
+      <div class="hero-intro">
+        <h1 data-l="zh">把複雜的系統，<br><em>寫得清楚。</em></h1>
+        <h1 data-l="en">Complex systems,<br><em>made clear.</em></h1>
+        <div class="hero-side">
+          <p class="hero-copy" data-l="zh">關於協議、程式碼與數位基礎建設的深度筆記。用圖解、實作與第一原理，建立真正可用的理解。</p>
+          <p class="hero-copy" data-l="en">Field notes on protocols, code, and digital infrastructure—explained through diagrams, implementation, and first principles.</p>
+          <a class="hero-link" href="#notes">
+            <span data-l="zh">閱讀最新文章</span><span data-l="en">Explore the journal</span>
+            <span aria-hidden="true">↘</span>
+          </a>
+        </div>
       </div>
     </section>
 
@@ -101,8 +98,41 @@
       </a>
     </li>
     <li>
-      <a href="./notes/deploy.html">
+      <a href="./notes/optimistic-rollup-bridge.html">
         <span class="n-index">04</span>
+        <span class="n-topic">ROLLUP · BRIDGE</span>
+        <span class="n-title" data-l="zh">Optimistic Rollup 的入金與出金</span>
+        <span class="n-title" data-l="en">Optimistic Rollup Deposits &amp; Withdrawals</span>
+        <span class="n-desc" data-l="zh">OP Stack 與 Arbitrum 的 canonical 橋：deposit tx、強制收件、fault proof 與七日挑戰期。</span>
+        <span class="n-desc" data-l="en">Canonical bridging on OP Stack and Arbitrum: deposit txs, forced inclusion, fault proofs, and the seven-day window.</span>
+        <span class="n-date">2026-09-11</span>
+      </a>
+    </li>
+    <li>
+      <a href="./notes/zk-rollup.html">
+        <span class="n-index">05</span>
+        <span class="n-topic">ROLLUP · ZK</span>
+        <span class="n-title" data-l="zh">ZK Rollup：有效性證明與出入金</span>
+        <span class="n-title" data-l="en">ZK Rollups: Validity Proofs and Bridging</span>
+        <span class="n-desc" data-l="zh">Validity proof、zkEVM 四型、Mailbox 入金，以及證明上鏈後即可 finalize 的出金。</span>
+        <span class="n-desc" data-l="en">Validity proofs, four zkEVM types, mailbox deposits, and withdrawals that finalize once the proof lands.</span>
+        <span class="n-date">2026-09-11</span>
+      </a>
+    </li>
+    <li>
+      <a href="./notes/layerzero.html">
+        <span class="n-index">06</span>
+        <span class="n-topic">MESSAGING · OMNICHAIN</span>
+        <span class="n-title" data-l="zh">LayerZero 跨鏈訊息</span>
+        <span class="n-title" data-l="en">Cross-chain messaging with LayerZero</span>
+        <span class="n-desc" data-l="zh">V2 Endpoint、DVN security stack、OApp 與 OFT；以及什麼時候不該拿它當 canonical 橋。</span>
+        <span class="n-desc" data-l="en">V2 Endpoints, DVN security stacks, OApps and OFTs — and when not to treat it as a canonical bridge.</span>
+        <span class="n-date">2026-09-11</span>
+      </a>
+    </li>
+    <li>
+      <a href="./notes/deploy.html">
+        <span class="n-index">07</span>
         <span class="n-topic">WEB · PUBLISHING</span>
         <span class="n-title" data-l="zh">這個站怎麼運作、怎麼部署</span>
         <span class="n-title" data-l="en">How this site works and ships</span>
