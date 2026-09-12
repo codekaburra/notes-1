@@ -135,7 +135,7 @@
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 760 230" role="img" aria-label="ZK rollup 入金：使用者在 L1 Bridge 或 Mailbox 鎖定資產並排入優先佇列，Sequencer 收成 L2 交易，L2 Bridge 鑄造或入帳；若 Sequencer 審查，超時後可強制收件。">
+        <svg viewBox="0 0 760 230" role="img" aria-label="ZK rollup 入金：使用者在 L1 Bridge 或 Bridgehub 鎖定資產並排入優先佇列，Sequencer 收成 L2 交易，L2 Bridge 鑄造或入帳；若 Sequencer 審查，超時後可強制收件。">
           <defs>
             <marker id="zk-zh-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
             <marker id="zk-zh-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
@@ -144,7 +144,7 @@
           <text class="svg-nlabel" x="94" y="68" text-anchor="middle">Alice L1</text>
           <text class="svg-ncode" x="94" y="88" text-anchor="middle">lock + request</text>
           <rect class="svg-node-a" x="196" y="40" width="160" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="276" y="68" text-anchor="middle">Mailbox / Bridge</text>
+          <text class="svg-nlabel" x="276" y="68" text-anchor="middle">Bridgehub / Bridge</text>
           <text class="svg-ncode" x="276" y="88" text-anchor="middle">priority queue</text>
           <rect class="svg-node" x="388" y="40" width="150" height="70" rx="10"></rect>
           <text class="svg-nlabel" x="463" y="68" text-anchor="middle">L2 執行</text>
@@ -479,7 +479,7 @@ l1Nullifier.finalizeWithdrawal(
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 760 230" role="img" aria-label="ZK rollup deposit: the user locks assets in the L1 Bridge or Mailbox onto a priority queue, the Sequencer turns that into an L2 transaction, the L2 Bridge mints or credits; if the Sequencer censors, anyone can force-include after a timeout.">
+        <svg viewBox="0 0 760 230" role="img" aria-label="ZK rollup deposit: the user locks assets in the L1 Bridge or Bridgehub onto a priority queue, the Sequencer turns that into an L2 transaction, the L2 Bridge mints or credits; if the Sequencer censors, anyone can force-include after a timeout.">
           <defs>
             <marker id="zk-en-2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
             <marker id="zk-en-2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker>
@@ -488,7 +488,7 @@ l1Nullifier.finalizeWithdrawal(
           <text class="svg-nlabel" x="94" y="68" text-anchor="middle">Alice L1</text>
           <text class="svg-ncode" x="94" y="88" text-anchor="middle">lock + request</text>
           <rect class="svg-node-a" x="196" y="40" width="160" height="70" rx="10"></rect>
-          <text class="svg-nlabel" x="276" y="68" text-anchor="middle">Mailbox / Bridge</text>
+          <text class="svg-nlabel" x="276" y="68" text-anchor="middle">Bridgehub / Bridge</text>
           <text class="svg-ncode" x="276" y="88" text-anchor="middle">priority queue</text>
           <rect class="svg-node" x="388" y="40" width="150" height="70" rx="10"></rect>
           <text class="svg-nlabel" x="463" y="68" text-anchor="middle">L2 execution</text>

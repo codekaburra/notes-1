@@ -13,6 +13,7 @@
   } catch(e) {}
 </script>
 <link rel="stylesheet" href="./assets/style.css">
+<link rel="stylesheet" href="../assets/style.css">
 </head>
 <body data-title-zh="找不到這一頁" data-title-en="Page not found">
 <div class="wrap">
@@ -37,6 +38,27 @@
     <p><a href="./index.html">← Back to all notes</a></p>
   </div>
 </div>
+<script>
+  (function () {
+    var home = './index.html';
+    var links = document.querySelectorAll('link[rel="stylesheet"]');
+    for (var i = 0; i < links.length; i++) {
+      var el = links[i];
+      if (!el.sheet) continue;
+      try {
+        if (!el.sheet.cssRules || !el.sheet.cssRules.length) continue;
+      } catch (e) { continue; }
+      var href = el.href || '';
+      if (href.indexOf('/assets/style.css') === -1) continue;
+      home = href.replace(/\/assets\/style\.css(\?.*)?$/, '/index.html');
+      break;
+    }
+    document.querySelectorAll('a[href="./index.html"]').forEach(function (a) {
+      a.setAttribute('href', home);
+    });
+  })();
+</script>
 <script src="./assets/app.js"></script>
+<script src="../assets/app.js"></script>
 </body>
 </html>
