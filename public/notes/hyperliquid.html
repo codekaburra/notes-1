@@ -19,14 +19,26 @@
 
   <header class="top">
     <a class="brand" href="../index.html">
-      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
     </a>
-    <div class="langbar">
-      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
-      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
     </div>
   </header>
 
+  <main>
   <a class="back" href="../index.html">
     <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
   </a>
@@ -64,7 +76,7 @@
           <text class="svg-nlabel" x="630" y="94" text-anchor="middle">HyperCore</text>
           <text class="svg-ncode" x="630" y="116" text-anchor="middle">訂單簿 · 永續 · 餘額</text>
           <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#hl-zh-1)"></line>
-          <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① 讀 precompile　0x…0800（同步）</text>
+          <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① 讀 precompile　0x0806–0808（同步）</text>
           <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#hl-zh-1)"></line>
           <text class="svg-flowlabel" x="379" y="118" text-anchor="middle">回傳：價格／部位／餘額</text>
           <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#hl-zh-1a)"></line>
@@ -159,7 +171,7 @@
     </figure>
 
     <h2>Solidity：讀 precompile、寫 CoreWriter</h2>
-    <p><strong>讀取</strong>——<code>staticcall</code> 打讀取類 precompile（從 <code>0x…0800</code> 起，<strong>沒有 4-byte selector</strong>，參數直接 ABI encode）。價格是 raw <code>uint64</code>：永續除以 <code>10^(6 - szDecimals)</code>，現貨除以 <code>10^(8 - base szDecimals)</code>。無效資產或 vault 會讓該 call frame <strong>吃光傳入的 gas</strong>。費用約 <code>2000 + 65 * (input_len + output_len)</code>。</p>
+    <p><strong>讀取</strong>——<code>staticcall</code> 打讀取類 precompile（從 <code>0x…0800</code> 的 position 起；mark／oracle／spot 價格為 <code>0x0806</code>–<code>0x0808</code>，<strong>沒有 4-byte selector</strong>，參數直接 ABI encode）。回傳的價格是 raw <code>uint64</code>：永續除以 <code>10^(6 - szDecimals)</code>，現貨除以 <code>10^(8 - base szDecimals)</code>。無效資產或 vault 會讓該 call frame <strong>吃光傳入的 gas</strong>。費用約 <code>2000 + 65 * (input_len + output_len)</code>。</p>
 <pre><code><span class="c">// 示意；完整介面見 L1Read.sol / hyper-evm-lib</span>
 address constant MARK_PX   = 0x0000000000000000000000000000000000000806;
 address constant ORACLE_PX = 0x0000000000000000000000000000000000000807; <span class="c">// 不是 markPx</span>
@@ -396,7 +408,7 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
           <text class="svg-nlabel" x="630" y="94" text-anchor="middle">HyperCore</text>
           <text class="svg-ncode" x="630" y="116" text-anchor="middle">book · perps · balances</text>
           <line class="svg-flow" x1="230" y1="82" x2="528" y2="82" marker-end="url(#hl-en-1)"></line>
-          <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① read precompile  0x…0800 (sync)</text>
+          <text class="svg-flowlabel" x="379" y="74" text-anchor="middle">① read precompile  0x0806–0808 (sync)</text>
           <line class="svg-flow" x1="528" y1="104" x2="232" y2="104" marker-end="url(#hl-en-1)"></line>
           <text class="svg-flowlabel" x="379" y="118" text-anchor="middle">returns: price / position / balance</text>
           <line class="svg-flow-a" x1="230" y1="136" x2="528" y2="136" marker-end="url(#hl-en-1a)"></line>
@@ -491,7 +503,7 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
     </figure>
 
     <h2>Solidity: read precompiles, write CoreWriter</h2>
-    <p><strong>Reading</strong> — <code>staticcall</code> a read precompile (from <code>0x…0800</code>, <strong>no 4-byte selector</strong>; ABI-encode the args directly). Prices are raw <code>uint64</code>: divide perps by <code>10^(6 - szDecimals)</code> and spot by <code>10^(8 - base szDecimals)</code>. An invalid asset or vault <strong>consumes all gas</strong> passed into that call frame. Cost is about <code>2000 + 65 * (input_len + output_len)</code>.</p>
+    <p><strong>Reading</strong> — <code>staticcall</code> a read precompile (from <code>0x…0800</code> for position; mark/oracle/spot prices are <code>0x0806</code>–<code>0x0808</code>; <strong>no 4-byte selector</strong>; ABI-encode the args directly). Returned prices are raw <code>uint64</code>: divide perps by <code>10^(6 - szDecimals)</code> and spot by <code>10^(8 - base szDecimals)</code>. An invalid asset or vault <strong>consumes all gas</strong> passed into that call frame. Cost is about <code>2000 + 65 * (input_len + output_len)</code>.</p>
 <pre><code><span class="c">// schematic; full interface in L1Read.sol / hyper-evm-lib</span>
 address constant MARK_PX   = 0x0000000000000000000000000000000000000806;
 address constant ORACLE_PX = 0x0000000000000000000000000000000000000807; <span class="c">// not markPx</span>
@@ -695,9 +707,15 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
     <p class="meta">Content last verified: 2026-09-12</p>
   </div>
 
+  </main>
+
   <footer>
-    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
-    <span data-l="en">Written in plain HTML. No framework.</span>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
   </footer>
 
 </div>

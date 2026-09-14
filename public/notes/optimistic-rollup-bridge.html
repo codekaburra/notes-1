@@ -19,14 +19,26 @@
 
   <header class="top">
     <a class="brand" href="../index.html">
-      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
     </a>
-    <div class="langbar">
-      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
-      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
     </div>
   </header>
 
+  <main>
   <a class="back" href="../index.html">
     <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
   </a>
@@ -975,9 +987,15 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     <p class="meta">Content last verified: 2026-09-12</p>
   </div>
 
+  </main>
+
   <footer>
-    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
-    <span data-l="en">Written in plain HTML. No framework.</span>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
   </footer>
 
 </div>

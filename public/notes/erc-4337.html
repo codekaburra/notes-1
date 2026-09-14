@@ -19,14 +19,26 @@
 
   <header class="top">
     <a class="brand" href="../index.html">
-      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
     </a>
-    <div class="langbar">
-      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
-      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
     </div>
   </header>
 
+  <main>
   <a class="back" href="../index.html">
     <span data-l="zh">← 回列表</span><span data-l="en">← All notes</span>
   </a>
@@ -216,7 +228,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <li><strong>Self-funded：</strong>Account 先在 EntryPoint 有 deposit，或在 <code>validateUserOp</code> 補上 <code>missingAccountFunds</code>；EntryPoint 從該 deposit 扣款。</li>
       <li><strong>Sponsored：</strong>EntryPoint 從 Paymaster deposit 扣款；即使 target execution revert，已消耗的 validation／execution／postOp gas 仍由 sponsor 支付。</li>
       <li><strong>Refund：</strong>prefund 只是上限預留，未使用部分回到原 payer 的 EntryPoint deposit，不是退到 Bundler。</li>
-      <li><strong>Unused-gas penalty：</strong>v0.9 對大量未使用的 <code>callGasLimit</code>／paymaster postOp gas 收 10% penalty；未使用量不超過 40,000 gas 時不收，避免 UserOp 虛佔 bundle 容量。</li>
+      <li><strong>Unused-gas penalty：</strong>v0.7 起對大量未使用的 <code>callGasLimit</code>／paymaster postOp gas 收 10% penalty；v0.8 起未使用量不超過 40,000 gas 時不收，避免 UserOp 虛佔 bundle 容量。</li>
       <li><strong>7702：</strong>authorization 出現時，Bundler 要把無法在 EntryPoint 內直接觀察的 <code>PER_EMPTY_ACCOUNT_COST = 25,000</code> gas 納入 <code>preVerificationGas</code>。</li>
     </ul>
 
@@ -256,7 +268,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <figcaption>Bundler transaction receipt 的 <code>gasUsed</code> 是整個 bundle；單一 UserOperation 應查看 <code>UserOperationEvent</code>／Bundler receipt 的 <code>actualGasUsed</code> 與 <code>actualGasCost</code>，不能把整筆 transaction gas 全算給一個使用者。</figcaption>
     </figure>
 
-    <p><strong>估算順序：</strong>先建立接近最終形狀的 UserOp，取得 Paymaster stub data，再呼叫 <code>eth_estimateUserOperationGas</code>，填入最終 paymaster data／signature 後若長度或邏輯改變就重新估算。不要把 gas limits 設成無限大：除了 prefund 過高，v0.9 unused-gas penalty 也會讓過度 padding 真正花錢。L2 還要確認 Bundler 如何把 calldata／data-availability fee 納入 <code>preVerificationGas</code>。</p>
+    <p><strong>估算順序：</strong>先建立接近最終形狀的 UserOp，取得 Paymaster stub data，再呼叫 <code>eth_estimateUserOperationGas</code>，填入最終 paymaster data／signature 後若長度或邏輯改變就重新估算。不要把 gas limits 設成無限大：除了 prefund 過高，v0.7 起的 unused-gas penalty 也會讓過度 padding 真正花錢。L2 還要確認 Bundler 如何把 calldata／data-availability fee 納入 <code>preVerificationGas</code>。</p>
 
     <h2>四條必須分清楚的 call path</h2>
     <ol>
@@ -650,8 +662,8 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <thead><tr><th>版本</th><th>EntryPoint</th><th>重點</th></tr></thead>
       <tbody>
         <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td><td>舊版 unpacked UserOperation 生態</td></tr>
-        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation、拆分 paymaster gas limits</td></tr>
-        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash、原生 7702、額外 gas penalty</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation、拆分 paymaster gas limits、10% unused-gas penalty</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash、原生 7702、unused-gas 40,000 下限</td></tr>
         <tr><td><code>v0.9</code></td><td>0x433709009B8330FDa32311DF1C2AFA402eD8D009</td><td>ABI 相容 v0.7/v0.8；paymasterSignature、block validity、IgnoredInitCode</td></tr>
       </tbody>
     </table></div>
@@ -878,7 +890,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <li><strong>Self-funded:</strong> the Account already has an EntryPoint deposit or sends <code>missingAccountFunds</code> during <code>validateUserOp</code>; EntryPoint debits that deposit.</li>
       <li><strong>Sponsored:</strong> EntryPoint debits the Paymaster deposit. If target execution reverts, the sponsor still pays gas consumed by validation, execution, and <code>postOp</code>.</li>
       <li><strong>Refund:</strong> prefund is a maximum reservation. The surplus returns to the original payer's EntryPoint deposit, not to the Bundler.</li>
-      <li><strong>Unused-gas penalty:</strong> v0.9 charges 10% on substantially unused <code>callGasLimit</code>/paymaster postOp gas; no penalty applies when no more than 40,000 gas is unused. This prevents a UserOp from reserving bundle capacity without using it.</li>
+      <li><strong>Unused-gas penalty:</strong> since v0.7, 10% is charged on substantially unused <code>callGasLimit</code>/paymaster postOp gas. Since v0.8, no penalty applies when no more than 40,000 gas is unused. This prevents a UserOp from reserving bundle capacity without using it.</li>
       <li><strong>7702:</strong> when authorization is present, the Bundler includes the unobservable <code>PER_EMPTY_ACCOUNT_COST = 25,000</code> gas in <code>preVerificationGas</code>.</li>
     </ul>
 
@@ -918,7 +930,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <figcaption>The transaction receipt's <code>gasUsed</code> covers the entire bundle. For one UserOperation, use <code>UserOperationEvent</code> or the Bundler receipt's <code>actualGasUsed</code> and <code>actualGasCost</code>; do not assign the whole transaction's gas to one user.</figcaption>
     </figure>
 
-    <p><strong>Estimation sequence:</strong> build a near-final UserOp, fetch Paymaster stub data, call <code>eth_estimateUserOperationGas</code>, then re-estimate if final paymaster data/signature changes size or behavior. Do not set unlimited gas budgets: besides excessive prefund, v0.9 unused-gas penalties make extreme padding cost real money. On L2, verify how the Bundler includes calldata/data-availability fees in <code>preVerificationGas</code>.</p>
+    <p><strong>Estimation sequence:</strong> build a near-final UserOp, fetch Paymaster stub data, call <code>eth_estimateUserOperationGas</code>, then re-estimate if final paymaster data/signature changes size or behavior. Do not set unlimited gas budgets: besides excessive prefund, unused-gas penalties (v0.7+) make extreme padding cost real money. On L2, verify how the Bundler includes calldata/data-availability fees in <code>preVerificationGas</code>.</p>
 
     <h2>Four call paths to distinguish</h2>
     <ol>
@@ -1312,8 +1324,8 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <thead><tr><th>Version</th><th>EntryPoint</th><th>Highlights</th></tr></thead>
       <tbody>
         <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td><td>Legacy unpacked UserOperation ecosystem</td></tr>
-        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation and split paymaster gas limits</td></tr>
-        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash, native 7702, additional gas penalty</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation, split paymaster gas limits, 10% unused-gas penalty</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash, native 7702, 40,000 unused-gas floor</td></tr>
         <tr><td><code>v0.9</code></td><td>0x433709009B8330FDa32311DF1C2AFA402eD8D009</td><td>v0.7/v0.8 ABI-compatible; paymasterSignature, block validity, IgnoredInitCode</td></tr>
       </tbody>
     </table></div>
@@ -1356,9 +1368,15 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <p class="meta">Content last verified: 2026-09-11</p>
   </div>
 
+  </main>
+
   <footer>
-    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
-    <span data-l="en">Written in plain HTML. No framework.</span>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
   </footer>
 
 </div>

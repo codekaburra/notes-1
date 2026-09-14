@@ -26,7 +26,8 @@ body::before{
 }
 .wrap{max-width:76rem; margin:0 auto; padding:0 2.5rem 3rem}
 body:not(.home) .wrap{max-width:64rem}
-body:not(.home) .wrap > [data-l]{max-width:49rem}
+body:not(.home) .wrap > [data-l],
+body:not(.home) main > [data-l]{max-width:49rem}
 :focus-visible{outline:2px solid var(--accent); outline-offset:4px}
 ::selection{background:var(--accent-soft); color:var(--ink)}
 
