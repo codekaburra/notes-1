@@ -51,6 +51,33 @@
     <p>Hyperliquid 不是「EVM 鏈外掛一座交易所」，而是一條<strong>為永續合約而生的 L1</strong>：HyperCore 跑訂單簿與清算，HyperEVM 跑 Solidity，兩邊由 precompile 與 CoreWriter 縫在一起。本則給要寫合約或 bot 的人：資產實際在哪、account mode 不是 ERC-4337、讀寫時序、gas、agent 權限、跨層 vs 跨鏈，以及儲備證明能證明什麼。</p>
     <blockquote><p>先記住三件事：相同地址在 Core 與 EVM <em>不是</em>同一份 state；REST／WebSocket 只是提交介面，撮合仍在 HyperCore；CoreWriter 送出 ≠ 已成交。</p></blockquote>
 
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>它不是一般 DEX，而是<strong>為永續合約而生的 L1</strong>：整個訂單簿在鏈上，HyperCore 負責撮合、HyperEVM 跑一般合約，兩層共享狀態。</li>
+        <li>開發上最容易踩的雷：讀 precompile 是<strong>同步</strong>的，但透過 CoreWriter 寫回去是<strong>非同步</strong>的——送出不等於成交。</li>
+        <li>使用者面對的是永續合約的風險：清算、資金費率、HLP 回撤、ADL，風險遠高於現貨。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 設計理念與「資產實際在哪」；Solidity 工程師 → precompile／CoreWriter 與同一區塊內的時序；PM → 市場背景與使用者投資風險。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>Hyperliquid 在鏈上永續市場的地位已接近主導，但要放在正確的尺度上看：它主導的是「鏈上永續」這個子市場，而整個永續交易仍由中心化交易所把持。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>鏈上永續交易量份額</td><td>約 36–44%</td></tr>
+        <tr><td>30 天永續交易量</td><td>約 $245B</td></tr>
+        <tr><td>　同期類別總量</td><td>約 $672B</td></tr>
+        <tr><td>未平倉合約（OI）</td><td>約 $9.5B</td></tr>
+        <tr><td>次名 Aster 的 30 天量</td><td>約 $61B</td></tr>
+        <tr><td>年化協議收入</td><td>接近 $1B</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+
+    <p>未平倉約 95 億美元，超過其他主要永續 DEX 的總和；它也是首個擠進全球永續交易所前十的 DEX。但反過來看，<strong>永續 DEX 整體仍只佔永續市場約一成</strong>——對 PM 而言這既是成長空間，也代表流動性深度與 CEX 仍有落差，大額交易的滑點要實測。</p>
+
     <h2>設計理念：CLOB + 雙層，同一條 L1</h2>
     <p>多數鏈上永續 DEX 用預言機定價（GMX）或把訂單簿放鏈下（早期 dYdX）。Hyperliquid 把<strong>整個中央限價訂單簿（CLOB）放上 HyperCore</strong>，以 HyperBFT 撐低延遲。HyperEVM 是同一條 L1 上的 EVM 執行環境，不是另一條 rollup。</p>
     <div class="scroll"><table>
@@ -232,6 +259,27 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
       <figcaption>合約裡「先轉 HYPE 進 Core、同一筆再下單」做不到。先在前一個 block 啟動帳戶，再 CoreWriter。</figcaption>
     </figure>
 
+    <p>這個非同步特性最常見的錯誤寫法如下——把「送出動作」誤當成「動作已生效」：</p>
+<pre><code><span class="c">// ✗ 錯誤：同一筆交易內下單後立刻讀部位</span>
+function openAndCheck() external {
+    CW.sendRawAction(placeOrderAction);        <span class="c">// 只是把動作排進 HyperCore 佇列</span>
+    uint64 sz = _readPosition(address(this));  <span class="c">// 讀到的仍是「下單前」的部位</span>
+    require(sz &gt; 0, "filled?");                <span class="c">// 必定失敗——動作根本還沒執行</span>
+}
+
+<span class="c">// ✓ 正確：把「送出」與「確認」拆成兩筆交易</span>
+function submit() external {
+    CW.sendRawAction(placeOrderAction);
+    pendingSince[msg.sender] = block.number;   <span class="c">// 記下送出的區塊</span>
+}
+
+function confirm() external {
+    require(block.number &gt; pendingSince[msg.sender], "wait for a later block");
+    uint64 sz = _readPosition(address(this));  <span class="c">// 下一個區塊起才可能看到結果</span>
+    <span class="c">// ……依實際讀到的部位決定後續，且要處理「根本沒成交」的分支</span>
+}</code></pre>
+    <p>重點不只是「要等」，而是<strong>你必須為「送出了但沒成交」設計一條分支</strong>。CoreWriter 不會回傳成交結果，合約端只能事後從 precompile 讀狀態自行比對。</p>
+
     <h2>Gas：小塊、大塊與 CoreWriter</h2>
     <p>HyperEVM 把吞吐量拆成兩種 block、兩份 mempool，block number 仍單調遞增：</p>
     <div class="scroll"><table>
@@ -273,6 +321,23 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
       </div>
       <figcaption>動作以 msgpack 序列化，接上 nonce 與 vault 位址後 <code>keccak256</code> 得到 <code>connectionId</code>；再把 <code>{ source, connectionId }</code> 當臨時 agent，用 EIP-712（L1 action 的 chainId 1337）簽名。實作請用官方 SDK，別手刻。</figcaption>
     </figure>
+
+    <p>實際的請求形狀很簡單——兩個端點，一個讀、一個寫：</p>
+<pre><code><span class="c">// info：純讀取，不需簽名</span>
+const state = await fetch("https://api.hyperliquid.xyz/info", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ type: "clearinghouseState", user: address }),
+}).then(r =&gt; r.json());
+
+<span class="c">// exchange：寫入，需要簽名（phantom agent，L1 action 用 chainId 1337）</span>
+<span class="c">// signature 請用官方 SDK 產生——不要自己拼 msgpack + keccak，錯一個位元組就被拒</span>
+await fetch("https://api.hyperliquid.xyz/exchange", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ action, nonce, signature, vaultAddress: null }),
+});</code></pre>
+    <p>注意 <code>nonce</code> 是毫秒時間戳而非遞增計數，且 agent 金鑰有自己獨立的 nonce 空間。高頻下單時 nonce 管理是最容易出錯的地方，這也是建議走官方 SDK 的原因。</p>
 
     <h2>權限：主錢包、agent、子帳戶</h2>
     <p>API wallet（文件裡的 agent）<strong>只能簽名</strong>：能下單、改槓桿、把你送進清算，<strong>不能提款</strong>，本身也不持有資金。查餘額要傳主帳戶或子帳戶地址；傳 agent 地址會得到空結果。</p>
@@ -382,6 +447,33 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
 
     <p>Hyperliquid is not "an EVM chain with an exchange bolted on." It is an <strong>L1 purpose-built for perpetuals</strong>: HyperCore runs the book and liquidations, HyperEVM runs Solidity, and precompiles plus CoreWriter stitch the two together. This note is for people writing contracts or bots: where assets actually live, why "account abstraction" here is not ERC-4337, read/write timing, gas, agent authority, cross-layer vs cross-chain, and what a proof of reserve can actually prove.</p>
     <blockquote><p>Three facts first: the same address on Core and EVM is <em>not</em> the same state; REST / WebSocket is a submission interface, matching stays on HyperCore; a CoreWriter send is not a fill.</p></blockquote>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>Not an ordinary DEX but an <strong>L1 purpose-built for perpetuals</strong>: the whole order book is on-chain, HyperCore matches, HyperEVM runs general contracts, and the two share state.</li>
+        <li>The easiest trap in development: reading a precompile is <strong>synchronous</strong>, but writing back through CoreWriter is <strong>asynchronous</strong> — sent is not filled.</li>
+        <li>Users face perpetual-futures risk: liquidation, funding, HLP drawdown, ADL — far riskier than spot.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners / backend engineers → the design idea and where assets actually live; Solidity engineers → precompiles, CoreWriter and intra-block ordering; PMs → market background and user investment risk.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>Hyperliquid is close to dominant in on-chain perps, but keep the scale straight: it dominates the on-chain perp sub-market, while perpetual trading overall is still held by centralised exchanges.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>Share of on-chain perp volume</td><td>~36–44%</td></tr>
+        <tr><td>30-day perp volume</td><td>~$245B</td></tr>
+        <tr><td>　category total, same period</td><td>~$672B</td></tr>
+        <tr><td>Open interest</td><td>~$9.5B</td></tr>
+        <tr><td>Runner-up Aster, 30-day</td><td>~$61B</td></tr>
+        <tr><td>Annualised protocol revenue</td><td>~$1B</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+
+    <p>Open interest near $9.5B exceeds all other major perp DEXs combined, and it is the first DEX to reach the global top ten of perpetual exchanges. Seen the other way, <strong>perp DEXs as a whole are still only about a tenth of the perp market</strong> — for a PM that is both headroom and a warning that depth still trails CEXs; measure slippage on large size yourself.</p>
 
     <h2>Design idea: CLOB + two layers, one L1</h2>
     <p>Most on-chain perp DEXs price via an oracle (GMX) or keep the book off-chain (early dYdX). Hyperliquid puts the <strong>whole central limit order book (CLOB) on HyperCore</strong>, with HyperBFT for low latency. HyperEVM is an EVM environment on that same L1, not a separate rollup.</p>
@@ -564,6 +656,27 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
       <figcaption>You cannot "move HYPE onto Core and place an order" in one EVM transaction. Activate the account in an earlier block, then CoreWriter.</figcaption>
     </figure>
 
+    <p>The most common mistake with this asynchrony is treating "action sent" as "action applied":</p>
+<pre><code><span class="c">// x Wrong: place an order then read the position in the same transaction</span>
+function openAndCheck() external {
+    CW.sendRawAction(placeOrderAction);        <span class="c">// only queues the action on HyperCore</span>
+    uint64 sz = _readPosition(address(this));  <span class="c">// still reads the pre-order position</span>
+    require(sz &gt; 0, "filled?");                <span class="c">// always fails — nothing has run yet</span>
+}
+
+<span class="c">// OK Correct: split "submit" and "confirm" into two transactions</span>
+function submit() external {
+    CW.sendRawAction(placeOrderAction);
+    pendingSince[msg.sender] = block.number;   <span class="c">// remember the submitting block</span>
+}
+
+function confirm() external {
+    require(block.number &gt; pendingSince[msg.sender], "wait for a later block");
+    uint64 sz = _readPosition(address(this));  <span class="c">// results are visible only from a later block</span>
+    <span class="c">// ...act on what you actually read, and handle the "never filled" branch</span>
+}</code></pre>
+    <p>The point is not merely "you must wait" but that <strong>you must design a branch for "submitted but never filled"</strong>. CoreWriter returns no fill result; the contract can only read state back from a precompile afterwards and reconcile it itself.</p>
+
     <h2>Gas: small blocks, big blocks, and CoreWriter</h2>
     <p>HyperEVM splits throughput into two block types and two mempools. EVM block numbers still increase monotonically:</p>
     <div class="scroll"><table>
@@ -605,6 +718,23 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
       </div>
       <figcaption>The action is msgpack-serialised, appended with nonce and vault address, then <code>keccak256</code>-hashed into a <code>connectionId</code>; <code>{ source, connectionId }</code> is signed as a temporary agent via EIP-712 (L1 actions use chainId 1337). Use the official SDK; do not hand-roll it.</figcaption>
     </figure>
+
+    <p>The actual request shape is simple — two endpoints, one to read and one to write:</p>
+<pre><code><span class="c">// info: read-only, no signature needed</span>
+const state = await fetch("https://api.hyperliquid.xyz/info", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ type: "clearinghouseState", user: address }),
+}).then(r =&gt; r.json());
+
+<span class="c">// exchange: writes, and needs a signature (phantom agent, chainId 1337 for L1 actions)</span>
+<span class="c">// produce the signature with the official SDK — hand-rolling msgpack + keccak fails on one wrong byte</span>
+await fetch("https://api.hyperliquid.xyz/exchange", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ action, nonce, signature, vaultAddress: null }),
+});</code></pre>
+    <p>Note that <code>nonce</code> is a millisecond timestamp rather than an incrementing counter, and agent keys carry their own nonce space. Nonce handling is the easiest thing to get wrong at high order rates — another reason to use the official SDK.</p>
 
     <h2>Authority: master wallet, agent, sub-account</h2>
     <p>An API wallet (an "agent" in the docs) <strong>only signs</strong>: it can trade, change leverage, and walk you into liquidation. It <strong>cannot withdraw</strong> and holds no funds. Query balances with the master or sub-account address; the agent address returns empty.</p>

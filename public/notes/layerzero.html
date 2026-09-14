@@ -51,6 +51,33 @@
     <p><strong>LayerZero 不是 rollup，也不是 canonical 橋。</strong>它是一條可配置的跨鏈訊息層：來源鏈的合約把 bytes 交給 Endpoint，一組你選定的驗證者（DVN）在目的鏈證明「這則封包確實存在」，再由 Executor（或任何人）呼叫目的合約。資產怎麼鎖、燒、鑄，是 OApp／OFT 自己的事，不是協議替你保證的 L1 最終性。合約作者要寫對的是 peer 的 bytes32 packing、Endpoint 守衛、enforced options、compose 的重入，以及「Executor 不是權限來源」。</p>
     <blockquote><p>把 OP／ZK 的出入金想成「L2 狀態機的門」；把 LayerZero 想成「任意兩條鏈上兩份合約之間的掛號信」。信件的真實性取決於你選的郵差，不取決於 Ethereum 的挑戰期或 zk verifier。</p></blockquote>
 
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>LayerZero 是<strong>跨鏈訊息</strong>層，不是橋：它負責把一段訊息可信地送到另一條鏈，OFT 之類的資產轉移是建在它之上的應用。</li>
+        <li>它的核心設計是 <strong>X of Y DVN</strong>——安全性由你自己設定要幾個驗證者、是誰。<strong>設定權在你，責任也在你。</strong></li>
+        <li>選它通常是為了通用性與鏈覆蓋；代價是預設值不一定適合你，設錯等於把資產暴露在較弱的驗證假設下。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → V2 的元件與 OApp 概念；Solidity 工程師 → OApp／OFT 實作與 DVN 設定；PM → 市場背景、何時不該用與使用者風險。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>跨鏈訊息是個競爭激烈、且贏家通吃傾向明顯的市場。LayerZero 目前在轉帳量上領先，但幾個對手各自佔住不同的區隔。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>跨鏈橋鎖倉總額（全市場）</td><td>約 $19.5B</td></tr>
+        <tr><td>LayerZero 訊息量份額</td><td>居首（有統計稱約 75%）</td></tr>
+        <tr><td>LayerZero 累計轉帳額</td><td>約 $44B</td></tr>
+        <tr><td>Wormhole 累計轉帳額</td><td>約 $166.9B</td></tr>
+        <tr><td>Wormhole 日均處理</td><td>逾 $1B</td></tr>
+        <tr><td>Axelar 累計轉帳額</td><td>約 $13B</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+
+    <p>口徑差異很大（累計額 vs 日均 vs 訊息筆數），所以別用單一數字下結論。實務上的分工大致是：<strong>LayerZero</strong> 強在鏈覆蓋與可設定的安全性、零售轉帳量大；<strong>Wormhole</strong> 強在模組化跨鏈產品與累計規模；<strong>Axelar</strong> 走 PoS 驗證的通用訊息；<strong>CCIP</strong> 主打機構與合規路線（Coinbase 採用）。選型時該問的不是「誰最大」，而是「誰的信任假設你願意承擔」。</p>
+
     <h2>V2 的元件</h2>
     <div class="scroll"><table>
       <thead><tr><th>元件</th><th>職責</th><th>信任</th></tr></thead>
@@ -401,6 +428,21 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
       <li>用 <code>TestHelperOz5</code> 測雙鏈 round-trip、錯 peer、亂序 nonce、compose 重試。監控 <code>PacketSent</code>／<code>PacketDelivered</code>、verified-but-not-executed 堆積、DVN 延遲。</li>
     </ul>
 
+    <h2>使用者資金風險</h2>
+    <p>跨鏈訊息的風險特徵和 DEX 或 L2 都不同：它的安全性<strong>不是固定的，而是被設定出來的</strong>。同樣用 LayerZero，兩個應用的安全等級可以差很多。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>DVN 設定就是安全上限</strong></td><td>X of Y 由 OApp 開發者設定。若只設一個 DVN，你實際上就是信任那一方；使用預設值等於接受別人替你做的取捨。<strong>使用前應確認該應用的 DVN 組態。</strong></td></tr>
+        <tr><td><strong>OApp 設定錯誤</strong></td><td>peer 設錯、enforced options 未設或 gas 給不足，訊息可能在目標鏈執行失敗而卡住。</td></tr>
+        <tr><td><strong>訊息不可逆</strong></td><td>送出後無法撤回。目標鏈若執行失敗，資產可能停在中途狀態，需要人工重試或補 gas。</td></tr>
+        <tr><td><strong>你持有的是 OFT 代表物</strong></td><td>跨鏈後拿到的是在目標鏈鑄造的代表物，其價值依賴來源鏈的鎖倉與整套訊息機制成立。</td></tr>
+        <tr><td><strong>DVN／Executor 的活性風險</strong></td><td>驗證者或執行者停擺時訊息不會被送達，資產同樣卡住；這是活性風險而非安全性風險，但對使用者感受相同。</td></tr>
+        <tr><td><strong>跨鏈橋是高風險類別</strong></td><td>歷史上跨鏈相關的損失規模居各類之冠，金額與必要性都該保守評估。</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>一句話：LayerZero 把安全性的旋鈕交到開發者手上——<strong>對使用者而言，風險取決於你用的那個應用怎麼轉這顆旋鈕</strong>，而不是取決於 LayerZero 本身。</p></blockquote>
+
     <h2>官方來源</h2>
     <ul>
       <li><a href="https://docs.layerzero.network/v2">LayerZero V2 docs</a>／<a href="https://docs.layerzero.network/v2/developers/evm/oapp/overview">OApp</a>／<a href="https://docs.layerzero.network/v2/developers/evm/oft/quickstart">OFT</a></li>
@@ -417,6 +459,33 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
 
     <p><strong>LayerZero is not a rollup and not a canonical bridge.</strong> It is a configurable messaging layer: a contract on the source chain hands bytes to an Endpoint, a DVN set you chose attests on the destination that "this packet really exists," and an Executor (or anyone) calls the destination contract. How assets lock, burn, or mint is the OApp / OFT's job — not L1 finality the protocol guarantees for you. Contract authors need peer bytes32 packing, the Endpoint guard, enforced options, compose reentrancy, and the rule that "the Executor is not an authority."</p>
     <blockquote><p>Think of OP / ZK deposits and withdrawals as doors on an L2 state machine. Think of LayerZero as registered mail between two contracts on arbitrary chains. Authenticity of the letter depends on the couriers you picked, not Ethereum's challenge period or a zk verifier.</p></blockquote>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>LayerZero is a <strong>cross-chain messaging</strong> layer, not a bridge: it delivers a message to another chain, and asset transfers like OFT are applications built on top.</li>
+        <li>Its core design is <strong>X of Y DVNs</strong> — you configure how many verifiers and which ones. <strong>The choice is yours, and so is the responsibility.</strong></li>
+        <li>You pick it for generality and chain coverage; you pay by owning the configuration — get it wrong and assets sit behind a weaker verification assumption.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners / backend engineers → V2 pieces and the OApp concept; Solidity engineers → OApp/OFT implementation and DVN configuration; PMs → market background, when not to use it, and user risk.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>Cross-chain messaging is fiercely competitive with a strong winner-take-most pull. LayerZero currently leads on transfer volume, while several rivals hold distinct segments.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>Total value locked in bridges (market)</td><td>~$19.5B</td></tr>
+        <tr><td>LayerZero messaging share</td><td>Largest (one estimate ~75%)</td></tr>
+        <tr><td>LayerZero cumulative transferred</td><td>~$44B</td></tr>
+        <tr><td>Wormhole cumulative transferred</td><td>~$166.9B</td></tr>
+        <tr><td>Wormhole daily throughput</td><td>$1B+</td></tr>
+        <tr><td>Axelar cumulative transferred</td><td>~$13B</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+
+    <p>Methodologies differ wildly (cumulative vs daily vs message count), so do not conclude from any single number. The rough division of labour: <strong>LayerZero</strong> leads on chain coverage, configurable security and retail transfer volume; <strong>Wormhole</strong> on modular cross-chain products and cumulative scale; <strong>Axelar</strong> on PoS-verified general messaging; <strong>CCIP</strong> on the institutional and compliance route (Coinbase picked it). The question at selection time is not "who is biggest" but "whose trust assumption are you willing to carry".</p>
 
     <h2>V2 pieces</h2>
     <div class="scroll"><table>
@@ -767,6 +836,21 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
       <li>OFTs only talk to their peer OFT / adapter. Reject fee-on-transfer. For adapters, test missing approve, short receipt, and dust. Set rate limits / pause / mint cap; inbound limit failures must be retryable.</li>
       <li>Use <code>TestHelperOz5</code> for a two-chain round-trip, wrong peer, out-of-order nonce, compose retry. Watch <code>PacketSent</code> / <code>PacketDelivered</code>, verified-but-not-executed backlog, DVN latency.</li>
     </ul>
+
+    <h2>User funds risk</h2>
+    <p>Cross-chain messaging has a different risk profile from a DEX or an L2: its security is <strong>configured, not fixed</strong>. Two apps on the same LayerZero can sit at very different security levels.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>The DVN configuration is the security ceiling</strong></td><td>X of Y is set by the OApp developer. A single DVN means you trust that one party; defaults mean accepting someone else's trade-off. <strong>Check an app's DVN configuration before using it.</strong></td></tr>
+        <tr><td><strong>OApp misconfiguration</strong></td><td>A wrong peer, missing enforced options or insufficient gas can leave a message failing and stuck on the destination chain.</td></tr>
+        <tr><td><strong>Messages are irreversible</strong></td><td>Once sent, it cannot be recalled. If execution fails on the destination, assets can sit mid-flight pending a manual retry or top-up.</td></tr>
+        <tr><td><strong>You hold an OFT representation</strong></td><td>What you receive is minted on the destination chain; its value depends on the source-side lock and the whole messaging mechanism holding.</td></tr>
+        <tr><td><strong>DVN / Executor liveness</strong></td><td>If verifiers or executors stall, messages are not delivered and assets are stuck. That is a liveness rather than safety failure, but it feels the same to the user.</td></tr>
+        <tr><td><strong>Bridging is a high-risk category</strong></td><td>Cross-chain incidents have historically produced the largest losses of any category; be conservative on both size and necessity.</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>In short: LayerZero hands the security dial to developers — <strong>as a user, your risk depends on how the app you are using turned that dial</strong>, not on LayerZero itself.</p></blockquote>
 
     <h2>Official sources</h2>
     <ul>

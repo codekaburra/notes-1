@@ -50,6 +50,33 @@
 
     <p>本則從整合者的角度切入：不只講概念，而是「你要呼叫哪個合約的哪個函式、誰回呼誰、代幣在哪一步移動」。主線是三代協議如何演進：<strong>v2 用最小的 Pair 實作固定乘積，v3 用集中流動性提升資本效率，v4 再用 singleton、flash accounting 與 hooks 提升組合性。</strong></p>
 
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>不是「v4 取代 v3」——<strong>v2、v3、v4 三代同時在線上運作</strong>，實務整合通常要同時支援 v3 與 v4。</li>
+        <li>v3 的核心是<strong>集中流動性</strong>（換到資本效率，代價是主動管理）；v4 的核心是 <strong>singleton + hooks</strong>（換到 gas 與可程式化，代價是複雜度與對 hook 的信任）。</li>
+        <li>當 LP 不是無風險收租：無常損失、MEV，v4 還多一層「你信不信任這個池掛的 hook」。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 先看 v2 與 v3 的心智模型；Solidity 工程師 → 整合路徑、flash accounting 與 hooks；PM → 市場背景與使用者投資風險。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>Uniswap 長期是鏈上現貨交易的龍頭，但「龍頭」的實際含意對產品決策很重要：它的交易量份額在三成上下浮動，而且自己內部同時跑著三個世代的合約。整合成本因此不是「接一個 Uniswap」，而是「接 v3 與 v4 兩套相當不同的 API」。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>DEX 現貨交易量份額</td><td>約 27–36%</td></tr>
+        <tr><td>協議 TVL</td><td>約 $3.4B</td></tr>
+        <tr><td>　其中以太坊主網</td><td>約 $2.36B</td></tr>
+        <tr><td>　其中 Base</td><td>約 $485M</td></tr>
+        <tr><td>v4 已部署主網數</td><td>18 條</td></tr>
+        <tr><td>v4 佔 Uniswap 自身交易比重</td><td>約 30%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+
+    <p>值得注意的是最後一列：v4 上線後成長很快、TVL 已破 $1B，但仍只承接約三成的 Uniswap 交易量。<strong>v3 在可見的未來仍是主力</strong>——如果你要做路由或報價，略過 v3 會漏掉大部分流動性。</p>
+
     <h2>v2：最小可行的 AMM</h2>
     <p>v2 的核心刻意保持極小：<code>Factory</code> 為每一組 ERC-20 token 建立一個 <code>Pair</code>，Pair 同時保存兩邊儲備、執行 swap，並鑄造可互換的 ERC-20 LP token；使用者通常透過 <code>Router</code> 處理路徑、滑點與加減流動性。Pair 地址可由 Factory、token0、token1 與 init code hash 透過 CREATE2 確定性算出。</p>
     <div class="scroll"><table>
@@ -66,6 +93,33 @@ amountOut = amountInWithFee * reserveOut
           / (reserveIn * 1000 + amountInWithFee);</code></pre>
     <p>例如池中有 100 ETH 與 200,000 USDC，送入 10 ETH 並不會按現價直接得到 20,000 USDC；扣費並沿曲線移動後約得到 18,132 USDC。成交均價低於交易前現價的差距是 <strong>price impact</strong>；而 <strong>slippage tolerance</strong> 是使用者願意接受、用來設定 <code>amountOutMinimum</code> 的額外界線。</p>
     <p>Pair 的 <code>swap(..., data)</code> 還支援 flash swap：它先送出資產，若 <code>data</code> 非空便回呼 <code>uniswapV2Call</code>；callback 結束時只要還款並滿足含費用的 invariant，資產中途可被拿去套利、清算或換成另一種 token。v2 也在 Pair 中累積 <code>price0CumulativeLast</code>／<code>price1CumulativeLast</code>，讓整合者以兩個時間點的差值建立 TWAP，而不是把容易被單區塊操縱的即時 reserve ratio 當預言機。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="-60 0 780 320" role="img" aria-label="v2 的固定乘積曲線：橫軸為 token X 儲備、縱軸為 token Y 儲備，曲線為 x 乘 y 等於常數 k。交易使儲備沿曲線由交易前的點移動到交易後的點，投入 X、取出 Y。">
+          <defs><marker id="uA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <line class="svg-axis" x1="80" y1="250" x2="680" y2="250"></line>
+          <line class="svg-axis" x1="80" y1="40" x2="80" y2="255"></line>
+          <text class="svg-mono" x="678" y="272" text-anchor="end">token X 儲備 →</text>
+          <text class="svg-mono" x="88" y="34">↑ token Y 儲備</text>
+          <polyline points="80,50 115,100 150,133 185,157 220,175 290,200 360,217 430,229 500,238 570,244 640,250" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>
+          <text class="svg-mono-a" x="530" y="130">x · y = k</text>
+          <line class="svg-price" x1="220" y1="175" x2="220" y2="250"></line>
+          <line class="svg-price" x1="80" y1="175" x2="220" y2="175"></line>
+          <circle cx="220" cy="175" r="5" fill="var(--ink)"></circle>
+          <text class="svg-flowlabel" x="228" y="166">交易前</text>
+          <line class="svg-price" x1="360" y1="217" x2="360" y2="250"></line>
+          <line class="svg-price" x1="80" y1="217" x2="360" y2="217"></line>
+          <circle cx="360" cy="217" r="5" fill="var(--accent)"></circle>
+          <text class="svg-step" x="368" y="210">交易後</text>
+          <line class="svg-flow" x1="222" y1="286" x2="358" y2="286" marker-end="url(#uA)"></line>
+          <text class="svg-flowlabel" x="290" y="304" text-anchor="middle">① 投入 Δx</text>
+          <line class="svg-flow" x1="52" y1="177" x2="52" y2="215" marker-end="url(#uA)"></line>
+          <text class="svg-flowlabel" x="46" y="200" text-anchor="end">② 取出 Δy</text>
+        </svg>
+      </div>
+      <figcaption>v2 的全部規則就是這條曲線：<strong>交易後 x·y 必須仍等於 k</strong>。你投入 Δx、池子沿曲線滑動、吐出 Δy。曲線越往右越平，代表<strong>買越多、單價越差</strong>——這就是滑點的幾何來源。價格即該點的切線斜率。</figcaption>
+    </figure>
 
     <h2>v3：集中流動性的心智模型</h2>
     <p><strong>v2</strong> 的流動性在整個 <code>0 → ∞</code> 價格域持續 active（但市場深度並非沿價格軸平均分布）；<strong>v3</strong> 讓 LP 選定區間 <code>[Pa, Pb]</code> 集中投入，區間內深度極高，價格離開區間則轉為單一資產且停止收費。價格在合約內以 <code>sqrtPriceX96</code> 儲存（Q64.96 定點數，即 √price × 2⁹⁶），tick 以 <code>1.0001^tick</code> 離散化；實際 price 方向還取決於 token0/token1 排序與 decimals。</p>
@@ -150,6 +204,34 @@ function uniswapV3SwapCallback(
       <figcaption>關鍵在 ③：核心池<strong>反過來呼叫 caller</strong>（controller inversion），在 callback 內收取 tokenIn。直接整合時必須由 canonical Factory／PoolKey 驗證 callback；走 Router 時則由 Router 實作並透過 allowance 或 Permit2 向付款者取 token。</figcaption>
     </figure>
     <p>流動性部位則透過 <code>NonfungiblePositionManager</code> 管理（<code>mint</code> / <code>increaseLiquidity</code> / <code>decreaseLiquidity</code> / <code>collect</code>）。因為每個部位的區間不同，故以 NFT 表示，而非 v2 的可互換 LP 代幣。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 720 260" role="img" aria-label="同一個 ETH 對 USDC 交易對在 v3 中分裂為四個獨立的池，分別對應 0.01%、0.05%、0.30%、1.00% 四種費率層，各有不同的 tick spacing。">
+          <defs><marker id="uB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="270" y="24" width="180" height="50" rx="10"></rect>
+          <text class="svg-nlabel" x="360" y="54" text-anchor="middle">ETH / USDC 交易對</text>
+          <rect class="svg-node" x="20" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="178" text-anchor="middle">0.01%</text>
+          <text class="svg-ncode" x="95" y="198" text-anchor="middle">tickSpacing 1</text>
+          <line class="svg-flow" x1="360" y1="74" x2="95" y2="146" marker-end="url(#uB)"></line>
+          <rect class="svg-node" x="195" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="270" y="178" text-anchor="middle">0.05%</text>
+          <text class="svg-ncode" x="270" y="198" text-anchor="middle">tickSpacing 10</text>
+          <line class="svg-flow" x1="360" y1="74" x2="270" y2="146" marker-end="url(#uB)"></line>
+          <rect class="svg-node" x="370" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="445" y="178" text-anchor="middle">0.30%</text>
+          <text class="svg-ncode" x="445" y="198" text-anchor="middle">tickSpacing 60</text>
+          <line class="svg-flow" x1="360" y1="74" x2="445" y2="146" marker-end="url(#uB)"></line>
+          <rect class="svg-node" x="545" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="620" y="178" text-anchor="middle">1.00%</text>
+          <text class="svg-ncode" x="620" y="198" text-anchor="middle">tickSpacing 200</text>
+          <line class="svg-flow" x1="360" y1="74" x2="620" y2="146" marker-end="url(#uB)"></line>
+          <text class="svg-mono" x="360" y="240" text-anchor="middle">同一交易對 = 四個獨立的池，各自有各自的流動性</text>
+        </svg>
+      </div>
+      <figcaption>v3 的費率層是<strong>獨立的池</strong>，不是同一個池的參數。同一交易對可同時存在四個池，流動性彼此分散。整合時的實際後果：<strong>報價與路由必須跨池比較</strong>，只查其中一個池會拿到錯誤的最佳價。</figcaption>
+    </figure>
 
     <h2>v4：Singleton 與 flash accounting</h2>
     <p>v4 的<strong>原生池</strong>沿用 v3 集中流動性數學，但把所有池收進<strong>單一 <code>PoolManager</code> 合約</strong>；若 hook 使用 custom accounting，也可以繞過原生曲線並實作不同定價。每個池不再是一份合約，而由 <code>PoolKey(currency0, currency1, fee, tickSpacing, hooks)</code> 識別。</p>
@@ -328,6 +410,28 @@ IUniswapV3Pool canonicalPool = CallbackValidation.verifyCallback(factory, key);
     </table></div>
     <blockquote><p>一句話：v2／v3 當 LP 的主要敵人是<strong>無常損失</strong>與<strong>MEV</strong>；v4 多了一個——<strong>你信不信任這個池的 hook</strong>。</p></blockquote>
 
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 320" role="img" aria-label="無常損失示意圖：橫軸為價格相對進場的變化倍數，縱軸為部位價值。單純持有的曲線在價格偏離時高於提供流動性的曲線，兩者之間的陰影即為無常損失。">
+          <line class="svg-axis" x1="80" y1="250" x2="680" y2="250"></line>
+          <line class="svg-axis" x1="80" y1="40" x2="80" y2="255"></line>
+          <text class="svg-mono" x="678" y="272" text-anchor="end">價格相對進場的變化 →</text>
+          <text class="svg-mono" x="88" y="34">↑ 部位價值</text>
+          <polygon points="100,229 230,218 294,209 360,195 423,177 490,150 553,114 620,59 620,104 553,134 490,158 423,179 360,195 294,210 230,222 100,241" fill="var(--accent-soft)" stroke="none"></polygon>
+          <polyline points="100,229 230,218 294,209 360,195 423,177 490,150 553,114 620,59" fill="none" stroke="var(--ink)" stroke-width="2" opacity=".75"></polyline>
+          <polyline points="100,241 230,222 294,210 360,195 423,179 490,158 553,134 620,104" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>
+          <line class="svg-price" x1="360" y1="60" x2="360" y2="258"></line>
+          <text class="svg-mono" x="360" y="272" text-anchor="middle">1×</text>
+          <text class="svg-mono" x="100" y="272" text-anchor="middle">0.25×</text>
+          <text class="svg-mono" x="620" y="272" text-anchor="middle">4×</text>
+          <text class="svg-flowlabel" x="628" y="54">單純持有</text>
+          <text class="svg-step" x="628" y="112">提供流動性</text>
+          <text class="svg-mono-a" x="468" y="140" text-anchor="middle">← 這塊差距就是無常損失 →</text>
+        </svg>
+      </div>
+      <figcaption>概念示意（未計手續費收入）。價格<strong>往哪個方向偏離都會產生缺口</strong>，只有回到進場價時歸零。當 LP 划不划算，取決於<strong>賺到的手續費能否覆蓋這塊陰影</strong>。v3 的集中流動性會放大這個缺口——區間越窄，偏離時的損失越劇烈。</figcaption>
+    </figure>
+
     <h2>一句話區分</h2>
     <blockquote><p><strong>v2</strong> 用每對一個 Pair 與固定乘積建立最小 AMM；<strong>v3</strong> 用集中流動性提升資本效率，並以 pool callback 收款；<strong>v4</strong> 把原生集中流動性池收進單一 PoolManager，以 flash accounting 淨額結算，再用 hooks 開放自訂行為與定價。</p></blockquote>
 
@@ -350,6 +454,33 @@ IUniswapV3Pool canonicalPool = CallbackValidation.verifyCallback(factory, key);
 
     <p>This note takes the integrator's angle: not just concepts, but which contract and function you call, who calls back whom, and where tokens move at each step. The thread is how the protocol evolved: <strong>v2 implements constant product with minimal Pair contracts, v3 concentrates liquidity for capital efficiency, and v4 adds a singleton, flash accounting, and hooks for composability.</strong></p>
 
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>v4 does not replace v3 — <strong>v2, v3 and v4 all run in production simultaneously</strong>, and real integrations usually need both v3 and v4.</li>
+        <li>v3's core idea is <strong>concentrated liquidity</strong> (buys capital efficiency, costs active management); v4's is <strong>singleton + hooks</strong> (buys gas and programmability, costs complexity and trust in the hook).</li>
+        <li>Being an LP is not risk-free rent: impermanent loss, MEV, and in v4 one more question — do you trust this pool's hook.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners / backend engineers → the v2 and v3 mental models; Solidity engineers → integration paths, flash accounting and hooks; PMs → market background and user investment risk.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>Uniswap has long led on-chain spot trading, but what "leading" means matters for product decisions: its volume share hovers around a third, and it runs three contract generations at once. Integration cost is therefore not "connect to Uniswap" but "connect to v3 and v4, two rather different APIs".</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>Share of DEX spot volume</td><td>~27–36%</td></tr>
+        <tr><td>Protocol TVL</td><td>~$3.4B</td></tr>
+        <tr><td>　of which Ethereum mainnet</td><td>~$2.36B</td></tr>
+        <tr><td>　of which Base</td><td>~$485M</td></tr>
+        <tr><td>v4 mainnet deployments</td><td>18 chains</td></tr>
+        <tr><td>v4 share of Uniswap's own trades</td><td>~30%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+
+    <p>Note the last row: v4 grew fast after launch and passed $1B TVL, yet still carries only about a third of Uniswap's volume. <strong>v3 remains the workhorse for the foreseeable future</strong> — skip it in your routing or quoting and you miss most of the liquidity.</p>
+
     <h2>v2: the minimum viable AMM</h2>
     <p>v2 deliberately keeps its core small. The <code>Factory</code> creates one <code>Pair</code> for each ERC-20 token pair. A Pair stores both reserves, executes swaps, and mints fungible ERC-20 LP tokens; users normally go through a <code>Router</code> for paths, slippage checks, and liquidity operations. A Pair address can be computed deterministically from the Factory, token0, token1, and init code hash via CREATE2.</p>
     <div class="scroll"><table>
@@ -366,6 +497,33 @@ amountOut = amountInWithFee * reserveOut
           / (reserveIn * 1000 + amountInWithFee);</code></pre>
     <p>For example, sending 10 ETH into a pool with 100 ETH and 200,000 USDC does not return 20,000 USDC at the displayed spot price. After the fee and curve movement it returns about 18,132 USDC. The difference in execution caused by your own trade is <strong>price impact</strong>; <strong>slippage tolerance</strong> is the extra boundary you accept when setting <code>amountOutMinimum</code>.</p>
     <p>A Pair's <code>swap(..., data)</code> also enables flash swaps: it sends assets first and, when <code>data</code> is non-empty, calls <code>uniswapV2Call</code>. Before the callback returns, the caller must repay and satisfy the fee-adjusted invariant. v2 Pairs also accumulate <code>price0CumulativeLast</code> and <code>price1CumulativeLast</code>, allowing integrators to construct a TWAP from two observations instead of treating the manipulable current reserve ratio as an oracle.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="-60 0 780 320" role="img" aria-label="v2's constant-product curve: token X reserve on the horizontal axis, token Y reserve on the vertical, the curve being x times y equals constant k. A trade moves reserves along the curve from the before point to the after point, paying in X and taking out Y.">
+          <defs><marker id="uAe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <line class="svg-axis" x1="80" y1="250" x2="680" y2="250"></line>
+          <line class="svg-axis" x1="80" y1="40" x2="80" y2="255"></line>
+          <text class="svg-mono" x="678" y="272" text-anchor="end">token X reserve →</text>
+          <text class="svg-mono" x="88" y="34">↑ token Y reserve</text>
+          <polyline points="80,50 115,100 150,133 185,157 220,175 290,200 360,217 430,229 500,238 570,244 640,250" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>
+          <text class="svg-mono-a" x="530" y="130">x · y = k</text>
+          <line class="svg-price" x1="220" y1="175" x2="220" y2="250"></line>
+          <line class="svg-price" x1="80" y1="175" x2="220" y2="175"></line>
+          <circle cx="220" cy="175" r="5" fill="var(--ink)"></circle>
+          <text class="svg-flowlabel" x="228" y="166">before</text>
+          <line class="svg-price" x1="360" y1="217" x2="360" y2="250"></line>
+          <line class="svg-price" x1="80" y1="217" x2="360" y2="217"></line>
+          <circle cx="360" cy="217" r="5" fill="var(--accent)"></circle>
+          <text class="svg-step" x="368" y="210">after</text>
+          <line class="svg-flow" x1="222" y1="286" x2="358" y2="286" marker-end="url(#uAe)"></line>
+          <text class="svg-flowlabel" x="290" y="304" text-anchor="middle">① pay in Δx</text>
+          <line class="svg-flow" x1="52" y1="177" x2="52" y2="215" marker-end="url(#uAe)"></line>
+          <text class="svg-flowlabel" x="46" y="200" text-anchor="end">② take out Δy</text>
+        </svg>
+      </div>
+      <figcaption>All of v2 is this curve: <strong>after the trade, x·y must still equal k</strong>. You pay Δx in, the pool slides along the curve, and Δy comes out. The curve flattens to the right, which means <strong>the more you buy, the worse the unit price</strong> — that is the geometric origin of slippage. Price is the tangent's slope at that point.</figcaption>
+    </figure>
 
     <h2>v3: a mental model for concentrated liquidity</h2>
     <p><strong>v2</strong> liquidity remains active across the full <code>0 → ∞</code> price domain (but market depth is not uniformly distributed along the price axis); <strong>v3</strong> lets an LP concentrate capital in a range <code>[Pa, Pb]</code>. Price is stored as <code>sqrtPriceX96</code> (Q64.96 fixed point, i.e. √price × 2⁹⁶), while ticks discretise it as <code>1.0001^tick</code>. The actual price direction also depends on token0/token1 ordering and token decimals.</p>
@@ -450,6 +608,34 @@ function uniswapV3SwapCallback(
       <figcaption>The crux is ③: the core pool <strong>calls the caller back</strong> (control inversion) to collect tokenIn. Direct integrations must verify the callback through the canonical Factory and PoolKey. Via a Router, the Router implements it and obtains payment through allowance or Permit2.</figcaption>
     </figure>
     <p>Liquidity positions are managed through <code>NonfungiblePositionManager</code> (<code>mint</code> / <code>increaseLiquidity</code> / <code>decreaseLiquidity</code> / <code>collect</code>). Because each range differs, positions are NFTs, not v2's fungible LP tokens.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 720 260" role="img" aria-label="One ETH/USDC pair splits in v3 into four independent pools for the 0.01%, 0.05%, 0.30% and 1.00% fee tiers, each with its own tick spacing.">
+          <defs><marker id="uBe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="270" y="24" width="180" height="50" rx="10"></rect>
+          <text class="svg-nlabel" x="360" y="54" text-anchor="middle">ETH / USDC pair</text>
+          <rect class="svg-node" x="20" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="178" text-anchor="middle">0.01%</text>
+          <text class="svg-ncode" x="95" y="198" text-anchor="middle">tickSpacing 1</text>
+          <line class="svg-flow" x1="360" y1="74" x2="95" y2="146" marker-end="url(#uBe)"></line>
+          <rect class="svg-node" x="195" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="270" y="178" text-anchor="middle">0.05%</text>
+          <text class="svg-ncode" x="270" y="198" text-anchor="middle">tickSpacing 10</text>
+          <line class="svg-flow" x1="360" y1="74" x2="270" y2="146" marker-end="url(#uBe)"></line>
+          <rect class="svg-node" x="370" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="445" y="178" text-anchor="middle">0.30%</text>
+          <text class="svg-ncode" x="445" y="198" text-anchor="middle">tickSpacing 60</text>
+          <line class="svg-flow" x1="360" y1="74" x2="445" y2="146" marker-end="url(#uBe)"></line>
+          <rect class="svg-node" x="545" y="150" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="620" y="178" text-anchor="middle">1.00%</text>
+          <text class="svg-ncode" x="620" y="198" text-anchor="middle">tickSpacing 200</text>
+          <line class="svg-flow" x1="360" y1="74" x2="620" y2="146" marker-end="url(#uBe)"></line>
+          <text class="svg-mono" x="360" y="240" text-anchor="middle">one pair = four independent pools, each with its own liquidity</text>
+        </svg>
+      </div>
+      <figcaption>v3's fee tiers are <strong>separate pools</strong>, not parameters on one pool. Four can exist for the same pair at once, fragmenting liquidity. The practical consequence when integrating: <strong>quoting and routing must compare across pools</strong> — query only one and you get the wrong best price.</figcaption>
+    </figure>
 
     <h2>v4: singleton and flash accounting</h2>
     <p>v4's <strong>native pools</strong> retain v3 concentrated-liquidity maths but gather every pool into one <strong><code>PoolManager</code></strong>. A hook using custom accounting can instead bypass the native curve and implement different pricing. A pool is no longer a contract; it is identified by <code>PoolKey(currency0, currency1, fee, tickSpacing, hooks)</code>.</p>
@@ -627,6 +813,28 @@ IUniswapV3Pool canonicalPool = CallbackValidation.verifyCallback(factory, key);
       </tbody>
     </table></div>
     <blockquote><p>In short: an LP's main enemies in v2/v3 are <strong>impermanent loss</strong> and <strong>MEV</strong>; v4 adds one more — <strong>whether you trust the pool's hook</strong>.</p></blockquote>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 320" role="img" aria-label="Impermanent loss: price change relative to entry on the horizontal axis, position value on the vertical. The hold curve sits above the liquidity-providing curve whenever price diverges, and the shaded area between them is the impermanent loss.">
+          <line class="svg-axis" x1="80" y1="250" x2="680" y2="250"></line>
+          <line class="svg-axis" x1="80" y1="40" x2="80" y2="255"></line>
+          <text class="svg-mono" x="678" y="272" text-anchor="end">price change vs entry →</text>
+          <text class="svg-mono" x="88" y="34">↑ position value</text>
+          <polygon points="100,229 230,218 294,209 360,195 423,177 490,150 553,114 620,59 620,104 553,134 490,158 423,179 360,195 294,210 230,222 100,241" fill="var(--accent-soft)" stroke="none"></polygon>
+          <polyline points="100,229 230,218 294,209 360,195 423,177 490,150 553,114 620,59" fill="none" stroke="var(--ink)" stroke-width="2" opacity=".75"></polyline>
+          <polyline points="100,241 230,222 294,210 360,195 423,179 490,158 553,134 620,104" fill="none" stroke="var(--accent)" stroke-width="2"></polyline>
+          <line class="svg-price" x1="360" y1="60" x2="360" y2="258"></line>
+          <text class="svg-mono" x="360" y="272" text-anchor="middle">1×</text>
+          <text class="svg-mono" x="100" y="272" text-anchor="middle">0.25×</text>
+          <text class="svg-mono" x="620" y="272" text-anchor="middle">4×</text>
+          <text class="svg-flowlabel" x="628" y="54">simply holding</text>
+          <text class="svg-step" x="628" y="112">providing liquidity</text>
+          <text class="svg-mono-a" x="468" y="140" text-anchor="middle">← this gap is impermanent loss →</text>
+        </svg>
+      </div>
+      <figcaption>Conceptual, fees excluded. The gap opens <strong>whichever way the price moves</strong> and closes only back at the entry price. Whether being an LP pays comes down to <strong>whether the fees earned cover that shaded area</strong>. v3 concentration widens it — the narrower the range, the sharper the loss when price leaves it.</figcaption>
+    </figure>
 
     <h2>One-line distinction</h2>
     <blockquote><p><strong>v2</strong> builds a minimal AMM from one constant-product Pair per token pair; <strong>v3</strong> adds concentrated liquidity and collects payment through a pool callback; <strong>v4</strong> gathers native concentrated-liquidity pools into one PoolManager, settles net changes through flash accounting, and opens behavior and pricing to hooks.</p></blockquote>

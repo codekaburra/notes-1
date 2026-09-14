@@ -51,6 +51,33 @@
     <p><strong>ZK rollup 用有效性證明取代「先相信、再挑戰」。</strong>Sequencer 仍然排序交易、把資料發到 L1，但狀態轉換要附上一份 SNARK／STARK：L1 上的 verifier 合約驗過，這個批次在密碼學上就是合法的。出金因此不必等七天挑戰期——瓶頸改成「證明何時做出來、何時被 L1 收進」。對象同樣是合約作者：L1→L2 的 <code>msg.sender</code> 規則、refund 位址、L2→L1 訊息怎麼跟 finalize 配對、以及 zkEVM 跟 Ethereum 哪些 opcode 不一樣。</p>
     <blockquote><p>先對照上一則：optimistic 的安全是經濟與活性（至少一個誠實驗證者）；ZK 的安全是電路與證明系統。入金兩種 rollup 都很像（L1 鎖定 + 強制收件）；出金的等待理由完全不同。</p></blockquote>
 
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>ZK rollup 用<strong>有效性證明</strong>取代挑戰期：狀態轉換在上鏈前就已被數學證明正確，不需要等人來挑戰。</li>
+        <li>因此<strong>出金不必等七天</strong>——但要等證明產生並上鏈，實際延遲取決於證明頻率與 prover 吞吐。</li>
+        <li>代價是<strong>證明系統本身與升級金鑰成為新的信任面</strong>：prover 停擺會卡住出金，升級權限若被濫用影響更大。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 有效性證明在保證什麼、出入金流程；Solidity 工程師 → zkEVM 分型與證明系統差異；PM → 市場背景與使用者風險。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>ZK rollup 在技術上被廣泛認為是終局，但在資金與生態規模上目前仍明顯落後 optimistic 陣營——這個落差是選型時最該誠實面對的事實。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>ZK rollup 佔 L2 TVL</td><td>約 20%</td></tr>
+        <tr><td>Starknet TVL</td><td>約 $617M</td></tr>
+        <tr><td>Linea TVL</td><td>約 $421M</td></tr>
+        <tr><td>zkSync Era TVL</td><td>約 $404M</td></tr>
+        <tr><td>對照：Base TVL</td><td>約 $11.5B</td></tr>
+        <tr><td>Linea prover 吞吐（2026 Q1）</td><td>逾 70 TPS</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+
+    <p>把 zkSync Era 的約 $404M 跟 Base 的約 $115 億並排，差距是<strong>一個數量級以上</strong>。ZK 的優勢在最終性時間與證明經濟性，且 prover 吞吐正在快速改善（Linea 已破 70 TPS）。目前選 L2 已經<strong>不是「安全 vs 成本」的取捨，而是生態規模與最終性速度的取捨</strong>——要快速最終性與更強的密碼學保證就選 ZK，要流動性與成熟工具鏈就選 optimistic。</p>
+
     <h2>有效性證明在保證什麼</h2>
     <p>一份 validity proof 回答的問題是：給定舊狀態根、這批交易（或 state diff）、新狀態根，是否存在一條合法的執行軌跡把它們連起來。L1 不必重放每一筆 L2 交易，只驗證明——<strong>verifier gas 大致固定</strong>。整筆 L1 成本仍隨 DA 成長（blob／calldata／state diff 的 bytes），不要把「證明便宜」當成「批次上 L1 也便宜」。</p>
     <div class="scroll"><table>
@@ -378,6 +405,21 @@ l1Nullifier.finalizeWithdrawal(
       <li>電路／verifier 升級時，舊的 withdrawal proof 可能對不上新的 tree；升級視窗要凍結出金或提供遷移路徑。</li>
     </ul>
 
+    <h2>使用者資金風險</h2>
+    <p>ZK rollup 免除了挑戰期，但並非沒有信任假設。它把風險從「有沒有人來挑戰」換成「<strong>證明系統與掌握升級權的人可不可靠</strong>」。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>出金等待證明</strong></td><td>不必等七天，但要等一批證明產生並上鏈。實際延遲取決於證明頻率與 prover 吞吐，可能是數十分鐘到數小時。</td></tr>
+        <tr><td><strong>Prover 中心化與活性</strong></td><td>多數 zkEVM 的 prover 仍由單一方運作。prover 停擺就產不出新證明，<strong>出金會被卡住</strong>，而使用者沒有替代路徑。</td></tr>
+        <tr><td><strong>升級金鑰／安全委員會</strong></td><td>電路或合約有 bug 時通常靠緊急升級處理。這代表有一組權限能改變規則，權限本身即風險。</td></tr>
+        <tr><td><strong>證明系統的 bug</strong></td><td>電路若有瑕疵，可能產生「看似有效」的錯誤證明。與 optimistic 不同，這裡<strong>沒有挑戰期作為第二道防線</strong>。</td></tr>
+        <tr><td><strong>zkEVM 等價程度差異</strong></td><td>不同型別的 zkEVM 相容程度不同，某些 opcode 或 gas 行為可能與主網不一致，導致合約行為有出入。</td></tr>
+        <tr><td><strong>你持有的是橋接代表物</strong></td><td>與其他 L2 相同，L2 上的資產多為橋接鑄造的代表物，橋出事即可能脫鉤。</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>一句話：optimistic 要你相信「<strong>有人會來挑戰</strong>」；ZK 要你相信「<strong>電路寫對了、而且 prover 還活著</strong>」。兩者都不是無信任。</p></blockquote>
+
     <h2>官方來源</h2>
     <ul>
       <li><a href="https://vitalik.eth.limo/general/2022/08/04/zkevm.html">Vitalik：zkEVM 類型</a>／<a href="https://ethereum.org/developers/docs/scaling/zk-rollups/">Ethereum.org ZK rollups</a></li>
@@ -394,6 +436,33 @@ l1Nullifier.finalizeWithdrawal(
 
     <p><strong>A ZK rollup replaces "believe then challenge" with a validity proof.</strong> The sequencer still orders transactions and publishes data to L1, but every state transition carries a SNARK or STARK. Once the L1 verifier contract accepts it, that batch is cryptographically legal. Canonical withdrawals therefore skip a seven-day challenge window — the bottleneck becomes "when is the proof produced and included on L1." This is still a contract-author note: L1→L2 <code>msg.sender</code> rules, refund addresses, pairing L2→L1 bytes with finalize, and which opcodes are not Ethereum.</p>
     <blockquote><p>Contrast with the previous note: optimistic safety is economic and live (one honest verifier); ZK safety is circuits and the proof system. Deposits look alike (lock on L1 + forced inclusion); the reason you wait to withdraw is completely different.</p></blockquote>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>A ZK rollup replaces the challenge window with a <strong>validity proof</strong>: the state transition is mathematically proven correct before it lands, so nobody needs to challenge it.</li>
+        <li>So <strong>withdrawals need no seven-day wait</strong> — but they do wait for a proof to be produced and posted; real latency depends on proof cadence and prover throughput.</li>
+        <li>The cost is that <strong>the proof system and upgrade keys become new trust surfaces</strong>: a stalled prover blocks withdrawals, and abused upgrade rights are worse.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners / backend engineers → what a validity proof guarantees and the bridge flows; Solidity engineers → the zkEVM types and proof-system differences; PMs → market background and user risk.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>ZK rollups are widely seen as the technical endgame, yet they still trail the optimistic camp badly on capital and ecosystem scale — the gap deserves an honest look at selection time.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>ZK rollups' share of L2 TVL</td><td>~20%</td></tr>
+        <tr><td>Starknet TVL</td><td>~$617M</td></tr>
+        <tr><td>Linea TVL</td><td>~$421M</td></tr>
+        <tr><td>zkSync Era TVL</td><td>~$404M</td></tr>
+        <tr><td>For contrast: Base TVL</td><td>~$11.5B</td></tr>
+        <tr><td>Linea prover throughput (Q1 2026)</td><td>70+ TPS</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+
+    <p>Put zkSync Era's ~$404M next to Base's ~$11.5B and the gap is <strong>more than an order of magnitude</strong>. ZK's edge is finality time and proof economics, and prover throughput is improving fast (Linea past 70 TPS). Choosing an L2 today is <strong>no longer a security-versus-cost trade but an ecosystem-scale versus finality-speed one</strong> — take ZK for fast finality and stronger cryptographic guarantees, optimistic for liquidity and mature tooling.</p>
 
     <h2>What a validity proof actually guarantees</h2>
     <p>A validity proof answers: given the old state root, this batch of transactions (or a state diff), and a new state root, does there exist a legal execution trace connecting them? L1 does not replay every L2 transaction; it checks the proof — <strong>verifier gas is roughly constant</strong>. Total L1 cost still scales with DA (blob / calldata / state-diff bytes). Cheap proofs are not cheap batches.</p>
@@ -721,6 +790,21 @@ l1Nullifier.finalizeWithdrawal(
       <li>zkSync: new code goes through Bridgehub / L1Nullifier. Do not use <code>extcodesize == 0</code> as an EOA check; CREATE2 differs from L1 only on the EraVM path; test missing factoryDeps. Do not <code>delegatecall</code> between EVM Emulator and EraVM.</li>
       <li>After a circuit / verifier upgrade, old withdrawal proofs may not match the new tree; freeze exits during the window or ship a migration path.</li>
     </ul>
+
+    <h2>User funds risk</h2>
+    <p>A ZK rollup removes the challenge window but not every trust assumption. It swaps "will someone challenge" for "<strong>can you trust the proof system and whoever holds upgrade rights</strong>".</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Withdrawals wait for a proof</strong></td><td>No seven-day wait, but you wait for a proof batch to be produced and posted — anywhere from tens of minutes to hours depending on cadence and prover throughput.</td></tr>
+        <tr><td><strong>Prover centralisation and liveness</strong></td><td>Most zkEVM provers are run by a single party. A stalled prover produces no new proofs and <strong>withdrawals stall with it</strong>, with no user-side alternative.</td></tr>
+        <tr><td><strong>Upgrade keys / security council</strong></td><td>Circuit or contract bugs are handled by emergency upgrade. That means a set of keys can change the rules, and those keys are themselves the risk.</td></tr>
+        <tr><td><strong>Proof-system bugs</strong></td><td>A flawed circuit can produce a "valid-looking" but wrong proof. Unlike optimistic rollups, there is <strong>no challenge window as a second line of defence</strong>.</td></tr>
+        <tr><td><strong>zkEVM equivalence differs</strong></td><td>Equivalence varies by type; some opcodes or gas behaviour may differ from mainnet, so contracts can behave differently.</td></tr>
+        <tr><td><strong>You hold a bridged representation</strong></td><td>As on other L2s, assets are usually minted representations and can depeg if the bridge fails.</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>In short: optimistic asks you to believe <strong>someone will challenge</strong>; ZK asks you to believe <strong>the circuit is correct and the prover is alive</strong>. Neither is trustless.</p></blockquote>
 
     <h2>Official sources</h2>
     <ul>
