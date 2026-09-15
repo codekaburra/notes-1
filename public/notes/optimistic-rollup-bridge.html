@@ -19,14 +19,26 @@
 
   <header class="top">
     <a class="brand" href="../index.html">
-      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
     </a>
-    <div class="langbar">
-      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
-      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
     </div>
   </header>
 
+  <main>
   <a class="back" href="../index.html">
     <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
   </a>
@@ -37,6 +49,34 @@
     <p class="meta">2026-09-12 · OP Stack · Derivation · Fault Proof · Canonical Bridge · 開發者指南</p>
 
     <p><strong>Optimistic rollup 的跨鏈不是另一座任意橋，而是 L2 狀態如何從 L1 推導出來的一部分。</strong>入金會寫進 L1，再被 L2 的 derivation pipeline 收成一筆特殊交易；出金則是 L2 先承諾「這筆訊息存在」，等輸出根經過挑戰期、無人成功挑戰後，L1 才放行資產。本則以 OP Stack 為主線、對照 Arbitrum，對象是要在 L1／L2 <em>寫合約</em>的人：你真正要寫對的是 <code>msg.sender</code>、<code>xDomainMessageSender</code>、gas、失敗 replay，而不是「呼叫哪個 bridge UI」。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>Optimistic rollup 的安全來自「<strong>先樂觀接受，再給人挑戰</strong>」：狀態先上鏈，任何人可在挑戰期內用 fault proof 推翻它。</li>
+        <li>因此<strong>出金要等七天挑戰期</strong>。快速橋不是把它變快，而是有人先墊錢給你、自己去承擔那七天。</li>
+        <li>便宜的原因是<strong>把 L1 成本分攤給整批交易</strong>，不是資料消失——資料仍須發布到 L1 才能重建狀態。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 安全模型與入金／出金流程；Solidity 工程師 → derivation、fault proof、跨域訊息守衛；PM → 市場背景、快速橋取捨與使用者風險。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>L2 市場已高度集中，而且是 optimistic 陣營壓倒性領先——這對「該支援哪條鏈」的產品決策影響很直接。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>Optimistic rollup 佔 L2 TVL</td><td>約 80%</td></tr>
+        <tr><td>Base TVL</td><td>約 $11.5B</td></tr>
+        <tr><td>Arbitrum One TVL</td><td>約 $10.1B</td></tr>
+        <tr><td>上述兩條佔 L2 價值</td><td>約 80%</td></tr>
+        <tr><td>活躍 rollup 數量</td><td>約 73 條</td></tr>
+        <tr><td>全體 L2 合計 TVL</td><td>約 $40–48B</td></tr>
+        <tr><td>Base 佔 L2 交易筆數</td><td>逾 37%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+
+    <p>重點不是「有 73 條 rollup」，而是<strong>前兩條就吃掉約八成價值</strong>，第三名的 OP Mainnet 只有約 $1.4–1.9B。對 PM 而言，支援 Base 與 Arbitrum 大致就覆蓋了多數資金；其餘鏈要看具體生態而非通用覆蓋。另外 Arbitrum 已於 2025 年底上線 BOLD 無需許可驗證——fault proof 的去中心化程度正在改善，選型時值得重新評估。</p>
 
     <h2>先記住安全模型</h2>
     <p>Optimistic 的意思是：proposer 先把 L2 輸出根貼上 L1，<em>假設它是對的</em>。任何人都可以在挑戰期內用欺詐證明／fault proof 反駁。因此 canonical 出金必須等這個視窗結束——OP Mainnet 與 Arbitrum One 都約是七天量級，不是因為轉帳慢，而是因為安全依賴「有人看、有人挑戰」。</p>
@@ -494,6 +534,21 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
       <li>Sequencer 停機時，入金仍應能從 L1 推導；出金則仍受挑戰期約束。把這兩件事分開寫進 runbook。</li>
     </ul>
 
+    <h2>使用者資金風險</h2>
+    <p>L2 便宜快速，但使用者承擔的風險與 L1 不同。以下每一項都直接關係到「你的錢什麼時候、能不能拿回來」。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>七天提款延遲</strong></td><td>走官方橋出金必須等完整挑戰期，期間資金動不了。急用只能走快速橋。</td></tr>
+        <tr><td><strong>快速橋的對手方風險</strong></td><td>快速橋沒有縮短挑戰期，而是第三方先墊錢給你、自己扛那七天。你承擔的是<strong>他的信用與償付能力</strong>，不是 L1 的保證。</td></tr>
+        <tr><td><strong>Sequencer 審查與停機</strong></td><td>多數 rollup 仍是單一 sequencer，可延遲或排除你的交易。逃生機制（force inclusion）存在，但慢且需自行操作。</td></tr>
+        <tr><td><strong>升級金鑰／安全委員會</strong></td><td>多數 rollup 合約可升級。權限被濫用或私鑰遭攻陷，影響範圍是整條鏈的資金。選鏈時該看它的升級治理。</td></tr>
+        <tr><td><strong>非官方橋的合約風險</strong></td><td>第三方橋各有其智慧合約與託管風險，歷史上跨鏈橋是損失最慘重的類別之一。</td></tr>
+        <tr><td><strong>你持有的是橋接代表物</strong></td><td>L2 上的資產多半是橋接鑄造的代表物；橋若出事，代表物可能與原資產脫鉤。</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>一句話：L1 的風險是「協議本身」；L2 多了<strong>sequencer、升級權限與橋</strong>三層人為風險，而它們都不是密碼學保證的。</p></blockquote>
+
     <h2>官方來源</h2>
     <ul>
       <li><a href="https://docs.optimism.io/op-stack/protocol/derivation-pipeline">Derivation pipeline</a>／<a href="https://docs.optimism.io/stack/protocol/deposit-flow">Deposit flow</a>／<a href="https://docs.optimism.io/op-stack/bridging/withdrawal-flow">Withdrawal flow</a></li>
@@ -509,6 +564,34 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     <p class="meta">2026-09-12 · OP Stack · Derivation · Fault proof · Canonical bridge · Developer guide</p>
 
     <p><strong>Cross-chain movement on an optimistic rollup is not a bolt-on bridge. It is part of how L2 state is derived from L1.</strong> A deposit is written on L1 and turned into a special transaction by the L2 derivation pipeline. A withdrawal is an L2 commitment that a message exists; L1 releases funds only after the output root survives its challenge window. This note follows the OP Stack, contrasts Arbitrum, and is written for people <em>shipping contracts</em> on L1/L2: the parts you must get right are <code>msg.sender</code>, <code>xDomainMessageSender</code>, gas, and replay — not which bridge UI to click.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>An optimistic rollup's security comes from "<strong>accept first, allow challenges after</strong>": state is posted, and anyone may overturn it with a fault proof during the challenge window.</li>
+        <li>That is why <strong>withdrawals wait a seven-day challenge period</strong>. A fast bridge does not shorten it — someone fronts you the money and carries those seven days themselves.</li>
+        <li>It is cheap because <strong>L1 cost is amortised across a batch</strong>, not because data disappeared — data must still be published to L1 for the state to be reconstructible.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners / backend engineers → the security model and deposit/withdrawal flows; Solidity engineers → derivation, fault proofs, cross-domain message guards; PMs → market background, the fast-bridge trade-off and user risk.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>The L2 market is already highly concentrated, and the optimistic camp leads overwhelmingly — which bears directly on "which chains should we support".</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>Optimistic rollups' share of L2 TVL</td><td>~80%</td></tr>
+        <tr><td>Base TVL</td><td>~$11.5B</td></tr>
+        <tr><td>Arbitrum One TVL</td><td>~$10.1B</td></tr>
+        <tr><td>Those two as share of L2 value</td><td>~80%</td></tr>
+        <tr><td>Active rollups</td><td>~73</td></tr>
+        <tr><td>All L2s combined TVL</td><td>~$40–48B</td></tr>
+        <tr><td>Base share of L2 transactions</td><td>37%+</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+
+    <p>The point is not that there are 73 rollups but that <strong>the top two hold roughly 80% of the value</strong>, with third-placed OP Mainnet at only ~$1.4–1.9B. For a PM, supporting Base and Arbitrum covers most of the money; other chains are an ecosystem-specific call, not general coverage. Arbitrum also shipped BOLD permissionless validation in late 2025 — fault-proof decentralisation is improving, and worth re-evaluating at selection time.</p>
 
     <h2>The security model first</h2>
     <p>Optimistic means a proposer posts an L2 output root to L1 and everyone <em>assumes it is correct</em>. Anyone may contradict it during the challenge period with a fraud / fault proof. Canonical withdrawals wait for that window — on the order of seven days on OP Mainnet and Arbitrum One — not because the transfer is slow, but because safety depends on someone watching and being able to challenge.</p>
@@ -966,6 +1049,21 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
       <li>If the sequencer is down, deposits should still derive from L1; withdrawals still wait out the challenge period. Split those two facts in the runbook.</li>
     </ul>
 
+    <h2>User funds risk</h2>
+    <p>L2s are cheap and fast, but users carry different risks than on L1. Every item below bears directly on when — and whether — you get your money back.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Seven-day withdrawal delay</strong></td><td>Exiting via the canonical bridge waits the full challenge period; funds are immobile meanwhile. Urgency means a fast bridge.</td></tr>
+        <tr><td><strong>Fast-bridge counterparty risk</strong></td><td>A fast bridge does not shorten the window — a third party fronts you funds and carries those seven days. You are exposed to <strong>their credit and solvency</strong>, not an L1 guarantee.</td></tr>
+        <tr><td><strong>Sequencer censorship and downtime</strong></td><td>Most rollups still run a single sequencer that can delay or exclude your transaction. Force-inclusion escape hatches exist but are slow and manual.</td></tr>
+        <tr><td><strong>Upgrade keys / security council</strong></td><td>Most rollup contracts are upgradeable. Abused rights or compromised keys put the whole chain's funds in scope. Inspect upgrade governance when choosing a chain.</td></tr>
+        <tr><td><strong>Third-party bridge contract risk</strong></td><td>Non-canonical bridges each carry their own contract and custody risk; bridges have historically been among the costliest loss categories.</td></tr>
+        <tr><td><strong>You hold a bridged representation</strong></td><td>Assets on an L2 are usually minted representations; if the bridge fails they can depeg from the underlying.</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>In short: L1's risk is "the protocol itself"; an L2 adds three human layers — <strong>sequencer, upgrade rights and bridges</strong> — none of which is a cryptographic guarantee.</p></blockquote>
+
     <h2>Official sources</h2>
     <ul>
       <li><a href="https://docs.optimism.io/op-stack/protocol/derivation-pipeline">Derivation pipeline</a> / <a href="https://docs.optimism.io/stack/protocol/deposit-flow">Deposit flow</a> / <a href="https://docs.optimism.io/op-stack/bridging/withdrawal-flow">Withdrawal flow</a></li>
@@ -975,9 +1073,15 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     <p class="meta">Content last verified: 2026-09-12</p>
   </div>
 
+  </main>
+
   <footer>
-    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
-    <span data-l="en">Written in plain HTML. No framework.</span>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
   </footer>
 
 </div>

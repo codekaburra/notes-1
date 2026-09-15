@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloudflare Pages 部署指南</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Cloudflare Pages 部署指南" data-title-en="Deploying with Cloudflare Pages">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Cloudflare Pages 部署指南</h1>
+    <p class="meta">2026-09-15 · CLOUDFLARE PAGES · WORKERS · 靜態部署 · 步驟指南</p>
+
+    <p>從零把一個站部署到 Cloudflare Pages：連 Git、設 build、綁網域、加 Function，以及正式上線前要知道的限制。文末附上目前該選 Pages 還是 Workers 的判斷，以及遷移路徑。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>Pages 的核心體驗是「<strong>連上 Git，push 就部署</strong>」，外加每個分支自動有一個預覽網址。免費方案頻寬不計量。</li>
+        <li>但要先知道一件事：<strong>Pages 目前處於維護模式</strong>——不是棄用，現有專案照常運作，但 Cloudflare 的新功能都優先進 Workers。</li>
+        <li>因此：<strong>既有 Pages 專案不必急著搬；全新專案建議直接用 Workers</strong>，兩者的靜態託管能力自 2026-03 起已對等。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>只想把站放上線 → 看「步驟一～四」就夠；後端／全端工程師 → 加看 Functions 與 <code>_headers</code>；PM／技術決策 → 直接看「市場背景」與「該選 Pages 還是 Workers」。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>靜態託管這塊已經高度商品化，真正的差異在<strong>免費額度的計費方式</strong>與<strong>邊緣運算能力</strong>。Cloudflare 的賣點一直是頻寬不計量；代價是它正在把 Pages 併進 Workers。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字 / 狀態</th></tr></thead>
+      <tbody>
+        <tr><td>Pages 產品狀態</td><td>維護模式（未棄用）</td></tr>
+        <tr><td>官方宣告的遷移期限</td><td>目前沒有</td></tr>
+        <tr><td>Workers 靜態資產功能對等</td><td>2026-03 起</td></tr>
+        <tr><td>免費方案頻寬</td><td>不計量</td></tr>
+        <tr><td>免費方案每月建置次數</td><td>500 次</td></tr>
+        <tr><td>免費方案單次部署檔案數</td><td>20,000 個</td></tr>
+        <tr><td>付費方案檔案數上限</td><td>100,000 個（2026-01 調升）</td></tr>
+        <tr><td>免費方案同時建置數</td><td>1（付費 5）</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，以 2026-09 查得為準；限制與定價變動頻繁，正式採用前請以官方文件為準。</p>
+    <p>對照其他選項：<strong>GitHub Pages</strong> 免費但要求 repo 公開（私有需付費方案），且沒有伺服器端能力；<strong>Vercel／Netlify</strong> 開發體驗好但免費額度對頻寬計量。Cloudflare 的「頻寬不計量」在流量成長時是實質優勢——但要接受它的產品線正在整併。</p>
+
+    <h2>兩種部署方式，先選一種</h2>
+    <p>Pages 有兩條路，差別在「build 在誰那裡跑」：</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 240" role="img" aria-label="Cloudflare Pages 的兩種部署方式：一是連上 Git repo，推送後由 Cloudflare 的建置環境自動 build 再發布到全球 CDN；二是本機先 build 好，用 wrangler pages deploy 直接上傳，跳過雲端建置。">
+          <defs><marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="34" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="105" y="60" text-anchor="middle">Git repo</text>
+          <text class="svg-ncode" x="105" y="79" text-anchor="middle">GitHub / GitLab</text>
+          <rect class="svg-node" x="282" y="34" width="186" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="375" y="60" text-anchor="middle">Cloudflare 建置</text>
+          <text class="svg-ncode" x="375" y="79" text-anchor="middle">雲端跑 build command</text>
+          <rect class="svg-node" x="20" y="150" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="105" y="176" text-anchor="middle">本機 dist/</text>
+          <text class="svg-ncode" x="105" y="195" text-anchor="middle">自己先 build 好</text>
+          <rect class="svg-node-a" x="560" y="86" width="180" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="650" y="116" text-anchor="middle">全球 CDN</text>
+          <text class="svg-ncode" x="650" y="136" text-anchor="middle">你的站上線</text>
+          <line class="svg-flow" x1="190" y1="63" x2="280" y2="63" marker-end="url(#p1)"></line>
+          <text class="svg-flowlabel" x="235" y="54" text-anchor="middle">git push</text>
+          <line class="svg-flow" x1="468" y1="74" x2="558" y2="106" marker-end="url(#p1)"></line>
+          <text class="svg-flowlabel" x="508" y="72">自動</text>
+          <line class="svg-flow-a" x1="190" y1="176" x2="558" y2="140" marker-end="url(#p1)"></line>
+          <text class="svg-step" x="360" y="186">wrangler pages deploy（跳過雲端 build）</text>
+        </svg>
+      </div>
+      <figcaption><strong>Git 連動</strong>是預設選擇：push 就部署、每個分支自動有預覽網址、回滾方便。<strong>直接上傳</strong>適合 build 需要私密資料、或建置環境太特殊搬不上雲的情況——代價是失去預覽網址與自動回滾。</figcaption>
+    </figure>
+
+    <h2>步驟一：連上 Git repo</h2>
+    <ol>
+      <li>Cloudflare Dashboard → <strong>Workers &amp; Pages</strong> → <strong>Create</strong> → <strong>Pages</strong> → <strong>Connect to Git</strong>。</li>
+      <li>授權 GitHub／GitLab。建議只授權「選定的 repo」而非整個帳號——這是最小權限原則，之後要加 repo 再回來調。</li>
+      <li>選 repo，選 production 分支（通常是 <code>main</code>）。</li>
+    </ol>
+    <blockquote><p>授權那一步是唯一會動到你 GitHub 帳號權限的地方。Cloudflare 需要讀取程式碼與寫入 commit status（好把部署結果標回 PR）。</p></blockquote>
+
+    <h2>步驟二：build 設定</h2>
+    <p>這一步最常卡住，關鍵只有兩個欄位：<strong>build command</strong>（怎麼建）與 <strong>output directory</strong>（建完的檔案在哪）。填錯 output directory 就會部署出一個空站。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>框架</th><th>Build command</th><th>Output directory</th></tr></thead>
+      <tbody>
+        <tr><td>純靜態 HTML</td><td><em>（留空）</em></td><td><code>public</code> 或 <code>/</code></td></tr>
+        <tr><td>Vite / React</td><td><code>npm run build</code></td><td><code>dist</code></td></tr>
+        <tr><td>Astro</td><td><code>npm run build</code></td><td><code>dist</code></td></tr>
+        <tr><td>Next.js（靜態匯出）</td><td><code>npx next build</code></td><td><code>out</code></td></tr>
+        <tr><td>Hugo</td><td><code>hugo</code></td><td><code>public</code></td></tr>
+      </tbody>
+    </table></div>
+    <p>另外兩個實務上必設的：</p>
+    <ul>
+      <li><strong>環境變數</strong>：分 Production 與 Preview 兩組，可以給不同值。密鑰請用 <em>Encrypt</em> 存成 secret，不要當明文變數。</li>
+      <li><strong>Node 版本</strong>：設環境變數 <code>NODE_VERSION</code>（例如 <code>22</code>），或在 repo 放 <code>.nvmrc</code>。不設會用預設版本，常常就是「本機能建、雲端建不起來」的原因。</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Git 連動的建置流程：推送到分支後，Cloudflare 在建置容器中安裝相依套件並執行 build command，取出輸出目錄的檔案，再發布到全球 CDN。">
+          <defs><marker id="p2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="14" y="66" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="90" y="96" text-anchor="middle">① push</text>
+          <text class="svg-ncode" x="90" y="116" text-anchor="middle">到已連動的分支</text>
+          <rect class="svg-node" x="208" y="66" width="180" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="298" y="96" text-anchor="middle">② 建置容器</text>
+          <text class="svg-ncode" x="298" y="116" text-anchor="middle">install + build command</text>
+          <rect class="svg-node" x="430" y="66" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="506" y="96" text-anchor="middle">③ 輸出目錄</text>
+          <text class="svg-ncode" x="506" y="116" text-anchor="middle">dist / out / public</text>
+          <rect class="svg-node-a" x="624" y="66" width="122" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="685" y="96" text-anchor="middle">④ 上線</text>
+          <text class="svg-ncode" x="685" y="116" text-anchor="middle">全球 CDN</text>
+          <line class="svg-flow" x1="166" y1="101" x2="206" y2="101" marker-end="url(#p2)"></line>
+          <line class="svg-flow" x1="388" y1="101" x2="428" y2="101" marker-end="url(#p2)"></line>
+          <line class="svg-flow" x1="582" y1="101" x2="622" y2="101" marker-end="url(#p2)"></line>
+          <text class="svg-mono" x="380" y="176" text-anchor="middle">建置失敗會停在 ②；站台維持上一版，不會被清空</text>
+        </svg>
+      </div>
+      <figcaption>值得記住的一點：<strong>建置失敗不會弄壞線上的站</strong>。Pages 只有在建置成功、產出檔案後才會切換版本，失敗時線上維持上一個成功版本。這讓「推上去試試看」的成本很低。</figcaption>
+    </figure>
+
+    <h2>步驟三：預覽部署</h2>
+    <p>這是 Pages 相對 GitHub Pages 最實際的優勢：<strong>每個分支、每個 PR 都自動拿到一個獨立網址</strong>，可以直接把連結丟給同事或客戶看。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="Pages 的網址對應：production 分支對應正式網址與自訂網域，功能分支對應以分支名為前綴的預覽網址，每次提交另有以雜湊為前綴的永久預覽網址。">
+          <defs><marker id="p3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="20" y="24" width="190" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="48" text-anchor="middle">main 分支</text>
+          <text class="svg-ncode" x="115" y="66" text-anchor="middle">production</text>
+          <rect class="svg-node" x="20" y="98" width="190" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="122" text-anchor="middle">feature 分支</text>
+          <text class="svg-ncode" x="115" y="140" text-anchor="middle">preview</text>
+          <rect class="svg-node" x="20" y="172" width="190" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="196" text-anchor="middle">每一次 commit</text>
+          <text class="svg-ncode" x="115" y="214" text-anchor="middle">永久保留</text>
+          <line class="svg-flow-a" x1="210" y1="51" x2="308" y2="51" marker-end="url(#p3)"></line>
+          <line class="svg-flow" x1="210" y1="125" x2="308" y2="125" marker-end="url(#p3)"></line>
+          <line class="svg-flow" x1="210" y1="199" x2="308" y2="199" marker-end="url(#p3)"></line>
+          <text class="svg-mono-a" x="318" y="48">example.pages.dev　＋　你的自訂網域</text>
+          <text class="svg-mono" x="318" y="122">&lt;branch&gt;.example.pages.dev</text>
+          <text class="svg-mono" x="318" y="196">&lt;commit-hash&gt;.example.pages.dev</text>
+        </svg>
+      </div>
+      <figcaption>每次提交的雜湊網址會<strong>永久保留</strong>，所以回頭比對「上週那版長怎樣」很方便，回滾也只是把某個舊部署設為 production。反過來說，這也代表<strong>預覽網址預設是公開的</strong>——尚未發表的內容別以為沒人看得到，必要時要在 Pages 設定裡開啟存取控制。</figcaption>
+    </figure>
+
+    <h2>步驟四：自訂網域</h2>
+    <ol>
+      <li>專案 → <strong>Custom domains</strong> → <strong>Set up a domain</strong>，輸入網域。</li>
+      <li>網域若已在同一個 Cloudflare 帳號，DNS 記錄會自動建立；若在外部，照畫面指示新增 <code>CNAME</code> 指向 <code>&lt;project&gt;.pages.dev</code>。</li>
+      <li>TLS 憑證自動簽發，通常幾分鐘內生效，免費且自動續期。</li>
+    </ol>
+    <p>根網域（<code>example.com</code>）也可以直接用——Cloudflare 以 CNAME flattening 處理，不需要另外設 A 記錄。</p>
+
+    <h2>重導向與標頭：<code>_redirects</code> 與 <code>_headers</code></h2>
+    <p>這兩個檔案放在<strong>輸出目錄的根層</strong>（不是專案根目錄），Pages 會自動識別。</p>
+<pre><code><span class="c"># _redirects —— 每行：來源 目標 狀態碼</span>
+/old-post   /notes/new-post   301
+/docs/*     /notes/:splat     301
+<span class="c"># SPA fallback：所有未命中的路徑都交給 index.html</span>
+/*          /index.html       200</code></pre>
+<pre><code><span class="c"># _headers —— 為路徑加上回應標頭</span>
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+<span class="c"># 帶雜湊的靜態資產可以長快取</span>
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable</code></pre>
+    <p>那行 <code>/* /index.html 200</code> 是 SPA 的關鍵：狀態碼用 <strong>200 而不是 301</strong>，代表「內部改寫」而非「轉址」，網址列才會保留原路徑讓前端路由接手。</p>
+
+    <h2>Pages Functions：加上伺服器端</h2>
+    <p>在專案根目錄建一個 <code>functions/</code> 目錄，裡面的檔案路徑就是 API 路徑，會自動變成邊緣執行的端點。</p>
+<pre><code><span class="c">// functions/api/hello.ts  →  /api/hello</span>
+export const onRequestGet: PagesFunction = async (context) =&gt; {
+  const { request, env } = context;
+  const name = new URL(request.url).searchParams.get("name") ?? "world";
+
+  return new Response(JSON.stringify({ hello: name }), {
+    headers: { "Content-Type": "application/json" },
+  });
+};</code></pre>
+    <p><code>env</code> 裡放的是你綁定的資源——環境變數、KV、D1、R2。動態路由用中括號命名檔案：<code>functions/api/[id].ts</code> 對應 <code>/api/123</code>。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 300" role="img" aria-label="Pages 的請求路由順序：先看有沒有對應的靜態檔案，有就直接回傳；沒有則檢查 functions 目錄是否有對應的函式，有就在邊緣執行；都沒有才套用 _redirects 規則，最後回傳 404。">
+          <defs><marker id="p4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="290" y="18" width="180" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="47" text-anchor="middle">進來一個請求</text>
+          <rect class="svg-node" x="270" y="92" width="220" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="121" text-anchor="middle">① 有對應靜態檔？</text>
+          <rect class="svg-node" x="270" y="166" width="220" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="195" text-anchor="middle">② functions/ 有對應？</text>
+          <rect class="svg-node" x="270" y="240" width="220" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="269" text-anchor="middle">③ _redirects 有規則？</text>
+          <line class="svg-flow" x1="380" y1="64" x2="380" y2="90" marker-end="url(#p4)"></line>
+          <line class="svg-flow" x1="380" y1="138" x2="380" y2="164" marker-end="url(#p4)"></line>
+          <line class="svg-flow" x1="380" y1="212" x2="380" y2="238" marker-end="url(#p4)"></line>
+          <line class="svg-flow-a" x1="490" y1="115" x2="600" y2="115" marker-end="url(#p4)"></line>
+          <text class="svg-step" x="606" y="111">是 → 直接回傳檔案</text>
+          <line class="svg-flow-a" x1="490" y1="189" x2="600" y2="189" marker-end="url(#p4)"></line>
+          <text class="svg-step" x="606" y="185">是 → 邊緣執行函式</text>
+          <line class="svg-flow-a" x1="490" y1="263" x2="600" y2="263" marker-end="url(#p4)"></line>
+          <text class="svg-step" x="606" y="259">是 → 轉址 / 改寫</text>
+          <text class="svg-mono" x="262" y="121" text-anchor="end">否 ↓</text>
+          <text class="svg-mono" x="262" y="195" text-anchor="end">否 ↓</text>
+          <text class="svg-mono" x="262" y="269" text-anchor="end">否 → 404</text>
+        </svg>
+      </div>
+      <figcaption>順序很重要：<strong>靜態檔優先於 Function</strong>。如果你在 <code>functions/api/hello.ts</code> 定義了端點，但輸出目錄剛好也有一個 <code>api/hello</code> 檔案，回傳的會是那個靜態檔，你的函式永遠不會被呼叫——這是排查「函式沒反應」時的第一個檢查點。</figcaption>
+    </figure>
+
+    <h2>該選 Pages 還是 Workers</h2>
+    <p>這是現在最該先想清楚的一題。<strong>Pages 沒有被棄用</strong>，現有專案可以繼續跑，Cloudflare 也沒有公布強制遷移期限。但官方已明講：所有新投資都放在 Workers，Pages 只拿到維護性更新。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>你的情況</th><th>建議</th></tr></thead>
+      <tbody>
+        <tr><td>已經在跑的 Pages 專案</td><td><strong>不用急著搬。</strong>等下次重構或框架升級時順手做，比單獨搬一次划算。</td></tr>
+        <tr><td>全新專案</td><td><strong>直接用 Workers。</strong>靜態託管能力自 2026-03 起已對等，而且未來功能都先到 Workers。</td></tr>
+        <tr><td>需要 Durable Objects、Containers、Secrets Store</td><td><strong>只能用 Workers。</strong>這些從未登陸 Pages。</td></tr>
+        <tr><td>純靜態、且極度重視「連 Git 就好」的簡單度</td><td>Pages 仍然最省事；Workers 也能連 Git，但設定檔要自己寫。</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 280" role="img" aria-label="Pages 與 Workers 的設定對照：Pages 的儀表板建置設定、輸出目錄、環境變數、functions 目錄與自訂網域，分別對應到 Workers 的 wrangler 設定檔、assets 目錄設定、vars 與 secrets、Worker 腳本以及 routes。">
+          <defs><marker id="p5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="130" y="28" text-anchor="middle">Pages</text>
+          <text class="svg-label" x="630" y="28" text-anchor="middle">Workers</text>
+          <rect class="svg-node" x="30" y="44" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="69" text-anchor="middle">Dashboard 建置設定</text>
+          <rect class="svg-node" x="30" y="100" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="125" text-anchor="middle">輸出目錄</text>
+          <rect class="svg-node" x="30" y="156" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="181" text-anchor="middle">環境變數 / secrets</text>
+          <rect class="svg-node" x="30" y="212" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="237" text-anchor="middle">functions/ 目錄</text>
+          <rect class="svg-node-a" x="530" y="44" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="69" text-anchor="middle">wrangler.jsonc</text>
+          <rect class="svg-node-a" x="530" y="100" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="125" text-anchor="middle">assets.directory</text>
+          <rect class="svg-node-a" x="530" y="156" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="181" text-anchor="middle">vars / secrets</text>
+          <rect class="svg-node-a" x="530" y="212" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="237" text-anchor="middle">Worker 腳本 (main)</text>
+          <line class="svg-flow" x1="230" y1="64" x2="528" y2="64" marker-end="url(#p5)"></line>
+          <line class="svg-flow" x1="230" y1="120" x2="528" y2="120" marker-end="url(#p5)"></line>
+          <line class="svg-flow" x1="230" y1="176" x2="528" y2="176" marker-end="url(#p5)"></line>
+          <line class="svg-flow" x1="230" y1="232" x2="528" y2="232" marker-end="url(#p5)"></line>
+          <text class="svg-mono" x="380" y="272" text-anchor="middle">遷移多半是「改設定」，不是「重寫程式」</text>
+        </svg>
+      </div>
+      <figcaption>遷移通常不是改寫，而是把儀表板上的設定搬進一個設定檔：<code>assets</code> 指向建置輸出、環境變數與綁定重新宣告、自訂網域重新掛上。<code>functions/</code> 的處理方式則要改寫成 Worker 的路由。</figcaption>
+    </figure>
+
+    <p>純靜態站遷到 Workers 的設定就這麼短：</p>
+<pre><code>{
+  "name": "my-site",
+  "compatibility_date": "2026-09-15",
+  "assets": {
+    "directory": "./dist/",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  }
+}</code></pre>
+<pre><code><span class="c"># 部署（首次要先登入）</span>
+npx wrangler login
+npx wrangler deploy</code></pre>
+    <p>本站的另一則筆記〈<a href="./deploy.html">這個站怎麼運作、怎麼部署</a>〉就是走 Workers 這條路，可以對照著看。</p>
+
+    <h2>安全與設定風險（開發者）</h2>
+    <ul>
+      <li><strong>預覽網址預設公開。</strong>任何知道網址的人都看得到未發表的內容。敏感專案要在設定裡開 Access 保護預覽環境。</li>
+      <li><strong>密鑰別用明文環境變數。</strong>用 <em>Encrypt</em> 存成 secret；明文變數會出現在建置紀錄裡。</li>
+      <li><strong>Git 授權範圍。</strong>授權時選「特定 repo」而非整個帳號，降低憑證外洩時的影響面。</li>
+      <li><strong>建置指令會執行 repo 內的程式碼。</strong>合併不信任的 PR 前要注意，惡意的 <code>postinstall</code> 可以在建置環境竊取你的環境變數。</li>
+      <li><strong>預設沒有安全標頭。</strong><code>X-Frame-Options</code>、<code>Content-Security-Policy</code> 這些要自己在 <code>_headers</code> 加。</li>
+    </ul>
+
+    <h2>營運風險</h2>
+    <ul>
+      <li><strong>產品整併風險。</strong>Pages 處於維護模式。雖無期限，但新功能不會來，長期應規劃遷移。</li>
+      <li><strong>建置額度。</strong>免費方案每月 500 次建置、同時只能跑 1 個。分支多的團隊很容易排隊，CI 高峰期會變慢。</li>
+      <li><strong>檔案數上限。</strong>免費 20,000 檔／次部署。大型文件站或圖庫容易撞到，撞到就整個部署失敗。</li>
+      <li><strong>供應商綁定。</strong><code>_redirects</code>、<code>_headers</code>、Functions、以及 KV／D1／R2 綁定都是 Cloudflare 專屬；純靜態部分可攜，這些則否。</li>
+    </ul>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://developers.cloudflare.com/pages/">Cloudflare Pages 文件</a></li>
+      <li><a href="https://developers.cloudflare.com/pages/functions/">Pages Functions</a></li>
+      <li><a href="https://developers.cloudflare.com/pages/configuration/build-configuration/">Build 設定與框架預設</a></li>
+      <li><a href="https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/">官方遷移指南：Pages → Workers</a></li>
+      <li><a href="https://developers.cloudflare.com/workers/static-assets/">Workers 靜態資產</a></li>
+    </ul>
+    <p class="meta">內容查證時間：2026-09-15</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Deploying with Cloudflare Pages</h1>
+    <p class="meta">2026-09-15 · CLOUDFLARE PAGES · WORKERS · STATIC DEPLOYMENT · STEP-BY-STEP</p>
+
+    <p>Getting a site onto Cloudflare Pages from zero: connect Git, configure the build, attach a domain, add a Function, and the limits worth knowing before you go live. At the end: whether to pick Pages or Workers today, and the migration path.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>The core of Pages is "<strong>connect Git, push to deploy</strong>", plus an automatic preview URL for every branch. Bandwidth is unmetered on the free plan.</li>
+        <li>But know this first: <strong>Pages is in maintenance mode</strong> — not deprecated, existing projects run fine, but Cloudflare ships new features to Workers first.</li>
+        <li>So: <strong>don't rush to migrate an existing Pages project; start new ones on Workers</strong>. Static hosting reached parity between the two in March 2026.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> just want the site live → steps one to four are enough; backend / full-stack engineers → add Functions and <code>_headers</code>; PMs and tech leads → read "Market background" and "Pages or Workers" only.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>Static hosting is heavily commoditised; the real differences are <strong>how the free tier meters you</strong> and <strong>what edge compute you get</strong>. Cloudflare's pitch has always been unmetered bandwidth — the cost is that it is folding Pages into Workers.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure / status</th></tr></thead>
+      <tbody>
+        <tr><td>Pages product status</td><td>Maintenance mode (not deprecated)</td></tr>
+        <tr><td>Announced migration deadline</td><td>None so far</td></tr>
+        <tr><td>Workers static-asset parity</td><td>Since 2026-03</td></tr>
+        <tr><td>Free-plan bandwidth</td><td>Unmetered</td></tr>
+        <tr><td>Free-plan builds per month</td><td>500</td></tr>
+        <tr><td>Free-plan files per deployment</td><td>20,000</td></tr>
+        <tr><td>Paid-plan file limit</td><td>100,000 (raised 2026-01)</td></tr>
+        <tr><td>Free-plan concurrent builds</td><td>1 (paid: 5)</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and current as of 2026-09; limits and pricing change often — check the official docs before committing.</p>
+    <p>Against the alternatives: <strong>GitHub Pages</strong> is free but requires a public repo (private needs a paid plan) and has no server-side capability; <strong>Vercel / Netlify</strong> have excellent DX but meter bandwidth on the free tier. Cloudflare's unmetered bandwidth is a genuine advantage as traffic grows — provided you accept that its product line is consolidating.</p>
+
+    <h2>Pick one of two deployment modes</h2>
+    <p>Pages offers two routes; the difference is <strong>where the build runs</strong>:</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 240" role="img" aria-label="Two Cloudflare Pages deployment modes: connect a Git repo so a push triggers a Cloudflare build that publishes to the global CDN; or build locally and upload directly with wrangler pages deploy, skipping the cloud build.">
+          <defs><marker id="q1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="34" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="105" y="60" text-anchor="middle">Git repo</text>
+          <text class="svg-ncode" x="105" y="79" text-anchor="middle">GitHub / GitLab</text>
+          <rect class="svg-node" x="282" y="34" width="186" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="375" y="60" text-anchor="middle">Cloudflare build</text>
+          <text class="svg-ncode" x="375" y="79" text-anchor="middle">runs your build command</text>
+          <rect class="svg-node" x="20" y="150" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="105" y="176" text-anchor="middle">local dist/</text>
+          <text class="svg-ncode" x="105" y="195" text-anchor="middle">you build it first</text>
+          <rect class="svg-node-a" x="560" y="86" width="180" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="650" y="116" text-anchor="middle">Global CDN</text>
+          <text class="svg-ncode" x="650" y="136" text-anchor="middle">your site is live</text>
+          <line class="svg-flow" x1="190" y1="63" x2="280" y2="63" marker-end="url(#q1)"></line>
+          <text class="svg-flowlabel" x="235" y="54" text-anchor="middle">git push</text>
+          <line class="svg-flow" x1="468" y1="74" x2="558" y2="106" marker-end="url(#q1)"></line>
+          <text class="svg-flowlabel" x="508" y="72">auto</text>
+          <line class="svg-flow-a" x1="190" y1="176" x2="558" y2="140" marker-end="url(#q1)"></line>
+          <text class="svg-step" x="360" y="186">wrangler pages deploy (skips the cloud build)</text>
+        </svg>
+      </div>
+      <figcaption><strong>Git-connected</strong> is the default: push to deploy, a preview URL per branch, easy rollback. <strong>Direct upload</strong> suits builds that need secrets, or build environments too unusual to lift into the cloud — at the cost of preview URLs and automatic rollback.</figcaption>
+    </figure>
+
+    <h2>Step one: connect the Git repo</h2>
+    <ol>
+      <li>Cloudflare Dashboard → <strong>Workers &amp; Pages</strong> → <strong>Create</strong> → <strong>Pages</strong> → <strong>Connect to Git</strong>.</li>
+      <li>Authorise GitHub / GitLab. Grant access to <em>selected repositories</em> rather than the whole account — least privilege; you can add more later.</li>
+      <li>Pick the repo and the production branch (usually <code>main</code>).</li>
+    </ol>
+    <blockquote><p>That authorisation step is the only place this touches your GitHub account permissions. Cloudflare needs to read code and write commit statuses so results appear on your PRs.</p></blockquote>
+
+    <h2>Step two: build configuration</h2>
+    <p>This is where people get stuck, and only two fields matter: the <strong>build command</strong> (how to build) and the <strong>output directory</strong> (where the built files land). Get the output directory wrong and you deploy an empty site.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Framework</th><th>Build command</th><th>Output directory</th></tr></thead>
+      <tbody>
+        <tr><td>Plain static HTML</td><td><em>(leave empty)</em></td><td><code>public</code> or <code>/</code></td></tr>
+        <tr><td>Vite / React</td><td><code>npm run build</code></td><td><code>dist</code></td></tr>
+        <tr><td>Astro</td><td><code>npm run build</code></td><td><code>dist</code></td></tr>
+        <tr><td>Next.js (static export)</td><td><code>npx next build</code></td><td><code>out</code></td></tr>
+        <tr><td>Hugo</td><td><code>hugo</code></td><td><code>public</code></td></tr>
+      </tbody>
+    </table></div>
+    <p>Two more you will want in practice:</p>
+    <ul>
+      <li><strong>Environment variables</strong>: separate Production and Preview sets, which can hold different values. Store credentials with <em>Encrypt</em> as secrets, never as plaintext variables.</li>
+      <li><strong>Node version</strong>: set the <code>NODE_VERSION</code> variable (e.g. <code>22</code>) or commit an <code>.nvmrc</code>. Leaving it default is the classic cause of "builds locally, fails in the cloud".</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 210" role="img" aria-label="The Git-connected build pipeline: a push to a connected branch starts a build container that installs dependencies and runs the build command, the output directory is collected, and the result is published to the global CDN.">
+          <defs><marker id="q2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="14" y="66" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="90" y="96" text-anchor="middle">① push</text>
+          <text class="svg-ncode" x="90" y="116" text-anchor="middle">to a connected branch</text>
+          <rect class="svg-node" x="208" y="66" width="180" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="298" y="96" text-anchor="middle">② build container</text>
+          <text class="svg-ncode" x="298" y="116" text-anchor="middle">install + build command</text>
+          <rect class="svg-node" x="430" y="66" width="152" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="506" y="96" text-anchor="middle">③ output dir</text>
+          <text class="svg-ncode" x="506" y="116" text-anchor="middle">dist / out / public</text>
+          <rect class="svg-node-a" x="624" y="66" width="122" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="685" y="96" text-anchor="middle">④ live</text>
+          <text class="svg-ncode" x="685" y="116" text-anchor="middle">global CDN</text>
+          <line class="svg-flow" x1="166" y1="101" x2="206" y2="101" marker-end="url(#q2)"></line>
+          <line class="svg-flow" x1="388" y1="101" x2="428" y2="101" marker-end="url(#q2)"></line>
+          <line class="svg-flow" x1="582" y1="101" x2="622" y2="101" marker-end="url(#q2)"></line>
+          <text class="svg-mono" x="380" y="176" text-anchor="middle">a failed build stops at ②; the live site keeps the last good version</text>
+        </svg>
+      </div>
+      <figcaption>Worth remembering: <strong>a failed build cannot break the live site</strong>. Pages only swaps versions once a build succeeds and produces files; on failure the previous good deployment stays up. That makes "push it and see" cheap.</figcaption>
+    </figure>
+
+    <h2>Step three: preview deployments</h2>
+    <p>This is the most practical advantage over GitHub Pages: <strong>every branch and every PR gets its own URL automatically</strong>, ready to send to a colleague or client.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 250" role="img" aria-label="Pages URL mapping: the production branch maps to the production URL and custom domain, feature branches map to branch-prefixed preview URLs, and each commit gets a permanent hash-prefixed preview URL.">
+          <defs><marker id="q3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="20" y="24" width="190" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="48" text-anchor="middle">main branch</text>
+          <text class="svg-ncode" x="115" y="66" text-anchor="middle">production</text>
+          <rect class="svg-node" x="20" y="98" width="190" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="122" text-anchor="middle">feature branch</text>
+          <text class="svg-ncode" x="115" y="140" text-anchor="middle">preview</text>
+          <rect class="svg-node" x="20" y="172" width="190" height="54" rx="10"></rect>
+          <text class="svg-nlabel" x="115" y="196" text-anchor="middle">every commit</text>
+          <text class="svg-ncode" x="115" y="214" text-anchor="middle">kept permanently</text>
+          <line class="svg-flow-a" x1="210" y1="51" x2="308" y2="51" marker-end="url(#q3)"></line>
+          <line class="svg-flow" x1="210" y1="125" x2="308" y2="125" marker-end="url(#q3)"></line>
+          <line class="svg-flow" x1="210" y1="199" x2="308" y2="199" marker-end="url(#q3)"></line>
+          <text class="svg-mono-a" x="318" y="48">example.pages.dev　+　your custom domain</text>
+          <text class="svg-mono" x="318" y="122">&lt;branch&gt;.example.pages.dev</text>
+          <text class="svg-mono" x="318" y="196">&lt;commit-hash&gt;.example.pages.dev</text>
+        </svg>
+      </div>
+      <figcaption>Per-commit hash URLs are <strong>kept permanently</strong>, so comparing against "how it looked last week" is easy, and rolling back is just promoting an old deployment. The flip side: <strong>preview URLs are public by default</strong> — unpublished work is reachable by anyone with the link, so enable access control on previews when that matters.</figcaption>
+    </figure>
+
+    <h2>Step four: custom domain</h2>
+    <ol>
+      <li>Project → <strong>Custom domains</strong> → <strong>Set up a domain</strong>, enter the domain.</li>
+      <li>If the domain is already on the same Cloudflare account the DNS record is created for you; if it is external, add the <code>CNAME</code> to <code>&lt;project&gt;.pages.dev</code> as instructed.</li>
+      <li>TLS certificates are issued automatically, usually within minutes, free and auto-renewing.</li>
+    </ol>
+    <p>An apex domain (<code>example.com</code>) works directly — Cloudflare handles it with CNAME flattening, so no separate A record is needed.</p>
+
+    <h2>Redirects and headers: <code>_redirects</code> and <code>_headers</code></h2>
+    <p>Both files go in the <strong>root of the output directory</strong> (not the project root); Pages picks them up automatically.</p>
+<pre><code><span class="c"># _redirects — one per line: from to status</span>
+/old-post   /notes/new-post   301
+/docs/*     /notes/:splat     301
+<span class="c"># SPA fallback: hand every unmatched path to index.html</span>
+/*          /index.html       200</code></pre>
+<pre><code><span class="c"># _headers — attach response headers to paths</span>
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+<span class="c"># hashed assets can be cached forever</span>
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable</code></pre>
+    <p>That <code>/* /index.html 200</code> line is the key for SPAs: the status is <strong>200, not 301</strong>, meaning an internal rewrite rather than a redirect, so the URL bar keeps the original path for your client-side router to handle.</p>
+
+    <h2>Pages Functions: adding a server side</h2>
+    <p>Create a <code>functions/</code> directory in the project root; file paths inside become API routes, running at the edge.</p>
+<pre><code><span class="c">// functions/api/hello.ts  →  /api/hello</span>
+export const onRequestGet: PagesFunction = async (context) =&gt; {
+  const { request, env } = context;
+  const name = new URL(request.url).searchParams.get("name") ?? "world";
+
+  return new Response(JSON.stringify({ hello: name }), {
+    headers: { "Content-Type": "application/json" },
+  });
+};</code></pre>
+    <p><code>env</code> holds your bindings — environment variables, KV, D1, R2. Dynamic routes use bracketed filenames: <code>functions/api/[id].ts</code> serves <code>/api/123</code>.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 300" role="img" aria-label="Pages request routing order: a matching static file is served first; otherwise a matching function under the functions directory runs at the edge; otherwise _redirects rules apply, and finally a 404 is returned.">
+          <defs><marker id="q4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="290" y="18" width="180" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="47" text-anchor="middle">request arrives</text>
+          <rect class="svg-node" x="270" y="92" width="220" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="121" text-anchor="middle">① static file exists?</text>
+          <rect class="svg-node" x="270" y="166" width="220" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="195" text-anchor="middle">② functions/ match?</text>
+          <rect class="svg-node" x="270" y="240" width="220" height="46" rx="10"></rect>
+          <text class="svg-nlabel" x="380" y="269" text-anchor="middle">③ _redirects rule?</text>
+          <line class="svg-flow" x1="380" y1="64" x2="380" y2="90" marker-end="url(#q4)"></line>
+          <line class="svg-flow" x1="380" y1="138" x2="380" y2="164" marker-end="url(#q4)"></line>
+          <line class="svg-flow" x1="380" y1="212" x2="380" y2="238" marker-end="url(#q4)"></line>
+          <line class="svg-flow-a" x1="490" y1="115" x2="600" y2="115" marker-end="url(#q4)"></line>
+          <text class="svg-step" x="606" y="111">yes → serve the file</text>
+          <line class="svg-flow-a" x1="490" y1="189" x2="600" y2="189" marker-end="url(#q4)"></line>
+          <text class="svg-step" x="606" y="185">yes → run at the edge</text>
+          <line class="svg-flow-a" x1="490" y1="263" x2="600" y2="263" marker-end="url(#q4)"></line>
+          <text class="svg-step" x="606" y="259">yes → redirect / rewrite</text>
+          <text class="svg-mono" x="262" y="121" text-anchor="end">no ↓</text>
+          <text class="svg-mono" x="262" y="195" text-anchor="end">no ↓</text>
+          <text class="svg-mono" x="262" y="269" text-anchor="end">no → 404</text>
+        </svg>
+      </div>
+      <figcaption>Order matters: <strong>static files win over Functions</strong>. If you define <code>functions/api/hello.ts</code> but the output directory also contains a file at <code>api/hello</code>, the static file is served and your function never runs — the first thing to check when a function "does nothing".</figcaption>
+    </figure>
+
+    <h2>Pages or Workers</h2>
+    <p>This is the question to settle first. <strong>Pages is not deprecated</strong>, existing projects keep running, and Cloudflare has announced no forced migration deadline. But it has said plainly that all new investment goes to Workers; Pages gets maintenance updates.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Your situation</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td>An existing Pages project</td><td><strong>No rush.</strong> Fold the migration into your next refactor or framework upgrade — cheaper than doing it on its own.</td></tr>
+        <tr><td>A brand-new project</td><td><strong>Go straight to Workers.</strong> Static hosting reached parity in March 2026, and new features land there first.</td></tr>
+        <tr><td>You need Durable Objects, Containers, Secrets Store</td><td><strong>Workers only.</strong> These never came to Pages.</td></tr>
+        <tr><td>Purely static and you value "just connect Git"</td><td>Pages is still the least effort; Workers can also connect Git but you write the config yourself.</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 760 280" role="img" aria-label="Mapping Pages settings to Workers: dashboard build settings, output directory, environment variables and the functions directory correspond to the wrangler config file, the assets directory setting, vars and secrets, and the Worker script.">
+          <defs><marker id="q5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="130" y="28" text-anchor="middle">Pages</text>
+          <text class="svg-label" x="630" y="28" text-anchor="middle">Workers</text>
+          <rect class="svg-node" x="30" y="44" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="69" text-anchor="middle">dashboard build settings</text>
+          <rect class="svg-node" x="30" y="100" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="125" text-anchor="middle">output directory</text>
+          <rect class="svg-node" x="30" y="156" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="181" text-anchor="middle">env vars / secrets</text>
+          <rect class="svg-node" x="30" y="212" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="130" y="237" text-anchor="middle">functions/ directory</text>
+          <rect class="svg-node-a" x="530" y="44" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="69" text-anchor="middle">wrangler.jsonc</text>
+          <rect class="svg-node-a" x="530" y="100" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="125" text-anchor="middle">assets.directory</text>
+          <rect class="svg-node-a" x="530" y="156" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="181" text-anchor="middle">vars / secrets</text>
+          <rect class="svg-node-a" x="530" y="212" width="200" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="630" y="237" text-anchor="middle">Worker script (main)</text>
+          <line class="svg-flow" x1="230" y1="64" x2="528" y2="64" marker-end="url(#q5)"></line>
+          <line class="svg-flow" x1="230" y1="120" x2="528" y2="120" marker-end="url(#q5)"></line>
+          <line class="svg-flow" x1="230" y1="176" x2="528" y2="176" marker-end="url(#q5)"></line>
+          <line class="svg-flow" x1="230" y1="232" x2="528" y2="232" marker-end="url(#q5)"></line>
+          <text class="svg-mono" x="380" y="272" text-anchor="middle">migration is mostly configuration, not a rewrite</text>
+        </svg>
+      </div>
+      <figcaption>Migration is usually not a rewrite but moving dashboard settings into a config file: point <code>assets</code> at the build output, re-declare variables and bindings, re-attach custom domains. The <code>functions/</code> directory is the part that needs rewriting into Worker routing.</figcaption>
+    </figure>
+
+    <p>For a purely static site the Workers config is this short:</p>
+<pre><code>{
+  "name": "my-site",
+  "compatibility_date": "2026-09-15",
+  "assets": {
+    "directory": "./dist/",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  }
+}</code></pre>
+<pre><code><span class="c"># deploy (log in once first)</span>
+npx wrangler login
+npx wrangler deploy</code></pre>
+    <p>The companion note <a href="./deploy.html">How this site works and ships</a> takes exactly this Workers route, if you want to compare.</p>
+
+    <h2>Security and configuration risk (developers)</h2>
+    <ul>
+      <li><strong>Preview URLs are public by default.</strong> Anyone with the link sees unpublished work. Enable Access on previews for sensitive projects.</li>
+      <li><strong>Never put credentials in plaintext variables.</strong> Use <em>Encrypt</em> to store them as secrets; plaintext variables show up in build logs.</li>
+      <li><strong>Scope the Git authorisation.</strong> Grant selected repositories rather than the whole account, to limit blast radius if the token leaks.</li>
+      <li><strong>The build command executes repo code.</strong> Be careful merging untrusted PRs — a malicious <code>postinstall</code> can exfiltrate your build-time environment variables.</li>
+      <li><strong>No security headers by default.</strong> <code>X-Frame-Options</code>, <code>Content-Security-Policy</code> and friends must be added in <code>_headers</code> yourself.</li>
+    </ul>
+
+    <h2>Operational risk</h2>
+    <ul>
+      <li><strong>Product consolidation.</strong> Pages is in maintenance mode. No deadline, but no new features either — plan a migration for the long run.</li>
+      <li><strong>Build quota.</strong> 500 builds a month on the free plan, one at a time. Teams with many branches queue quickly and slow down at CI peaks.</li>
+      <li><strong>File-count ceiling.</strong> 20,000 files per deployment on free. Large docs sites or image galleries hit it, and hitting it fails the whole deployment.</li>
+      <li><strong>Vendor lock-in.</strong> <code>_redirects</code>, <code>_headers</code>, Functions and KV/D1/R2 bindings are Cloudflare-specific; the static files are portable, these are not.</li>
+    </ul>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://developers.cloudflare.com/pages/">Cloudflare Pages documentation</a></li>
+      <li><a href="https://developers.cloudflare.com/pages/functions/">Pages Functions</a></li>
+      <li><a href="https://developers.cloudflare.com/pages/configuration/build-configuration/">Build configuration and framework presets</a></li>
+      <li><a href="https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/">Official migration guide: Pages → Workers</a></li>
+      <li><a href="https://developers.cloudflare.com/workers/static-assets/">Workers static assets</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-15</p>
+  </div>
+
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

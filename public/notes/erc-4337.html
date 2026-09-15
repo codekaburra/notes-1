@@ -19,14 +19,26 @@
 
   <header class="top">
     <a class="brand" href="../index.html">
-      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
     </a>
-    <div class="langbar">
-      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
-      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
     </div>
   </header>
 
+  <main>
   <a class="back" href="../index.html">
     <span data-l="zh">← 回列表</span><span data-l="en">← All notes</span>
   </a>
@@ -37,6 +49,32 @@
     <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · 開發者指南</p>
 
     <p><strong>Smart Account 是帳戶合約；Account Abstraction 是讓帳戶自訂驗證、執行與 gas 支付規則的整套系統。</strong>本篇從協議一路走到工程實作：UserOperation、Bundler、EntryPoint、7702 delegation、Account／Factory、Paymaster、ERC-7579、viem、除錯與上線檢查。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li><strong>Smart account</strong> 是「用合約當錢包」；<strong>Account Abstraction</strong> 是讓帳戶自訂驗證、執行與付 gas 規則的整套系統。</li>
+        <li>三條路線並存：<strong>ERC-4337</strong>（不改協議、走替代 mempool）、<strong>EIP-7702</strong>（原地升級既有 EOA）、以及部分 L2 的原生 AA。</li>
+        <li>產品上換到免助記詞登入、代付 gas、批次交易；代價是多出 bundler、paymaster、模組這些<strong>新的信任面與依賴</strong>。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 使用情境與三種帳戶模型；Solidity 工程師 → UserOperation、validation／execution 分界、ERC-7579；PM → 市場背景與使用者風險。本篇很長，建議按此挑段落讀，不必從頭到尾。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>ERC-4337 已從實驗變成生產基礎設施。但它的市場有一個對架構決策極關鍵的特徵：<strong>底層基礎設施高度集中</strong>。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>已部署智慧帳戶</td><td>逾 4,000 萬個</td></tr>
+        <tr><td>累計 UserOperation</td><td>逾 1 億筆</td></tr>
+        <tr><td>前三大 bundler 處理量佔比</td><td>約 78%</td></tr>
+        <tr><td>採用領先的鏈</td><td>Base、Polygon、Optimism</td></tr>
+        <tr><td>並存的 EntryPoint 版本</td><td>v0.6 / v0.7 / v0.8 / v0.9</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+
+    <p>前三家 bundler（Pimlico、Stackup、Coinbase）處理了約八成的 UserOperation。這代表「去中心化帳戶」的<strong>實際送出路徑其實相當集中</strong>——做產品時應把 bundler 視為有停機風險的外部依賴，預留備援節點或自建 fallback。另外四個 EntryPoint 版本同時在線，整合前務必先確認你的 bundler 與帳戶實作對齊的是哪一版。</p>
 
     <h2>先從一個使用情境開始</h2>
     <p>假設 Alice 想用 USDC 買 token，但手機裡沒有 ETH。傳統 EOA 不能送交易，因為 Ethereum protocol 要求發送者先付 gas。Account Abstraction 把「使用者授權」與「誰送鏈上交易、誰付 gas」拆開：</p>
@@ -216,7 +254,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <li><strong>Self-funded：</strong>Account 先在 EntryPoint 有 deposit，或在 <code>validateUserOp</code> 補上 <code>missingAccountFunds</code>；EntryPoint 從該 deposit 扣款。</li>
       <li><strong>Sponsored：</strong>EntryPoint 從 Paymaster deposit 扣款；即使 target execution revert，已消耗的 validation／execution／postOp gas 仍由 sponsor 支付。</li>
       <li><strong>Refund：</strong>prefund 只是上限預留，未使用部分回到原 payer 的 EntryPoint deposit，不是退到 Bundler。</li>
-      <li><strong>Unused-gas penalty：</strong>v0.9 對大量未使用的 <code>callGasLimit</code>／paymaster postOp gas 收 10% penalty；未使用量不超過 40,000 gas 時不收，避免 UserOp 虛佔 bundle 容量。</li>
+      <li><strong>Unused-gas penalty：</strong>v0.7 起對大量未使用的 <code>callGasLimit</code>／paymaster postOp gas 收 10% penalty；v0.8 起未使用量不超過 40,000 gas 時不收，避免 UserOp 虛佔 bundle 容量。</li>
       <li><strong>7702：</strong>authorization 出現時，Bundler 要把無法在 EntryPoint 內直接觀察的 <code>PER_EMPTY_ACCOUNT_COST = 25,000</code> gas 納入 <code>preVerificationGas</code>。</li>
     </ul>
 
@@ -256,7 +294,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <figcaption>Bundler transaction receipt 的 <code>gasUsed</code> 是整個 bundle；單一 UserOperation 應查看 <code>UserOperationEvent</code>／Bundler receipt 的 <code>actualGasUsed</code> 與 <code>actualGasCost</code>，不能把整筆 transaction gas 全算給一個使用者。</figcaption>
     </figure>
 
-    <p><strong>估算順序：</strong>先建立接近最終形狀的 UserOp，取得 Paymaster stub data，再呼叫 <code>eth_estimateUserOperationGas</code>，填入最終 paymaster data／signature 後若長度或邏輯改變就重新估算。不要把 gas limits 設成無限大：除了 prefund 過高，v0.9 unused-gas penalty 也會讓過度 padding 真正花錢。L2 還要確認 Bundler 如何把 calldata／data-availability fee 納入 <code>preVerificationGas</code>。</p>
+    <p><strong>估算順序：</strong>先建立接近最終形狀的 UserOp，取得 Paymaster stub data，再呼叫 <code>eth_estimateUserOperationGas</code>，填入最終 paymaster data／signature 後若長度或邏輯改變就重新估算。不要把 gas limits 設成無限大：除了 prefund 過高，v0.7 起的 unused-gas penalty 也會讓過度 padding 真正花錢。L2 還要確認 Bundler 如何把 calldata／data-availability fee 納入 <code>preVerificationGas</code>。</p>
 
     <h2>四條必須分清楚的 call path</h2>
     <ol>
@@ -650,8 +688,8 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <thead><tr><th>版本</th><th>EntryPoint</th><th>重點</th></tr></thead>
       <tbody>
         <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td><td>舊版 unpacked UserOperation 生態</td></tr>
-        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation、拆分 paymaster gas limits</td></tr>
-        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash、原生 7702、額外 gas penalty</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation、拆分 paymaster gas limits、10% unused-gas penalty</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash、原生 7702、unused-gas 40,000 下限</td></tr>
         <tr><td><code>v0.9</code></td><td>0x433709009B8330FDa32311DF1C2AFA402eD8D009</td><td>ABI 相容 v0.7/v0.8；paymasterSignature、block validity、IgnoredInitCode</td></tr>
       </tbody>
     </table></div>
@@ -683,6 +721,21 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>不要把 AAxx 字串當永久 API；v0.9 release 已明確說明未來可能改良錯誤格式。</li>
     </ul>
 
+    <h2>使用者風險（資產安全）</h2>
+    <p>智慧帳戶不是投資商品，所以這裡談的不是賠錢，而是<strong>資產被拿走</strong>的途徑。多數風險來自「帳戶可程式化」這件事本身——彈性有多大，攻擊面就有多大。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>安裝模組＝授予權力</strong></td><td>一個惡意或有 bug 的 validator／executor 模組，等於把整個帳戶交出去。只安裝來源可信、經審計的模組，並定期檢視已安裝清單。</td></tr>
+        <tr><td><strong>盲簽</strong></td><td>智慧帳戶常一次簽署批次動作。看不懂內容就簽，等同簽空白支票——批次裡可以夾帶一筆 approve。</td></tr>
+        <tr><td><strong>恢復機制設定</strong></td><td>social recovery 的守護者名單設錯、或守護者被攻陷，帳戶可能被他人合法奪走。門檻與名單要慎選。</td></tr>
+        <tr><td><strong>初始化搶跑</strong></td><td>帳戶部署與初始化若非原子完成，攻擊者可搶先把自己設為 owner（詳見前文的初始化段落）。</td></tr>
+        <tr><td><strong>Bundler／Paymaster 依賴</strong></td><td>服務停擺時交易送不出去。前三家 bundler 就佔約八成流量，集中度是實質風險，應備援。</td></tr>
+        <tr><td><strong>同地址不同鏈不同帳戶</strong></td><td>相同地址在不同鏈上可能對應不同的 owner 與狀態，轉帳前務必確認目標鏈。</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>一句話：EOA 的風險是「私鑰丟了」；智慧帳戶多了「<strong>你授權了什麼</strong>」——模組、簽章、恢復設定，每一項都是一把鑰匙。</p></blockquote>
+
     <h2>官方來源</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a>／<a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a>／<a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a>／<a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
@@ -700,6 +753,32 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · Developer guide</p>
 
     <p><strong>A Smart Account is the account contract; Account Abstraction is the system that lets accounts define validation, execution, and gas-payment rules.</strong> This guide runs from protocol to production engineering: UserOperations, Bundlers, EntryPoint, 7702 delegation, account/factory contracts, paymasters, ERC-7579, viem, debugging, and launch checks.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>A <strong>smart account</strong> is "a contract as your wallet"; <strong>account abstraction</strong> is the whole system that lets an account define its own validation, execution and gas-payment rules.</li>
+        <li>Three routes coexist: <strong>ERC-4337</strong> (no protocol change, alt mempool), <strong>EIP-7702</strong> (upgrade an existing EOA in place), and native AA on some L2s.</li>
+        <li>You gain seed-phrase-free onboarding, sponsored gas and batched transactions; you pay in <strong>new trust surfaces and dependencies</strong> — bundlers, paymasters, modules.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners / backend engineers → the user story and three account models; Solidity engineers → UserOperation, the validation/execution split, ERC-7579; PMs → market background and user risk. This note is long — pick your sections rather than reading straight through.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>ERC-4337 has moved from experiment to production infrastructure. But its market has one feature that matters enormously for architecture decisions: <strong>the underlying infrastructure is highly concentrated</strong>.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>Smart accounts deployed</td><td>40M+</td></tr>
+        <tr><td>Cumulative UserOperations</td><td>100M+</td></tr>
+        <tr><td>Share handled by top 3 bundlers</td><td>~78%</td></tr>
+        <tr><td>Leading chains by adoption</td><td>Base, Polygon, Optimism</td></tr>
+        <tr><td>EntryPoint versions in production</td><td>v0.6 / v0.7 / v0.8 / v0.9</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+
+    <p>Three bundlers (Pimlico, Stackup, Coinbase) handle roughly 80% of all UserOperations. That means the delivery path for "decentralised accounts" is in practice <strong>quite centralised</strong> — treat your bundler as an external dependency that can go down, and keep a backup endpoint or self-hosted fallback. Four EntryPoint versions are also live at once, so confirm which one your bundler and account implementation agree on before integrating.</p>
 
     <h2>Start with one user story</h2>
     <p>Alice wants to swap USDC but has no ETH on her phone. A traditional EOA cannot submit the transaction because Ethereum requires the sender to pay gas first. Account Abstraction separates user authorization from who submits the on-chain transaction and who pays gas:</p>
@@ -878,7 +957,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <li><strong>Self-funded:</strong> the Account already has an EntryPoint deposit or sends <code>missingAccountFunds</code> during <code>validateUserOp</code>; EntryPoint debits that deposit.</li>
       <li><strong>Sponsored:</strong> EntryPoint debits the Paymaster deposit. If target execution reverts, the sponsor still pays gas consumed by validation, execution, and <code>postOp</code>.</li>
       <li><strong>Refund:</strong> prefund is a maximum reservation. The surplus returns to the original payer's EntryPoint deposit, not to the Bundler.</li>
-      <li><strong>Unused-gas penalty:</strong> v0.9 charges 10% on substantially unused <code>callGasLimit</code>/paymaster postOp gas; no penalty applies when no more than 40,000 gas is unused. This prevents a UserOp from reserving bundle capacity without using it.</li>
+      <li><strong>Unused-gas penalty:</strong> since v0.7, 10% is charged on substantially unused <code>callGasLimit</code>/paymaster postOp gas. Since v0.8, no penalty applies when no more than 40,000 gas is unused. This prevents a UserOp from reserving bundle capacity without using it.</li>
       <li><strong>7702:</strong> when authorization is present, the Bundler includes the unobservable <code>PER_EMPTY_ACCOUNT_COST = 25,000</code> gas in <code>preVerificationGas</code>.</li>
     </ul>
 
@@ -918,7 +997,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <figcaption>The transaction receipt's <code>gasUsed</code> covers the entire bundle. For one UserOperation, use <code>UserOperationEvent</code> or the Bundler receipt's <code>actualGasUsed</code> and <code>actualGasCost</code>; do not assign the whole transaction's gas to one user.</figcaption>
     </figure>
 
-    <p><strong>Estimation sequence:</strong> build a near-final UserOp, fetch Paymaster stub data, call <code>eth_estimateUserOperationGas</code>, then re-estimate if final paymaster data/signature changes size or behavior. Do not set unlimited gas budgets: besides excessive prefund, v0.9 unused-gas penalties make extreme padding cost real money. On L2, verify how the Bundler includes calldata/data-availability fees in <code>preVerificationGas</code>.</p>
+    <p><strong>Estimation sequence:</strong> build a near-final UserOp, fetch Paymaster stub data, call <code>eth_estimateUserOperationGas</code>, then re-estimate if final paymaster data/signature changes size or behavior. Do not set unlimited gas budgets: besides excessive prefund, unused-gas penalties (v0.7+) make extreme padding cost real money. On L2, verify how the Bundler includes calldata/data-availability fees in <code>preVerificationGas</code>.</p>
 
     <h2>Four call paths to distinguish</h2>
     <ol>
@@ -1312,8 +1391,8 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <thead><tr><th>Version</th><th>EntryPoint</th><th>Highlights</th></tr></thead>
       <tbody>
         <tr><td><code>v0.6</code></td><td>0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789</td><td>Legacy unpacked UserOperation ecosystem</td></tr>
-        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation and split paymaster gas limits</td></tr>
-        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash, native 7702, additional gas penalty</td></tr>
+        <tr><td><code>v0.7</code></td><td>0x0000000071727De22E5E9d8BAf0edAc6f37da032</td><td>PackedUserOperation, split paymaster gas limits, 10% unused-gas penalty</td></tr>
+        <tr><td><code>v0.8</code></td><td>0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108</td><td>EIP-712 UserOp hash, native 7702, 40,000 unused-gas floor</td></tr>
         <tr><td><code>v0.9</code></td><td>0x433709009B8330FDa32311DF1C2AFA402eD8D009</td><td>v0.7/v0.8 ABI-compatible; paymasterSignature, block validity, IgnoredInitCode</td></tr>
       </tbody>
     </table></div>
@@ -1345,6 +1424,21 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>Do not treat AAxx strings as a permanent API; v0.9 release notes explicitly anticipate future error-format improvements.</li>
     </ul>
 
+    <h2>User risk (asset safety)</h2>
+    <p>A smart account is not an investment product, so the risk here is not losing money on a trade but <strong>having assets taken</strong>. Most of it stems from programmability itself — the flexibility is the attack surface.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Installing a module grants power</strong></td><td>A malicious or buggy validator/executor module hands over the whole account. Install only trusted, audited modules, and review the installed list periodically.</td></tr>
+        <tr><td><strong>Blind signing</strong></td><td>Smart accounts often sign a batch at once. Signing what you cannot read is a blank cheque — a batch can hide an approve.</td></tr>
+        <tr><td><strong>Recovery configuration</strong></td><td>A mis-set guardian list, or compromised guardians, lets someone legitimately take the account. Choose thresholds and guardians carefully.</td></tr>
+        <tr><td><strong>Initialisation front-running</strong></td><td>If deployment and initialisation are not atomic, an attacker can set themselves as owner first (see the initialisation section above).</td></tr>
+        <tr><td><strong>Bundler / paymaster dependency</strong></td><td>If the service is down your transactions do not go out. The top three bundlers carry ~80% of traffic; that concentration is a real risk — keep a fallback.</td></tr>
+        <tr><td><strong>Same address, different chain</strong></td><td>The same address can map to different owners and state on different chains; confirm the target chain before sending.</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>In short: an EOA's risk is "you lost the key"; a smart account adds "<strong>what did you authorise</strong>" — modules, signatures and recovery settings are each a key.</p></blockquote>
+
     <h2>Official sources</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a> / <a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a> / <a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a> / <a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
@@ -1356,9 +1450,15 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <p class="meta">Content last verified: 2026-09-11</p>
   </div>
 
+  </main>
+
   <footer>
-    <span data-l="zh">用 HTML 寫的，沒有框架。</span>
-    <span data-l="en">Written in plain HTML. No framework.</span>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
   </footer>
 
 </div>

@@ -19,14 +19,26 @@
 <div class="wrap">
   <header class="top">
     <a class="brand" href="./index.html">
-      <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
     </a>
-    <div class="langbar">
-      <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
-      <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="./index.html#notes" data-l="zh">文章</a><a href="./index.html#notes" data-l="en">Journal</a>
+        <a href="./index.html#about" data-l="zh">關於</a><a href="./index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
     </div>
   </header>
 
+  <main>
   <div data-l="zh">
     <h1>找不到這一頁</h1>
     <p>網址可能打錯了，或這則筆記還沒寫。</p>
@@ -37,6 +49,16 @@
     <p>The URL may be wrong, or this note hasn't been written yet.</p>
     <p><a href="./index.html">← Back to all notes</a></p>
   </div>
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="./index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
 </div>
 <script>
   (function () {
@@ -53,8 +75,12 @@
       home = href.replace(/\/assets\/style\.css(\?.*)?$/, '/index.html');
       break;
     }
-    document.querySelectorAll('a[href="./index.html"]').forEach(function (a) {
-      a.setAttribute('href', home);
+    document.querySelectorAll('a[href^="./index.html"]').forEach(function (a) {
+      var current = a.getAttribute('href') || '';
+      var hash = '';
+      var hashAt = current.indexOf('#');
+      if (hashAt !== -1) hash = current.slice(hashAt);
+      a.setAttribute('href', home + hash);
     });
   })();
 </script>

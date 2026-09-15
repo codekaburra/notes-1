@@ -26,7 +26,8 @@ body::before{
 }
 .wrap{max-width:76rem; margin:0 auto; padding:0 2.5rem 3rem}
 body:not(.home) .wrap{max-width:64rem}
-body:not(.home) .wrap > [data-l]{max-width:49rem}
+body:not(.home) .wrap > [data-l],
+body:not(.home) main > [data-l]{max-width:49rem}
 :focus-visible{outline:2px solid var(--accent); outline-offset:4px}
 ::selection{background:var(--accent-soft); color:var(--ink)}
 
@@ -285,3 +286,24 @@ figcaption{margin-top:.95rem; font-size:.85rem; line-height:1.65; color:var(--mu
 .svg-bit-on{fill:var(--accent); stroke:var(--accent-strong); stroke-width:1.2}
 .svg-bit-off{fill:var(--surface); stroke:var(--line); stroke-width:1.2}
 .svg-bit-t{fill:var(--ink); font-family:var(--mono); font-size:11px; font-weight:700; text-anchor:middle}
+
+/* TL;DR 摘要卡 */
+.tldr{
+  margin:0 0 2.75rem; padding:1.35rem 1.55rem;
+  background:var(--surface-raised); border:1px solid var(--line);
+  border-left:3px solid var(--accent);
+}
+.tldr-label{
+  display:block; font-family:var(--mono); font-size:.67rem; letter-spacing:.17em;
+  text-transform:uppercase; color:var(--accent); margin-bottom:.85rem;
+}
+.tldr ul{margin:0; padding-left:1.15rem}
+.tldr li{margin:0 0 .5rem}
+.tldr li:last-child{margin:0}
+.tldr .who{
+  margin:1rem 0 0; padding-top:.9rem; border-top:1px solid var(--line);
+  font-size:.86rem; color:var(--muted);
+}
+/* 市場數據：數字欄等寬對齊 */
+.market td:last-child{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+.asof{font-family:var(--mono); font-size:.71rem; color:var(--muted); margin:-.85rem 0 1.6rem}
