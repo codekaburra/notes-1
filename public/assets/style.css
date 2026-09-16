@@ -156,7 +156,6 @@ th{font-size:.76rem; letter-spacing:.06em; text-transform:uppercase; color:var(-
   align-items:start; list-style:none; padding:0; margin:0;
 }
 .notes li{grid-column:span 6; margin:0; padding:0; border-bottom:1px solid var(--line)}
-.notes li:last-child{grid-column:span 12}
 .notes a{
   position:relative; display:grid; grid-template-columns:2.4rem minmax(0,1fr) auto; gap:.15rem .9rem;
   align-items:start; padding:1.2rem 0 1.25rem; overflow:hidden; text-decoration:none; color:var(--ink);
