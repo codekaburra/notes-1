@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solidity 安全漏洞圖鑑</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Solidity 安全漏洞圖鑑" data-title-en="Solidity Security: A Field Guide">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Solidity 安全漏洞圖鑑</h1>
+    <p class="meta">2026-09-18 · SOLIDITY · 安全 · 攻擊流程 · 開發者指南</p>
+
+    <p>八類真正會讓錢消失的漏洞：每一類都給攻擊流程、易受攻擊的程式碼、以及修好的版本。重點不是背名詞，而是建立一種直覺——<strong>看到某種寫法就本能地警覺</strong>。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>絕大多數合約漏洞可以歸到一句話：<strong>你在狀態還沒更新完之前，把控制權交給了別人</strong>——重入、預言機、簽章重放都是這個形狀。</li>
+        <li>但要先認清一個殘酷的統計：<strong>2026 上半年約 76% 的失竊金額來自金鑰與營運層面的外洩，不是巧妙的 Solidity bug</strong>。程式碼漏洞貢獻的是事件數，不是金額。</li>
+        <li>所以真正的防禦順序是：<strong>先把權限與金鑰管好，再談程式碼技巧</strong>。一個 <code>onlyOwner</code> 寫漏，比任何精妙的重入都致命。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 先讀「重入」與「存取控制」兩節，這兩類佔了大部分事故；有經驗的 Solidity 工程師 → 直接看「價格操縱」「精度與四捨五入」「storage collision」；PM／技術主管 → 市場背景與最後的「流程比技巧重要」。</p>
+    </div>
+
+    <h2>市場背景：錢實際上是怎麼丟的</h2>
+    <p>這節的數字會改變你分配安全預算的方式。2026 上半年的事故<strong>次數創了新高，金額卻明顯下降</strong>——意思是：小型、新上線、未經審計的協議被打爆得更頻繁，但大額損失的來源另有其人。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>2026 H1 總失竊金額</td><td>約 $0.97B–1.32B（各來源口徑不一）</td></tr>
+        <tr><td>2026 H1 事件數</td><td>約 207–224 起（歷史新高）</td></tr>
+        <tr><td>對照：2025 H1 金額</td><td>約 $2.3B</td></tr>
+        <tr><td><strong>基礎設施／營運類佔失竊金額</strong></td><td><strong>約 76%</strong>（僅約 15% 的事件數）</td></tr>
+        <tr><td>私鑰外洩佔歷史總損失</td><td>約 24.4%</td></tr>
+        <tr><td>釣魚佔歷史總損失</td><td>約 19.5%</td></tr>
+        <tr><td>存取控制失誤佔歷史總損失</td><td>約 12.8%（約 $994M）</td></tr>
+        <tr><td>價格操縱攻擊中使用閃電貸的比例</td><td>約 62.1%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，各來源統計口徑與期間不一；以 2026-09 查得為準。</p>
+    <p>把前三項加起來：<strong>私鑰外洩 + 釣魚 + 存取控制 ≈ 總損失的 57%</strong>。這三者沒有一項需要攻擊者懂組合語言，它們考驗的是<strong>誰能動什麼、鑰匙放哪裡</strong>。2026 年最大的兩起（Drift 約 $280M、KelpDAO 約 $293M）也都不是經典的演算法漏洞——Drift 是<strong>升級機制</strong>出問題。</p>
+    <blockquote><p>結論很直白：<strong>先做對權限設計、多簽與升級流程，再去研究重入的精妙變體。</strong>順序反了，等於在紙門上裝三道鎖。</p></blockquote>
+
+    <h2>一、重入（Reentrancy）</h2>
+    <p>最經典、也最能說明核心直覺的一類。問題不在「轉帳」，而在<strong>轉帳這個動作會把控制權交給對方，而你的帳還沒記完</strong>。</p>
+<pre><code><span class="c">// ✗ 易受攻擊：先轉錢，後歸零</span>
+mapping(address =&gt; uint256) public balances;
+
+function withdraw() external {
+    uint256 amount = balances[msg.sender];
+    (bool ok, ) = msg.sender.call{value: amount}("");   <span class="c">// ← 控制權在此交出去</span>
+    require(ok, "transfer failed");
+    balances[msg.sender] = 0;                            <span class="c">// ← 太晚了</span>
+}</code></pre>
+    <p>攻擊者只要是一個合約，在收款的 <code>receive()</code> 裡再呼叫一次 <code>withdraw()</code>，此時 <code>balances</code> 尚未歸零，於是又領一次：</p>
+<pre><code>contract Attacker {
+    Victim victim;
+    receive() external payable {
+        if (address(victim).balance &gt;= 1 ether) victim.withdraw();  <span class="c">// 再進去一次</span>
+    }
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 350" role="img" aria-label="重入攻擊流程：攻擊者呼叫受害合約的提款函式，合約讀取餘額後先轉帳，控制權移交攻擊者的 receive 函式，攻擊者在餘額尚未歸零前再次呼叫提款，形成迴圈直到合約被掏空。">
+          <defs><marker id="s1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="s1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="30" y="30" width="180" height="290" rx="10"></rect>
+          <text class="svg-nlabel" x="120" y="58" text-anchor="middle">Attacker 合約</text>
+          <rect class="svg-node-a" x="560" y="30" width="190" height="290" rx="10"></rect>
+          <text class="svg-nlabel" x="655" y="58" text-anchor="middle">Victim 合約</text>
+          <text class="svg-ncode" x="655" y="78" text-anchor="middle">balances[attacker] = 10</text>
+          <line class="svg-flow" x1="210" y1="108" x2="558" y2="108" marker-end="url(#s1)"></line>
+          <text class="svg-flowlabel" x="384" y="100" text-anchor="middle">① withdraw()</text>
+          <text class="svg-mono" x="655" y="134" text-anchor="middle">② 讀 balances = 10</text>
+          <line class="svg-flow" x1="558" y1="164" x2="212" y2="164" marker-end="url(#s1)"></line>
+          <text class="svg-flowlabel" x="384" y="156" text-anchor="middle">③ call{value: 10} → 控制權移交</text>
+          <line class="svg-flow-a" x1="210" y1="212" x2="558" y2="212" marker-end="url(#s1a)"></line>
+          <text class="svg-step" x="384" y="204" text-anchor="middle">④ receive() 內再呼叫 withdraw()</text>
+          <text class="svg-mono-a" x="655" y="242" text-anchor="middle">⑤ balances 仍是 10</text>
+          <text class="svg-mono-a" x="655" y="262" text-anchor="middle">（第 ③ 步後才會歸零）</text>
+          <line class="svg-flow-a" x1="558" y1="292" x2="212" y2="292" marker-end="url(#s1a)"></line>
+          <text class="svg-step" x="384" y="284" text-anchor="middle">⑥ 再轉 10 → 回到 ④，直到掏空</text>
+          <text class="svg-mono" x="390" y="338" text-anchor="middle">整段都在同一筆交易內完成</text>
+        </svg>
+      </div>
+      <figcaption>關鍵在 ③ 與 ⑤ 之間的空窗：<strong>轉帳把執行權交給了攻擊者，而歸零的那行還沒跑到</strong>。所以每次重入讀到的都是同一個舊餘額。注意這整串發生在<strong>一筆交易內</strong>，鏈上看起來就是一次呼叫。</figcaption>
+    </figure>
+
+    <h3>修法：CEI 順序</h3>
+    <p>把狀態更新排到外部呼叫<strong>之前</strong>，攻擊者重入時讀到的就是新值：</p>
+<pre><code>function withdraw() external {
+    uint256 amount = balances[msg.sender];        <span class="c">// Checks</span>
+    require(amount &gt; 0, "nothing to withdraw");
+    balances[msg.sender] = 0;                     <span class="c">// Effects  ← 提前</span>
+    (bool ok, ) = msg.sender.call{value: amount}(""); <span class="c">// Interactions ← 最後</span>
+    require(ok, "transfer failed");
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 230" role="img" aria-label="CEI 順序對照：易受攻擊的寫法是檢查、互動、更新狀態，攻擊者可在互動步驟重入；正確寫法是檢查、更新狀態、互動，重入時讀到的已是新狀態。">
+          <defs><marker id="s2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="30" y="34">✗ 危險</text>
+          <rect class="svg-node" x="120" y="14" width="150" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="195" y="40" text-anchor="middle">Checks 檢查</text>
+          <rect class="svg-node" x="310" y="14" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="395" y="40" text-anchor="middle">Interactions 外部呼叫</text>
+          <rect class="svg-node" x="520" y="14" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="605" y="40" text-anchor="middle">Effects 更新狀態</text>
+          <line class="svg-flow" x1="270" y1="35" x2="308" y2="35" marker-end="url(#s2)"></line>
+          <line class="svg-flow" x1="480" y1="35" x2="518" y2="35" marker-end="url(#s2)"></line>
+          <line class="svg-price" x1="395" y1="56" x2="395" y2="92"></line>
+          <text class="svg-step" x="395" y="110" text-anchor="middle">↑ 攻擊者在這裡重入，狀態還是舊的</text>
+          <text class="svg-label" x="30" y="174">✓ 安全</text>
+          <rect class="svg-node" x="120" y="154" width="150" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="195" y="180" text-anchor="middle">Checks 檢查</text>
+          <rect class="svg-node-a" x="310" y="154" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="395" y="180" text-anchor="middle">Effects 更新狀態</text>
+          <rect class="svg-node" x="520" y="154" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="605" y="180" text-anchor="middle">Interactions 外部呼叫</text>
+          <line class="svg-flow" x1="270" y1="175" x2="308" y2="175" marker-end="url(#s2)"></line>
+          <line class="svg-flow" x1="480" y1="175" x2="518" y2="175" marker-end="url(#s2)"></line>
+          <text class="svg-mono-a" x="605" y="218" text-anchor="middle">重入時讀到的已是新值</text>
+        </svg>
+      </div>
+      <figcaption>CEI 是<strong>順序</strong>而不是工具：Checks → Effects → Interactions。<code>ReentrancyGuard</code> 是保險而非替代品——它擋得住同函式重入，但擋不住「跨函式重入」（從 <code>withdraw</code> 重入到 <code>transfer</code>）。<strong>順序寫對了才是根本解。</strong></figcaption>
+    </figure>
+
+    <h3>唯讀重入：容易被忽略的變體</h3>
+    <p>即使你的合約自己不受影響，<strong>別人讀你的 <code>view</code> 函式時可能拿到中間狀態</strong>。經典情境：某池在轉帳回呼期間，內部餘額已扣、總量尚未更新，此時 <code>getPrice()</code> 回傳的是失真的值；另一個協議剛好在這瞬間讀它來估值，就被騙了。</p>
+    <ul>
+      <li>防禦方：<strong>不要相信任何可在單筆交易內被改動的 <code>view</code> 報價</strong>，讀之前先確認對方沒有處於鎖定狀態。</li>
+      <li>提供方：<strong>把 reentrancy guard 也套在 view 函式上</strong>（或提供一個可供外部查詢鎖狀態的介面）。</li>
+    </ul>
+
+    <h2>二、存取控制（損失金額的最大宗）</h2>
+    <p>最不炫技、卻造成最多損失的一類。三種典型寫法：</p>
+<pre><code><span class="c">// ✗ 忘記加修飾器 —— 任何人都能改 owner</span>
+function setOwner(address newOwner) external { owner = newOwner; }
+
+<span class="c">// ✗ 用 tx.origin 驗身份 —— 使用者被釣到惡意合約就失守</span>
+require(tx.origin == owner, "not owner");
+
+<span class="c">// ✗ 初始化沒有保護 —— 部署後被搶先呼叫，攻擊者變 owner</span>
+function initialize(address _owner) external { owner = _owner; }</code></pre>
+<pre><code><span class="c">// ✓ 用修飾器，並且驗 msg.sender 而非 tx.origin</span>
+function setOwner(address newOwner) external onlyOwner {
+    require(newOwner != address(0), "zero address");
+    owner = newOwner;
+}
+
+<span class="c">// ✓ 初始化只能跑一次，且部署與初始化應在同一筆交易完成</span>
+function initialize(address _owner) external initializer { owner = _owner; }</code></pre>
+    <p><code>tx.origin</code> 為何危險：它是「這筆交易的最初發起人」。使用者若被誘導呼叫攻擊者的合約，該合約再去呼叫你的合約時，<code>tx.origin</code> 仍是使用者本人——驗證就這樣被繞過。<strong>身份驗證一律用 <code>msg.sender</code>。</strong></p>
+    <p>另外兩個實務重點：</p>
+    <ul>
+      <li><strong>單一 owner 是單點風險。</strong>關鍵權限（升級、提領、參數）應由多簽持有，並加時間鎖，讓社群有機會看到即將發生的變更。</li>
+      <li><strong>權限要能列舉。</strong>寫下「哪些函式受保護、被誰持有」的清單並定期核對；漏掉修飾器多半不是不懂，而是新增函式時忘了。</li>
+    </ul>
+
+    <h2>三、價格操縱：閃電貸的主戰場</h2>
+    <p>約 <strong>62%</strong> 的價格操縱攻擊用到閃電貸。原因很簡單：閃電貸讓攻擊者在<strong>不需要本金</strong>的情況下，於單筆交易內取得足以撼動市場的資金。</p>
+<pre><code><span class="c">// ✗ 直接讀現貨池的即時價 —— 單筆交易內即可被推歪</span>
+(uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+uint256 price = _priceFromSqrt(sqrtPriceX96);
+uint256 collateralValue = amount * price;          <span class="c">// 以被操縱的價格估值</span></code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 340" role="img" aria-label="閃電貸操縱預言機的流程：攻擊者無抵押借出大量資金，在去中心化交易所大額換匯推歪現貨價，目標協議讀到被操縱的價格而超額放款，攻擊者取得資金後在同一筆交易內償還閃電貸並獲利離場。">
+          <defs><marker id="s3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="s3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-dash" x="16" y="14" width="748" height="286" rx="14"></rect>
+          <text class="svg-mono-a" x="32" y="38">同一筆交易內完成——失敗就整筆 revert，攻擊者零風險</text>
+          <rect class="svg-node" x="40" y="62" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="125" y="88" text-anchor="middle">① 閃電貸</text>
+          <text class="svg-ncode" x="125" y="107" text-anchor="middle">無抵押借出鉅額</text>
+          <rect class="svg-node" x="300" y="62" width="190" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="395" y="88" text-anchor="middle">② DEX 大額換匯</text>
+          <text class="svg-ncode" x="395" y="107" text-anchor="middle">把現貨價推歪</text>
+          <rect class="svg-node-a" x="570" y="62" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="655" y="88" text-anchor="middle">③ 目標協議</text>
+          <text class="svg-ncode" x="655" y="107" text-anchor="middle">讀 slot0 現貨價</text>
+          <line class="svg-flow" x1="210" y1="91" x2="298" y2="91" marker-end="url(#s3)"></line>
+          <line class="svg-flow-a" x1="490" y1="91" x2="568" y2="91" marker-end="url(#s3a)"></line>
+          <rect class="svg-node" x="570" y="168" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="655" y="194" text-anchor="middle">④ 以錯價估值</text>
+          <text class="svg-ncode" x="655" y="213" text-anchor="middle">超額借出 / 賤價清算</text>
+          <line class="svg-flow-a" x1="655" y1="120" x2="655" y2="166" marker-end="url(#s3a)"></line>
+          <rect class="svg-node" x="300" y="168" width="190" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="395" y="194" text-anchor="middle">⑤ 還閃電貸</text>
+          <text class="svg-ncode" x="395" y="213" text-anchor="middle">本金 + 手續費</text>
+          <line class="svg-flow" x1="568" y1="197" x2="492" y2="197" marker-end="url(#s3)"></line>
+          <rect class="svg-node" x="40" y="168" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="125" y="194" text-anchor="middle">⑥ 獲利離場</text>
+          <text class="svg-ncode" x="125" y="213" text-anchor="middle">差額即利潤</text>
+          <line class="svg-flow" x1="298" y1="197" x2="212" y2="197" marker-end="url(#s3)"></line>
+          <text class="svg-mono" x="390" y="268" text-anchor="middle">價格在交易結束後自動回復——鏈上只留下一筆「正常」的大額交易</text>
+          <text class="svg-step" x="390" y="328" text-anchor="middle">防禦點：③ 不要讀可在單筆交易內被推動的價格</text>
+        </svg>
+      </div>
+      <figcaption>攻擊者<strong>全程不需要自有資金</strong>：借、推價、獲利、還款都在同一筆交易，只要最終還得起，整串就成立；還不起則整筆 revert，他只損失 gas。所以「攻擊者沒那麼多錢」從來不是防禦理由。防線只有一條——<strong>③ 不要相信單筆交易內可被推動的價格</strong>。</figcaption>
+    </figure>
+
+<pre><code><span class="c">// ✓ 方案 A：TWAP（時間加權），拉長操縱所需的成本與時間</span>
+(int24 meanTick, ) = OracleLibrary.consult(pool, 1800);   <span class="c">// 30 分鐘均價</span>
+
+<span class="c">// ✓ 方案 B：外部預言機，並且務必檢查新鮮度與合理性</span>
+(, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
+require(answer &gt; 0, "bad price");
+require(block.timestamp - updatedAt &lt; 3600, "stale price");   <span class="c">// 別忘了這行</span></code></pre>
+    <p>兩個常見的半吊子防禦：<strong>只檢查 <code>answer &gt; 0</code> 卻不檢查 <code>updatedAt</code></strong>（預言機停更時你會用到過期價格），以及<strong>用單一來源的 TWAP 卻設得太短</strong>（幾個區塊的 TWAP 在低流動性池仍可被操縱）。</p>
+
+    <h2>四、簽章：重放與驗證</h2>
+<pre><code><span class="c">// ✗ 沒有 nonce、沒綁 chainId、沒綁合約位址 → 可無限重放、跨鏈重放</span>
+bytes32 h = keccak256(abi.encodePacked(to, amount));
+require(ECDSA.recover(h, sig) == owner, "bad sig");
+
+<span class="c">// ✗ 直接用 ecrecover：驗證失敗時回傳 address(0)</span>
+<span class="c">//    若 owner 剛好未初始化（也是 0），任何壞簽章都會通過</span>
+require(ecrecover(h, v, r, s) == owner);</code></pre>
+<pre><code><span class="c">// ✓ EIP-712：綁定 chainId 與 verifyingContract，並用 nonce 防重放</span>
+bytes32 structHash = keccak256(abi.encode(TYPEHASH, to, amount, nonces[owner]++));
+bytes32 digest = _hashTypedDataV4(structHash);   <span class="c">// 內含 domain separator</span>
+address signer = ECDSA.recover(digest, sig);     <span class="c">// OZ 版本失敗會 revert，不回 0</span>
+require(signer == owner &amp;&amp; signer != address(0), "bad sig");</code></pre>
+    <p>檢查清單：<strong>nonce</strong>（防同鏈重放）、<strong>chainId</strong>（防跨鏈重放）、<strong>verifyingContract</strong>（防跨合約重放）、<strong>deadline</strong>（限制有效期）。四項缺一，就存在對應的重放面。</p>
+
+    <h2>五、外部呼叫與回傳值</h2>
+    <p>ERC-20 的實作分歧是長年的坑：有些代幣（如 USDT）<strong>不回傳 bool</strong>，有些失敗時<strong>只回 false 而不 revert</strong>。</p>
+<pre><code><span class="c">// ✗ 對 USDT 這類代幣會因為沒有回傳值而 revert</span>
+require(token.transfer(to, amount), "transfer failed");
+
+<span class="c">// ✗ 忽略回傳值 —— 失敗了你也不知道</span>
+token.transfer(to, amount);
+
+<span class="c">// ✓ 用 SafeERC20 統一處理兩種行為</span>
+using SafeERC20 for IERC20;
+token.safeTransfer(to, amount);</code></pre>
+<pre><code><span class="c">// ✓ fee-on-transfer 代幣：實收金額不等於你要求的金額</span>
+uint256 balBefore = token.balanceOf(address(this));
+token.safeTransferFrom(msg.sender, address(this), amount);
+uint256 received = token.balanceOf(address(this)) - balBefore;
+_credit(msg.sender, received);      <span class="c">// 用實收，不要用 amount</span></code></pre>
+    <p>低階呼叫也要記得：<code>call</code> 對<strong>不存在的位址會回傳 success = true</strong>。若目標可能不是合約，需額外檢查 <code>code.length</code>。</p>
+
+    <h2>六、精度與四捨五入：ERC-4626 通膨攻擊</h2>
+    <p>整數除法一律向下取整，這個看似無害的性質是金庫類合約的經典破口。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="ERC-4626 通膨攻擊流程：攻擊者先以極小金額成為首位存款人取得一股，再直接轉入大筆資產拉高每股淨值，導致後續存款人因向下取整而分到零股，攻擊者最後贖回全部資產。">
+          <defs><marker id="s4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="s4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="40" width="172" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="68" text-anchor="middle">① 首存 1 wei</text>
+          <text class="svg-ncode" x="106" y="88" text-anchor="middle">取得 1 share</text>
+          <rect class="svg-node" x="222" y="40" width="186" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="68" text-anchor="middle">② 直接轉入 10 ETH</text>
+          <text class="svg-ncode" x="315" y="88" text-anchor="middle">不經 deposit，share 不變</text>
+          <rect class="svg-node-a" x="438" y="40" width="186" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="531" y="68" text-anchor="middle">③ 每股淨值暴漲</text>
+          <text class="svg-ncode" x="531" y="88" text-anchor="middle">1 share ≈ 10 ETH</text>
+          <line class="svg-flow" x1="192" y1="75" x2="220" y2="75" marker-end="url(#s4)"></line>
+          <line class="svg-flow" x1="408" y1="75" x2="436" y2="75" marker-end="url(#s4)"></line>
+          <rect class="svg-node" x="222" y="168" width="186" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="196" text-anchor="middle">④ 受害者存 5 ETH</text>
+          <text class="svg-ncode" x="315" y="216" text-anchor="middle">shares = 5/10 = 0</text>
+          <text class="svg-ncode" x="315" y="234" text-anchor="middle">（向下取整）</text>
+          <line class="svg-flow-a" x1="531" y1="110" x2="410" y2="172" marker-end="url(#s4a)"></line>
+          <rect class="svg-node" x="20" y="168" width="172" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="196" text-anchor="middle">⑤ 攻擊者贖回</text>
+          <text class="svg-ncode" x="106" y="216" text-anchor="middle">持有全部 share</text>
+          <text class="svg-ncode" x="106" y="234" text-anchor="middle">領走 15 ETH</text>
+          <line class="svg-flow-a" x1="220" y1="206" x2="194" y2="206" marker-end="url(#s4a)"></line>
+          <text class="svg-step" x="390" y="282" text-anchor="middle">根本原因：share 計算用整數除法，且「直接轉入」不會鑄造 share</text>
+        </svg>
+      </div>
+      <figcaption>攻擊成立的兩個條件缺一不可：<strong>金庫是空的</strong>（攻擊者能當首位存款人），以及<strong>直接轉帳能改變每股淨值卻不鑄造 share</strong>。受害者存入的 5 ETH 因為向下取整換到 0 股，等於白送。</figcaption>
+    </figure>
+
+    <p>三種修法，建議一起用：</p>
+    <ul>
+      <li><strong>虛擬股數／資產偏移</strong>：OpenZeppelin 的 ERC-4626 預設加入虛擬 offset，讓首存者無法把每股淨值推到極端。這是最省事且有效的一層。</li>
+      <li><strong>部署時預先注入</strong>：部署者自己先存一筆並燒掉那些 share，使金庫永不為空。</li>
+      <li><strong>取整方向要對自己不利</strong>：鑄造 share 時向下取整、贖回時也向下取整，讓誤差永遠留在金庫而非使用者身上。</li>
+    </ul>
+
+    <h2>七、delegatecall 與 storage collision</h2>
+    <p><code>delegatecall</code> 用<strong>呼叫方的儲存空間</strong>執行對方的程式碼。代理模式靠它運作，也因此對 slot 排列極度敏感。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 290" role="img" aria-label="儲存槽衝突示意：升級後在中間插入新變數，導致其後所有變數的槽位位移，新版讀取舊資料時對應到錯誤的欄位。">
+          <defs><marker id="s5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="120" y="34" text-anchor="middle">V1 的排列</text>
+          <text class="svg-label" x="560" y="34" text-anchor="middle">V2（中間插入變數）</text>
+          <text class="svg-mono" x="30" y="72">slot 0</text>
+          <rect class="svg-node" x="90" y="52" width="180" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="180" y="76" text-anchor="middle">address owner</text>
+          <text class="svg-mono" x="30" y="126">slot 1</text>
+          <rect class="svg-node" x="90" y="106" width="180" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="180" y="130" text-anchor="middle">uint256 total</text>
+          <text class="svg-mono" x="30" y="180">slot 2</text>
+          <rect class="svg-node" x="90" y="160" width="180" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="180" y="184" text-anchor="middle">address treasury</text>
+          <text class="svg-mono" x="470" y="72">slot 0</text>
+          <rect class="svg-node" x="530" y="52" width="200" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="630" y="76" text-anchor="middle">address owner　✓</text>
+          <text class="svg-mono" x="470" y="126">slot 1</text>
+          <rect class="svg-node-a" x="530" y="106" width="200" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="630" y="130" text-anchor="middle">address treasury　✗</text>
+          <text class="svg-mono" x="470" y="180">slot 2</text>
+          <rect class="svg-node-a" x="530" y="160" width="200" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="630" y="184" text-anchor="middle">uint256 total　✗</text>
+          <line class="svg-flow-a" x1="272" y1="125" x2="528" y2="179" marker-end="url(#s5)"></line>
+          <text class="svg-step" x="400" y="148" text-anchor="middle">舊的 total 被當成 treasury 讀出</text>
+          <text class="svg-mono" x="390" y="246" text-anchor="middle">升級只換程式碼，儲存內容留在原地——欄位含義因此錯位</text>
+          <text class="svg-step" x="390" y="276" text-anchor="middle">規則：只能在尾端追加變數，或改用 ERC-7201 命名空間儲存</text>
+        </svg>
+      </div>
+      <figcaption>升級<strong>不會搬動既有資料</strong>，只換掉程式碼。在中間插入一個變數，其後所有欄位的含義就整排位移：新版的 <code>treasury</code> 會讀到舊版 <code>total</code> 的數值。這類錯誤不會 revert，只會安靜地把資金導到錯的地方。</figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>只在尾端追加</strong>，永不刪除或重排既有變數；或直接採用 <strong>ERC-7201 命名空間儲存</strong>，把每個模組的變數放進以雜湊算出的獨立區段，從根本避免碰撞。</li>
+      <li><strong>代理自身的變數要放特殊槽位</strong>：EIP-1967 規定 implementation 與 admin 的槽位由特定字串雜湊而來，就是為了不跟應用層變數撞在一起。</li>
+      <li><strong>絕不 <code>delegatecall</code> 到不可信的位址</strong>——那等於把自己的儲存空間交給對方任意改寫。</li>
+    </ul>
+
+    <h2>八、拒絕服務與 griefing</h2>
+<pre><code><span class="c">// ✗ push 付款 + 無界迴圈：一個收款人 revert，全部人都領不到</span>
+for (uint256 i = 0; i &lt; recipients.length; i++) {
+    payable(recipients[i]).transfer(amounts[i]);   <span class="c">// 對方是合約且 receive revert → 整批失敗</span>
+}</code></pre>
+<pre><code><span class="c">// ✓ pull 模式：只記帳，讓各自來領；單一失敗不影響其他人</span>
+function allocate(address to, uint256 amount) internal { credits[to] += amount; }
+
+function claim() external {
+    uint256 amount = credits[msg.sender];
+    require(amount &gt; 0, "nothing to claim");
+    credits[msg.sender] = 0;                       <span class="c">// Effects 先行</span>
+    (bool ok, ) = msg.sender.call{value: amount}("");
+    require(ok, "transfer failed");
+}</code></pre>
+    <p>同理，任何<strong>長度由使用者控制的迴圈</strong>都是風險：攻擊者只要把陣列灌到超過區塊 gas 上限，該函式就永遠無法執行。</p>
+
+    <h2>流程比技巧重要</h2>
+    <p>回到市場背景那個數字——大部分的錢不是被精妙的漏洞拿走的。以下依投報率排序：</p>
+    <ol>
+      <li><strong>權限盤點</strong>：列出所有特權函式與持有者。關鍵權限交多簽 + 時間鎖，不要單一 EOA。</li>
+      <li><strong>金鑰管理</strong>：硬體錢包、簽署流程、離職交接。這一項的期望損失高於所有程式碼技巧的總和。</li>
+      <li><strong>測試</strong>：fuzz 與 invariant testing 找得到人眼看不到的邊界；fork 測試用真實狀態驗證整合假設。</li>
+      <li><strong>審計</strong>：但要知道審計不是保證。研究顯示公開審計發現與實際事故之間存在明顯落差——審計是降低機率，不是消除風險。</li>
+      <li><strong>監控與應變</strong>：異常提領告警、暫停開關、事故劇本。假設它總有一天會發生。</li>
+    </ol>
+
+    <h2>使用者風險</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>無限授權</strong></td><td>多數 dApp 預設請求無上限的 <code>approve</code>。合約若被攻破，你的代幣會依該授權被搬走。定期到授權管理工具檢視並撤銷。</td></tr>
+        <tr><td><strong>釣魚簽章</strong></td><td>約 19.5% 的歷史損失來自釣魚。看不懂的簽章一律不簽——尤其 <code>Permit</code> 與 <code>setApprovalForAll</code>。</td></tr>
+        <tr><td><strong>新協議風險最高</strong></td><td>事件數集中在新上線、未經審計的協議。高 APY 通常反映的是風險，不是效率。</td></tr>
+        <tr><td><strong>升級權限</strong></td><td>可升級合約代表有人能改寫規則。進場前確認誰持有升級權、是否多簽、有無時間鎖。</td></tr>
+        <tr><td><strong>審計不等於安全</strong></td><td>「已審計」只代表某時點的某個版本被看過；升級後的程式碼未必在範圍內。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://docs.soliditylang.org/en/latest/security-considerations.html">Solidity 官方：安全考量</a></li>
+      <li><a href="https://docs.openzeppelin.com/contracts/5.x/">OpenZeppelin Contracts 文件</a></li>
+      <li><a href="https://owasp.org/www-project-smart-contract-top-10/">OWASP Smart Contract Top 10</a></li>
+      <li><a href="https://consensys.github.io/smart-contract-best-practices/">Consensys 智慧合約最佳實務</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1967">EIP-1967：代理儲存槽</a>／<a href="https://eips.ethereum.org/EIPS/eip-7201">ERC-7201：命名空間儲存</a></li>
+    </ul>
+    <p class="meta">內容查證時間：2026-09-18</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Solidity Security: A Field Guide</h1>
+    <p class="meta">2026-09-18 · SOLIDITY · SECURITY · ATTACK FLOWS · DEVELOPER GUIDE</p>
+
+    <p>Eight classes of bug that actually make money disappear: each with the attack flow, the vulnerable code, and the fixed version. The goal is not memorising names but building an instinct — <strong>seeing a shape of code and flinching</strong>.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>Most contract bugs reduce to one sentence: <strong>you handed control to someone else before your state was finished updating</strong> — reentrancy, oracles and signature replay are all that shape.</li>
+        <li>But face a blunt statistic first: <strong>about 76% of funds stolen in H1 2026 came from key and operational compromise, not clever Solidity bugs</strong>. Code bugs drive the incident count, not the money.</li>
+        <li>So the real defence order is: <strong>get permissions and keys right first, then worry about code technique</strong>. One missing <code>onlyOwner</code> is deadlier than any elegant reentrancy.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners → read "Reentrancy" and "Access control", which account for most incidents; experienced Solidity engineers → go straight to "Price manipulation", "Rounding" and "Storage collision"; PMs and tech leads → market background and "Process beats technique".</p>
+    </div>
+
+    <h2>Market background: how the money actually goes</h2>
+    <p>These numbers should change how you allocate a security budget. H1 2026 set a <strong>record for incident count while losses fell sharply</strong> — meaning small, newly launched, unaudited protocols get hit more often, while the large losses come from somewhere else entirely.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>H1 2026 total stolen</td><td>~$0.97B–1.32B (sources differ)</td></tr>
+        <tr><td>H1 2026 incidents</td><td>~207–224 (record high)</td></tr>
+        <tr><td>For contrast: H1 2025</td><td>~$2.3B</td></tr>
+        <tr><td><strong>Infrastructure / operational share of funds</strong></td><td><strong>~76%</strong> (from only ~15% of incidents)</td></tr>
+        <tr><td>Private-key compromise, historical share</td><td>~24.4%</td></tr>
+        <tr><td>Phishing, historical share</td><td>~19.5%</td></tr>
+        <tr><td>Access-control failures, historical share</td><td>~12.8% (~$994M)</td></tr>
+        <tr><td>Price-manipulation attacks using flash loans</td><td>~62.1%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate and vary by source and period; current as of 2026-09.</p>
+    <p>Add the first three: <strong>key compromise + phishing + access control ≈ 57% of total losses</strong>. None of them requires the attacker to understand assembly; they test <strong>who can do what, and where the keys live</strong>. The two largest incidents of 2026 (Drift ~$280M, KelpDAO ~$293M) were not classic algorithmic bugs either — Drift's was an <strong>upgrade mechanism</strong>.</p>
+    <blockquote><p>The conclusion is plain: <strong>get permission design, multisig and upgrade process right before studying exotic reentrancy variants.</strong> Reversed, it is three locks on a paper door.</p></blockquote>
+
+    <h2>1. Reentrancy</h2>
+    <p>The classic, and the best illustration of the core instinct. The problem is not "transferring" but that <strong>transferring hands control to the recipient while your books are still open</strong>.</p>
+<pre><code><span class="c">// x Vulnerable: send first, zero the balance afterwards</span>
+mapping(address =&gt; uint256) public balances;
+
+function withdraw() external {
+    uint256 amount = balances[msg.sender];
+    (bool ok, ) = msg.sender.call{value: amount}("");   <span class="c">// control leaves here</span>
+    require(ok, "transfer failed");
+    balances[msg.sender] = 0;                            <span class="c">// too late</span>
+}</code></pre>
+    <p>The attacker only has to be a contract: in its <code>receive()</code> it calls <code>withdraw()</code> again, while <code>balances</code> is still un-zeroed, and withdraws once more:</p>
+<pre><code>contract Attacker {
+    Victim victim;
+    receive() external payable {
+        if (address(victim).balance &gt;= 1 ether) victim.withdraw();  <span class="c">// go in again</span>
+    }
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 350" role="img" aria-label="Reentrancy attack flow: the attacker calls the victim's withdraw function, the victim reads the balance and sends funds, control passes to the attacker's receive function, and the attacker calls withdraw again before the balance is zeroed, looping until the contract is drained.">
+          <defs><marker id="t1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="t1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="30" y="30" width="180" height="290" rx="10"></rect>
+          <text class="svg-nlabel" x="120" y="58" text-anchor="middle">Attacker contract</text>
+          <rect class="svg-node-a" x="560" y="30" width="190" height="290" rx="10"></rect>
+          <text class="svg-nlabel" x="655" y="58" text-anchor="middle">Victim contract</text>
+          <text class="svg-ncode" x="655" y="78" text-anchor="middle">balances[attacker] = 10</text>
+          <line class="svg-flow" x1="210" y1="108" x2="558" y2="108" marker-end="url(#t1)"></line>
+          <text class="svg-flowlabel" x="384" y="100" text-anchor="middle">① withdraw()</text>
+          <text class="svg-mono" x="655" y="134" text-anchor="middle">② read balances = 10</text>
+          <line class="svg-flow" x1="558" y1="164" x2="212" y2="164" marker-end="url(#t1)"></line>
+          <text class="svg-flowlabel" x="384" y="156" text-anchor="middle">③ call{value: 10} → control handed over</text>
+          <line class="svg-flow-a" x1="210" y1="212" x2="558" y2="212" marker-end="url(#t1a)"></line>
+          <text class="svg-step" x="384" y="204" text-anchor="middle">④ receive() calls withdraw() again</text>
+          <text class="svg-mono-a" x="655" y="242" text-anchor="middle">⑤ balances is still 10</text>
+          <text class="svg-mono-a" x="655" y="262" text-anchor="middle">(zeroed only after step ③)</text>
+          <line class="svg-flow-a" x1="558" y1="292" x2="212" y2="292" marker-end="url(#t1a)"></line>
+          <text class="svg-step" x="384" y="284" text-anchor="middle">⑥ sends 10 again → back to ④, until drained</text>
+          <text class="svg-mono" x="390" y="338" text-anchor="middle">all of this happens inside one transaction</text>
+        </svg>
+      </div>
+      <figcaption>The gap between ③ and ⑤ is everything: <strong>the transfer gives the attacker execution, and the zeroing line has not run yet</strong>. Every reentrant call reads the same stale balance. Note that the whole sequence happens <strong>within a single transaction</strong> — on-chain it looks like one call.</figcaption>
+    </figure>
+
+    <h3>The fix: CEI ordering</h3>
+    <p>Move the state update <strong>before</strong> the external call, so a reentrant caller reads the new value:</p>
+<pre><code>function withdraw() external {
+    uint256 amount = balances[msg.sender];        <span class="c">// Checks</span>
+    require(amount &gt; 0, "nothing to withdraw");
+    balances[msg.sender] = 0;                     <span class="c">// Effects  ← moved up</span>
+    (bool ok, ) = msg.sender.call{value: amount}(""); <span class="c">// Interactions ← last</span>
+    require(ok, "transfer failed");
+}</code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 230" role="img" aria-label="CEI ordering compared: the vulnerable order is checks, interactions, effects, letting an attacker re-enter during the interaction; the safe order is checks, effects, interactions, so a reentrant call reads updated state.">
+          <defs><marker id="t2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="30" y="34">x Unsafe</text>
+          <rect class="svg-node" x="130" y="14" width="140" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="200" y="40" text-anchor="middle">Checks</text>
+          <rect class="svg-node" x="310" y="14" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="395" y="40" text-anchor="middle">Interactions</text>
+          <rect class="svg-node" x="520" y="14" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="605" y="40" text-anchor="middle">Effects</text>
+          <line class="svg-flow" x1="270" y1="35" x2="308" y2="35" marker-end="url(#t2)"></line>
+          <line class="svg-flow" x1="480" y1="35" x2="518" y2="35" marker-end="url(#t2)"></line>
+          <line class="svg-price" x1="395" y1="56" x2="395" y2="92"></line>
+          <text class="svg-step" x="395" y="110" text-anchor="middle">↑ attacker re-enters here; state is still stale</text>
+          <text class="svg-label" x="30" y="174">OK Safe</text>
+          <rect class="svg-node" x="130" y="154" width="140" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="200" y="180" text-anchor="middle">Checks</text>
+          <rect class="svg-node-a" x="310" y="154" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="395" y="180" text-anchor="middle">Effects</text>
+          <rect class="svg-node" x="520" y="154" width="170" height="42" rx="8"></rect>
+          <text class="svg-ncode" x="605" y="180" text-anchor="middle">Interactions</text>
+          <line class="svg-flow" x1="270" y1="175" x2="308" y2="175" marker-end="url(#t2)"></line>
+          <line class="svg-flow" x1="480" y1="175" x2="518" y2="175" marker-end="url(#t2)"></line>
+          <text class="svg-mono-a" x="605" y="218" text-anchor="middle">a reentrant call reads the new value</text>
+        </svg>
+      </div>
+      <figcaption>CEI is an <strong>ordering</strong>, not a tool: Checks → Effects → Interactions. <code>ReentrancyGuard</code> is insurance, not a substitute — it stops same-function reentry but not <em>cross-function</em> reentry (entering <code>transfer</code> from inside <code>withdraw</code>). <strong>Correct ordering is the real fix.</strong></figcaption>
+    </figure>
+
+    <h3>Read-only reentrancy: the overlooked variant</h3>
+    <p>Even if your own contract is safe, <strong>someone reading your <code>view</code> function may get mid-update state</strong>. The classic case: during a transfer callback a pool has debited internal balances but not yet updated totals, so <code>getPrice()</code> returns a distorted value — and another protocol reading it at that instant is fooled.</p>
+    <ul>
+      <li>As a consumer: <strong>never trust a <code>view</code> quote that can be moved within one transaction</strong>; check the source is not mid-operation.</li>
+      <li>As a provider: <strong>apply the reentrancy guard to view functions too</strong>, or expose a way to query the lock state.</li>
+    </ul>
+
+    <h2>2. Access control (the largest share of losses)</h2>
+    <p>The least clever class, and the most costly. Three typical forms:</p>
+<pre><code><span class="c">// x Missing modifier — anyone can take ownership</span>
+function setOwner(address newOwner) external { owner = newOwner; }
+
+<span class="c">// x tx.origin for identity — phish the user into a malicious contract and it falls</span>
+require(tx.origin == owner, "not owner");
+
+<span class="c">// x Unprotected initialiser — front-run after deployment, attacker becomes owner</span>
+function initialize(address _owner) external { owner = _owner; }</code></pre>
+<pre><code><span class="c">// OK Use a modifier, and check msg.sender rather than tx.origin</span>
+function setOwner(address newOwner) external onlyOwner {
+    require(newOwner != address(0), "zero address");
+    owner = newOwner;
+}
+
+<span class="c">// OK Initialise once, and deploy + initialise in the same transaction</span>
+function initialize(address _owner) external initializer { owner = _owner; }</code></pre>
+    <p>Why <code>tx.origin</code> is dangerous: it is the transaction's original sender. If a user is lured into calling an attacker's contract, which then calls yours, <code>tx.origin</code> is still the user — and the check is bypassed. <strong>Always authenticate with <code>msg.sender</code>.</strong></p>
+    <ul>
+      <li><strong>A single owner is a single point of failure.</strong> Critical rights (upgrade, withdraw, parameters) belong to a multisig with a timelock, so changes are visible before they land.</li>
+      <li><strong>Permissions must be enumerable.</strong> Keep a list of which functions are protected and by whom, and review it — a missing modifier is almost never ignorance, it is a function added later.</li>
+    </ul>
+
+    <h2>3. Price manipulation: the flash loan's home ground</h2>
+    <p>About <strong>62%</strong> of price-manipulation attacks use a flash loan, for a simple reason: it gives the attacker enough capital to move a market <strong>without any of their own</strong>, inside one transaction.</p>
+<pre><code><span class="c">// x Reading the live spot price — movable within a single transaction</span>
+(uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+uint256 price = _priceFromSqrt(sqrtPriceX96);
+uint256 collateralValue = amount * price;          <span class="c">// valued at a manipulated price</span></code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 340" role="img" aria-label="Flash-loan oracle manipulation: the attacker borrows a large uncollateralised sum, swaps heavily on a DEX to distort the spot price, the target protocol reads the manipulated price and over-lends, and the attacker repays the flash loan within the same transaction and keeps the difference.">
+          <defs><marker id="t3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="t3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-dash" x="16" y="14" width="748" height="286" rx="14"></rect>
+          <text class="svg-mono-a" x="32" y="38">all inside one transaction — if it fails everything reverts, so the attacker risks nothing</text>
+          <rect class="svg-node" x="40" y="62" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="125" y="88" text-anchor="middle">① flash loan</text>
+          <text class="svg-ncode" x="125" y="107" text-anchor="middle">huge, uncollateralised</text>
+          <rect class="svg-node" x="300" y="62" width="190" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="395" y="88" text-anchor="middle">② swap hard on a DEX</text>
+          <text class="svg-ncode" x="395" y="107" text-anchor="middle">distorts the spot price</text>
+          <rect class="svg-node-a" x="570" y="62" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="655" y="88" text-anchor="middle">③ target protocol</text>
+          <text class="svg-ncode" x="655" y="107" text-anchor="middle">reads slot0 spot price</text>
+          <line class="svg-flow" x1="210" y1="91" x2="298" y2="91" marker-end="url(#t3)"></line>
+          <line class="svg-flow-a" x1="490" y1="91" x2="568" y2="91" marker-end="url(#t3a)"></line>
+          <rect class="svg-node" x="570" y="168" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="655" y="194" text-anchor="middle">④ values it wrongly</text>
+          <text class="svg-ncode" x="655" y="213" text-anchor="middle">over-lends / cheap liquidation</text>
+          <line class="svg-flow-a" x1="655" y1="120" x2="655" y2="166" marker-end="url(#t3a)"></line>
+          <rect class="svg-node" x="300" y="168" width="190" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="395" y="194" text-anchor="middle">⑤ repay the loan</text>
+          <text class="svg-ncode" x="395" y="213" text-anchor="middle">principal + fee</text>
+          <line class="svg-flow" x1="568" y1="197" x2="492" y2="197" marker-end="url(#t3)"></line>
+          <rect class="svg-node" x="40" y="168" width="170" height="58" rx="10"></rect>
+          <text class="svg-nlabel" x="125" y="194" text-anchor="middle">⑥ walk away</text>
+          <text class="svg-ncode" x="125" y="213" text-anchor="middle">the difference is profit</text>
+          <line class="svg-flow" x1="298" y1="197" x2="212" y2="197" marker-end="url(#t3)"></line>
+          <text class="svg-mono" x="390" y="268" text-anchor="middle">the price snaps back afterwards — on-chain it is one large but "normal" trade</text>
+          <text class="svg-step" x="390" y="328" text-anchor="middle">the only defence is at ③: do not read a price movable within one transaction</text>
+        </svg>
+      </div>
+      <figcaption>The attacker needs <strong>no capital of their own</strong>: borrow, move the price, profit and repay all happen in one transaction, and it only has to balance at the end — otherwise the whole thing reverts and they lose gas. So "an attacker would not have that much money" was never a defence. There is exactly one line of defence: <strong>at ③, do not trust a price that can be pushed within a single transaction</strong>.</figcaption>
+    </figure>
+
+<pre><code><span class="c">// OK Option A: a TWAP, which raises the cost and duration of manipulation</span>
+(int24 meanTick, ) = OracleLibrary.consult(pool, 1800);   <span class="c">// 30-minute mean</span>
+
+<span class="c">// OK Option B: an external oracle — but always check freshness and sanity</span>
+(, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
+require(answer &gt; 0, "bad price");
+require(block.timestamp - updatedAt &lt; 3600, "stale price");   <span class="c">// don't skip this</span></code></pre>
+    <p>Two common half-defences: <strong>checking <code>answer &gt; 0</code> but not <code>updatedAt</code></strong> (you will happily use a stale price when the feed stops updating), and <strong>a single-source TWAP set too short</strong> (a few blocks is still manipulable in a thin pool).</p>
+
+    <h2>4. Signatures: replay and verification</h2>
+<pre><code><span class="c">// x No nonce, no chainId, no contract address → replayable, including cross-chain</span>
+bytes32 h = keccak256(abi.encodePacked(to, amount));
+require(ECDSA.recover(h, sig) == owner, "bad sig");
+
+<span class="c">// x Raw ecrecover returns address(0) on failure</span>
+<span class="c">//   if owner happens to be uninitialised (also 0), every bad signature passes</span>
+require(ecrecover(h, v, r, s) == owner);</code></pre>
+<pre><code><span class="c">// OK EIP-712: binds chainId and verifyingContract, with a nonce against replay</span>
+bytes32 structHash = keccak256(abi.encode(TYPEHASH, to, amount, nonces[owner]++));
+bytes32 digest = _hashTypedDataV4(structHash);   <span class="c">// includes the domain separator</span>
+address signer = ECDSA.recover(digest, sig);     <span class="c">// the OZ version reverts, never returns 0</span>
+require(signer == owner &amp;&amp; signer != address(0), "bad sig");</code></pre>
+    <p>The checklist: <strong>nonce</strong> (same-chain replay), <strong>chainId</strong> (cross-chain replay), <strong>verifyingContract</strong> (cross-contract replay), <strong>deadline</strong> (validity window). Miss one and you have the matching replay surface.</p>
+
+    <h2>5. External calls and return values</h2>
+    <p>ERC-20 implementations diverge: some tokens (USDT among them) <strong>return no bool</strong>, and some <strong>return false instead of reverting</strong> on failure.</p>
+<pre><code><span class="c">// x Reverts on USDT-style tokens because there is no return value to decode</span>
+require(token.transfer(to, amount), "transfer failed");
+
+<span class="c">// x Ignoring the return value — a silent failure</span>
+token.transfer(to, amount);
+
+<span class="c">// OK SafeERC20 normalises both behaviours</span>
+using SafeERC20 for IERC20;
+token.safeTransfer(to, amount);</code></pre>
+<pre><code><span class="c">// OK Fee-on-transfer tokens: what arrives is not what you asked for</span>
+uint256 balBefore = token.balanceOf(address(this));
+token.safeTransferFrom(msg.sender, address(this), amount);
+uint256 received = token.balanceOf(address(this)) - balBefore;
+_credit(msg.sender, received);      <span class="c">// credit what arrived, not `amount`</span></code></pre>
+    <p>Low-level calls need care too: <code>call</code> to an <strong>address with no code returns success = true</strong>. If the target might not be a contract, check <code>code.length</code> as well.</p>
+
+    <h2>6. Rounding: the ERC-4626 inflation attack</h2>
+    <p>Integer division always rounds down. That innocuous property is the classic break in vault contracts.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="ERC-4626 inflation attack: the attacker becomes the first depositor with a tiny amount to get one share, then donates a large sum directly to inflate the value per share, so the next depositor's shares round down to zero and the attacker redeems everything.">
+          <defs><marker id="t4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="t4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="40" width="172" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="68" text-anchor="middle">① deposit 1 wei</text>
+          <text class="svg-ncode" x="106" y="88" text-anchor="middle">receives 1 share</text>
+          <rect class="svg-node" x="222" y="40" width="186" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="68" text-anchor="middle">② send 10 ETH directly</text>
+          <text class="svg-ncode" x="315" y="88" text-anchor="middle">no deposit call, no new shares</text>
+          <rect class="svg-node-a" x="438" y="40" width="186" height="70" rx="10"></rect>
+          <text class="svg-nlabel" x="531" y="68" text-anchor="middle">③ value per share soars</text>
+          <text class="svg-ncode" x="531" y="88" text-anchor="middle">1 share ≈ 10 ETH</text>
+          <line class="svg-flow" x1="192" y1="75" x2="220" y2="75" marker-end="url(#t4)"></line>
+          <line class="svg-flow" x1="408" y1="75" x2="436" y2="75" marker-end="url(#t4)"></line>
+          <rect class="svg-node" x="222" y="168" width="186" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="315" y="196" text-anchor="middle">④ victim deposits 5 ETH</text>
+          <text class="svg-ncode" x="315" y="216" text-anchor="middle">shares = 5/10 = 0</text>
+          <text class="svg-ncode" x="315" y="234" text-anchor="middle">(rounded down)</text>
+          <line class="svg-flow-a" x1="531" y1="110" x2="410" y2="172" marker-end="url(#t4a)"></line>
+          <rect class="svg-node" x="20" y="168" width="172" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="106" y="196" text-anchor="middle">⑤ attacker redeems</text>
+          <text class="svg-ncode" x="106" y="216" text-anchor="middle">holds every share</text>
+          <text class="svg-ncode" x="106" y="234" text-anchor="middle">takes 15 ETH</text>
+          <line class="svg-flow-a" x1="220" y1="206" x2="194" y2="206" marker-end="url(#t4a)"></line>
+          <text class="svg-step" x="390" y="282" text-anchor="middle">root cause: shares use integer division, and a direct transfer mints none</text>
+        </svg>
+      </div>
+      <figcaption>Two conditions must both hold: <strong>the vault is empty</strong> (so the attacker can be first), and <strong>a direct transfer changes value-per-share without minting shares</strong>. The victim's 5 ETH rounds down to zero shares — a straight donation to the attacker.</figcaption>
+    </figure>
+
+    <p>Three fixes, best used together:</p>
+    <ul>
+      <li><strong>Virtual shares / asset offset</strong>: OpenZeppelin's ERC-4626 adds a virtual offset by default so a first depositor cannot push value-per-share to an extreme. The cheapest effective layer.</li>
+      <li><strong>Seed at deployment</strong>: the deployer makes the first deposit and burns those shares, so the vault is never empty.</li>
+      <li><strong>Round against the user</strong>: round down when minting shares and when redeeming, so the residue always stays in the vault rather than leaking out.</li>
+    </ul>
+
+    <h2>7. delegatecall and storage collision</h2>
+    <p><code>delegatecall</code> runs someone else's code <strong>against your storage</strong>. Proxies depend on it, which makes them acutely sensitive to slot layout.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 290" role="img" aria-label="Storage collision: inserting a new variable in the middle during an upgrade shifts every later slot, so the new version reads old data into the wrong field.">
+          <defs><marker id="t5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="120" y="34" text-anchor="middle">V1 layout</text>
+          <text class="svg-label" x="560" y="34" text-anchor="middle">V2 (variable inserted)</text>
+          <text class="svg-mono" x="30" y="72">slot 0</text>
+          <rect class="svg-node" x="90" y="52" width="180" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="180" y="76" text-anchor="middle">address owner</text>
+          <text class="svg-mono" x="30" y="126">slot 1</text>
+          <rect class="svg-node" x="90" y="106" width="180" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="180" y="130" text-anchor="middle">uint256 total</text>
+          <text class="svg-mono" x="30" y="180">slot 2</text>
+          <rect class="svg-node" x="90" y="160" width="180" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="180" y="184" text-anchor="middle">address treasury</text>
+          <text class="svg-mono" x="470" y="72">slot 0</text>
+          <rect class="svg-node" x="530" y="52" width="200" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="630" y="76" text-anchor="middle">address owner　OK</text>
+          <text class="svg-mono" x="470" y="126">slot 1</text>
+          <rect class="svg-node-a" x="530" y="106" width="200" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="630" y="130" text-anchor="middle">address treasury　x</text>
+          <text class="svg-mono" x="470" y="180">slot 2</text>
+          <rect class="svg-node-a" x="530" y="160" width="200" height="38" rx="6"></rect>
+          <text class="svg-ncode" x="630" y="184" text-anchor="middle">uint256 total　x</text>
+          <line class="svg-flow-a" x1="272" y1="125" x2="528" y2="179" marker-end="url(#t5)"></line>
+          <text class="svg-step" x="400" y="148" text-anchor="middle">the old total is now read as treasury</text>
+          <text class="svg-mono" x="390" y="246" text-anchor="middle">an upgrade swaps code only — the stored bytes stay put, so fields shift meaning</text>
+          <text class="svg-step" x="390" y="276" text-anchor="middle">rule: append at the end only, or use ERC-7201 namespaced storage</text>
+        </svg>
+      </div>
+      <figcaption>An upgrade <strong>does not move existing data</strong>; it swaps code. Insert one variable in the middle and every later field shifts meaning: the new <code>treasury</code> reads the old <code>total</code>. These bugs do not revert — they quietly route funds to the wrong place.</figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>Append only</strong>; never delete or reorder existing variables. Or adopt <strong>ERC-7201 namespaced storage</strong>, which places each module's variables in a hashed, independent region and removes collisions by construction.</li>
+      <li><strong>The proxy's own variables belong in special slots</strong>: EIP-1967 derives the implementation and admin slots from specific string hashes precisely so they cannot clash with application storage.</li>
+      <li><strong>Never <code>delegatecall</code> an untrusted address</strong> — that is handing over your storage to be rewritten at will.</li>
+    </ul>
+
+    <h2>8. Denial of service and griefing</h2>
+<pre><code><span class="c">// x Push payments in an unbounded loop: one reverting recipient blocks everyone</span>
+for (uint256 i = 0; i &lt; recipients.length; i++) {
+    payable(recipients[i]).transfer(amounts[i]);   <span class="c">// a contract whose receive reverts kills the batch</span>
+}</code></pre>
+<pre><code><span class="c">// OK Pull pattern: record credit, let each party claim; one failure affects nobody else</span>
+function allocate(address to, uint256 amount) internal { credits[to] += amount; }
+
+function claim() external {
+    uint256 amount = credits[msg.sender];
+    require(amount &gt; 0, "nothing to claim");
+    credits[msg.sender] = 0;                       <span class="c">// Effects first</span>
+    (bool ok, ) = msg.sender.call{value: amount}("");
+    require(ok, "transfer failed");
+}</code></pre>
+    <p>The same logic applies to <strong>any loop whose length a user controls</strong>: an attacker only has to grow the array past the block gas limit and the function becomes permanently uncallable.</p>
+
+    <h2>Process beats technique</h2>
+    <p>Back to that market figure — most of the money is not taken by elegant bugs. In order of return on effort:</p>
+    <ol>
+      <li><strong>Audit your permissions</strong>: list every privileged function and its holder. Critical rights go to a multisig with a timelock, never a lone EOA.</li>
+      <li><strong>Key management</strong>: hardware wallets, signing procedure, offboarding. Expected loss here exceeds every code technique combined.</li>
+      <li><strong>Testing</strong>: fuzz and invariant tests find edges eyes cannot; fork tests validate integration assumptions against real state.</li>
+      <li><strong>Audits</strong>: but know their limits. Research shows a clear gap between public audit findings and real incidents — an audit lowers probability, it does not remove risk.</li>
+      <li><strong>Monitoring and response</strong>: withdrawal alerts, a pause switch, an incident runbook. Assume it happens eventually.</li>
+    </ol>
+
+    <h2>User risk</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Unlimited approvals</strong></td><td>Most dApps request an unbounded <code>approve</code> by default. If the contract is compromised, your tokens leave under that approval. Review and revoke periodically.</td></tr>
+        <tr><td><strong>Phishing signatures</strong></td><td>Roughly 19.5% of historical losses. Never sign what you cannot read — especially <code>Permit</code> and <code>setApprovalForAll</code>.</td></tr>
+        <tr><td><strong>New protocols are riskiest</strong></td><td>Incidents concentrate in newly launched, unaudited protocols. A high APY usually prices risk, not efficiency.</td></tr>
+        <tr><td><strong>Upgrade rights</strong></td><td>An upgradeable contract means someone can rewrite the rules. Check who holds the key, whether it is a multisig, and whether there is a timelock.</td></tr>
+        <tr><td><strong>Audited is not safe</strong></td><td>"Audited" means one version was reviewed at one point in time; code shipped after may never have been in scope.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://docs.soliditylang.org/en/latest/security-considerations.html">Solidity docs: security considerations</a></li>
+      <li><a href="https://docs.openzeppelin.com/contracts/5.x/">OpenZeppelin Contracts documentation</a></li>
+      <li><a href="https://owasp.org/www-project-smart-contract-top-10/">OWASP Smart Contract Top 10</a></li>
+      <li><a href="https://consensys.github.io/smart-contract-best-practices/">Consensys smart contract best practices</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1967">EIP-1967: proxy storage slots</a> / <a href="https://eips.ethereum.org/EIPS/eip-7201">ERC-7201: namespaced storage</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-18</p>
+  </div>
+
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>
