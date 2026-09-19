@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MakerDAO 與 Sky 穩定幣</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="MakerDAO 與 Sky 穩定幣" data-title-en="MakerDAO, Sky, and the Stablecoin">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>MakerDAO 與 Sky 穩定幣</h1>
+    <p class="meta">2026-09-19 · 穩定幣 · CDP · 清算拍賣 · 開發者指南</p>
+
+    <p>DeFi 最早、也最重要的穩定幣系統。這則講它<strong>憑什麼值一美元</strong>——不是靠銀行帳戶裡的儲備金，而是靠超額抵押、套利誘因與清算拍賣三者的互相牽制。以及它為了維持錨定，付出了什麼代價。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li><strong>先更新名稱</strong>：MakerDAO 已完成向 <strong>Sky</strong> 的品牌遷移，DAI 可升級為 <strong>USDS</strong>，MKR 以 1:24,000 轉為 <strong>SKY</strong>。兩種穩定幣目前並存，但 USDS 規模已超越 DAI。</li>
+        <li>它的錨定<strong>不靠儲備金，靠誘因</strong>：價格高於 1 美元時鑄造有利可圖，低於 1 美元時還債有利可圖，套利者把價格推回去。</li>
+        <li>但有個張力值得認清：為了穩住錨定而引入的 <strong>PSM</strong>（以 USDC 1:1 兌換）讓這個「去中心化穩定幣」<strong>在實務上高度依賴中心化資產</strong>。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「三種穩定幣模型」與「金庫怎麼運作」；Solidity 工程師 → 清算拍賣與整合注意事項；PM／風控 → 市場背景與使用者風險，特別是 PSM 那一段。</p>
+    </div>
+
+    <h2>市場背景：一場剛結束的品牌遷移</h2>
+    <p>如果你讀的教學還在講「MakerDAO 與 DAI」，它多半過時了。Endgame 計畫下的改名自 2024 年 8 月啟動，<strong>整段遷移在 2026 年 8 月收尾</strong>。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字 / 狀態</th></tr></thead>
+      <tbody>
+        <tr><td>品牌</td><td>MakerDAO → <strong>Sky</strong>（2024-08 啟動，2026-08 完成）</td></tr>
+        <tr><td>穩定幣</td><td>DAI → <strong>USDS</strong>（可透過轉換合約雙向 1:1）</td></tr>
+        <tr><td>治理代幣</td><td>MKR → <strong>SKY</strong>，比例 1:24,000</td></tr>
+        <tr><td>USDS 供給量</td><td>約 $7.6B–8.7B</td></tr>
+        <tr><td>DAI 市值</td><td>約 $4.66B</td></tr>
+        <tr><td>Sky Savings Rate（SSR）</td><td>2026 年初約 3.75%–4.5% APY</td></tr>
+        <tr><td>生息包裝代幣</td><td>sUSDS</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，以 2026-09 查得為準；決策前請自行複核。</p>
+    <p>對開發者的實際影響：<strong>兩種代幣、兩個地址、同一套底層系統。</strong>2026 年 4–5 月間主要交易所已強制把 DAI 餘額轉為 USDS，但鏈上兩者仍可經轉換合約互換。整合時要決定支援哪一個（或兩個都支援），並注意流動性正在往 USDS 集中。</p>
+
+    <h2>先分清楚：三種穩定幣模型</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>模型</th><th>憑什麼值 1 美元</th><th>主要風險</th></tr></thead>
+      <tbody>
+        <tr><td><strong>法幣儲備型</strong><br>（USDC、USDT）</td><td>發行方在銀行有等值美元與短債，承諾 1:1 贖回</td><td>發行方信用、銀行、監管凍結、贖回門檻</td></tr>
+        <tr><td><strong>超額抵押型</strong><br>（USDS／DAI）</td><td>鏈上鎖定了<em>價值更高</em>的加密資產，任何人可驗證</td><td>抵押品暴跌、清算失效、預言機、治理</td></tr>
+        <tr><td><strong>演算法型</strong><br>（多已失敗）</td><td>僅靠鑄造／銷毀的誘因，無實質抵押</td><td>死亡螺旋——信心一失就無法回復</td></tr>
+      </tbody>
+    </table></div>
+    <p>USDS 屬於第二類。<strong>關鍵差異在於：你不需要信任任何公司，只需要相信抵押品的價值與清算機制會運作。</strong>代價是資金效率——要造出 100 美元，得先鎖進超過 100 美元的資產。</p>
+
+    <h2>金庫（Vault）怎麼運作</h2>
+    <p>使用者開一個金庫，鎖入抵押品，鑄出穩定幣。這是一筆<strong>對自己的貸款</strong>：</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="金庫生命週期：使用者鎖入抵押品後鑄出穩定幣形成債務，期間持續累積穩定費，償還穩定幣與穩定費後債務歸零，即可取回抵押品；若抵押率跌破門檻則進入清算。">
+          <defs><marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="m1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="22" y="40" width="166" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="105" y="68" text-anchor="middle">① 鎖入抵押品</text>
+          <text class="svg-ncode" x="105" y="88" text-anchor="middle">ETH / wstETH / RWA…</text>
+          <rect class="svg-node-a" x="224" y="40" width="180" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="314" y="68" text-anchor="middle">② 鑄出 USDS</text>
+          <text class="svg-ncode" x="314" y="88" text-anchor="middle">上限 = 抵押價值 ÷ 抵押率</text>
+          <rect class="svg-node" x="440" y="40" width="166" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="523" y="68" text-anchor="middle">③ 累積穩定費</text>
+          <text class="svg-ncode" x="523" y="88" text-anchor="middle">債務持續變大</text>
+          <rect class="svg-node" x="642" y="40" width="120" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="702" y="68" text-anchor="middle">④ 還款</text>
+          <text class="svg-ncode" x="702" y="88" text-anchor="middle">銷毀 USDS</text>
+          <line class="svg-flow" x1="188" y1="73" x2="222" y2="73" marker-end="url(#m1)"></line>
+          <line class="svg-flow" x1="404" y1="73" x2="438" y2="73" marker-end="url(#m1)"></line>
+          <line class="svg-flow" x1="606" y1="73" x2="640" y2="73" marker-end="url(#m1)"></line>
+          <rect class="svg-node" x="440" y="172" width="166" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="523" y="200" text-anchor="middle">⑤ 取回抵押品</text>
+          <text class="svg-ncode" x="523" y="220" text-anchor="middle">債務歸零才可全額</text>
+          <line class="svg-flow" x1="702" y1="106" x2="702" y2="150" marker-end="url(#m1)"></line>
+          <line class="svg-flow" x1="702" y1="150" x2="610" y2="192" marker-end="url(#m1)"></line>
+          <rect class="svg-node" x="120" y="172" width="250" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="245" y="200" text-anchor="middle">✗ 抵押率跌破門檻 → 清算</text>
+          <text class="svg-ncode" x="245" y="220" text-anchor="middle">抵押品被拍賣，並加收罰金</text>
+          <line class="svg-flow-a" x1="314" y1="106" x2="260" y2="168" marker-end="url(#m1a)"></line>
+          <text class="svg-step" x="200" y="146">價格下跌</text>
+          <text class="svg-mono" x="390" y="276" text-anchor="middle">穩定費是「借款利息」，不是手續費——它只在還款時一併清償</text>
+        </svg>
+      </div>
+      <figcaption>與 <a href="./aave.html">Aave</a> 的關鍵差異：Aave 是<strong>把別人存的錢借給你</strong>（利率由供需決定），Sky 是<strong>憑你的抵押品憑空鑄出新的穩定幣</strong>（穩定費由治理決定）。前者是資金池，後者是貨幣發行。</figcaption>
+    </figure>
+
+    <h2>錨定怎麼維持：靠套利，不靠承諾</h2>
+    <p>沒有人保證 USDS 值 1 美元。維持錨定的是<strong>兩個方向都有利可圖的套利</strong>：</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 290" role="img" aria-label="錨定維持機制：價格高於一美元時，鑄造並賣出有利可圖，供給增加把價格壓回；價格低於一美元時，低價買回並償還債務有利可圖，供給減少把價格推回。">
+          <defs><marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="m2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <line class="svg-axis" x1="60" y1="145" x2="720" y2="145"></line>
+          <text class="svg-mono-a" x="390" y="138" text-anchor="middle">$1.00　錨定線</text>
+          <rect class="svg-node" x="80" y="36" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="205" y="64" text-anchor="middle">價格 &gt; $1</text>
+          <text class="svg-ncode" x="205" y="84" text-anchor="middle">鑄造 USDS 拿去賣 → 賺價差</text>
+          <text class="svg-ncode" x="205" y="100" text-anchor="middle">供給增加，價格被壓回</text>
+          <rect class="svg-node" x="450" y="36" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="64" text-anchor="middle">誘因方向</text>
+          <text class="svg-ncode" x="575" y="84" text-anchor="middle">鑄得多 → 供給多 → 價格降</text>
+          <line class="svg-flow" x1="330" y1="72" x2="448" y2="72" marker-end="url(#m2)"></line>
+          <rect class="svg-node" x="80" y="180" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="205" y="208" text-anchor="middle">價格 &lt; $1</text>
+          <text class="svg-ncode" x="205" y="228" text-anchor="middle">低價買回去還債 → 賺價差</text>
+          <text class="svg-ncode" x="205" y="244" text-anchor="middle">供給減少，價格被推回</text>
+          <rect class="svg-node" x="450" y="180" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="208" text-anchor="middle">誘因方向</text>
+          <text class="svg-ncode" x="575" y="228" text-anchor="middle">還得多 → 供給少 → 價格升</text>
+          <line class="svg-flow" x1="330" y1="216" x2="448" y2="216" marker-end="url(#m2)"></line>
+          <line class="svg-flow-a" x1="205" y1="108" x2="205" y2="140" marker-end="url(#m2a)"></line>
+          <line class="svg-flow-a" x1="205" y1="180" x2="205" y2="150" marker-end="url(#m2a)"></line>
+        </svg>
+      </div>
+      <figcaption>治理還有一個旋鈕：<strong>調整穩定費</strong>。費率調高 → 借款變貴、有人還債 → 供給減少 → 價格上升；調低則相反。這等同於一個去中心化的利率政策工具。</figcaption>
+    </figure>
+
+    <h2>PSM：維持錨定的代價</h2>
+    <p>套利在理論上足夠，但實務上速度不夠快。於是引入了 <strong>PSM（Peg Stability Module）</strong>：允許任何人用 USDC <strong>1:1 無滑點</strong>換成 USDS，反向亦然。</p>
+    <p>效果立竿見影——錨定變得非常穩。但代價必須講清楚：</p>
+    <blockquote><p>當大量 USDS 是由 PSM 裡的 USDC 支撐時，<strong>USDS 實際上繼承了 USDC 的中心化風險</strong>。USDC 若被凍結或脫錨，USDS 也會跟著出事。「去中心化穩定幣」這個標籤因此需要加註：它的<strong>機制</strong>是去中心化的，但它的<strong>抵押品構成</strong>可能不是。</p></blockquote>
+    <p>2023 年 3 月矽谷銀行事件期間 USDC 短暫脫錨，DAI 同步被拖下水，就是這個結構性依賴的實證。這也是後來系統大幅引入<strong>現實世界資產（RWA）</strong>與多元抵押品的原因之一——但 RWA 又帶來了另一種中心化（託管方、法律管轄）。<strong>這是個尚未解決的取捨，不是已被解決的問題。</strong></p>
+
+    <h2>清算：荷蘭式拍賣</h2>
+    <p>當金庫的抵押率跌破門檻，抵押品會被拍賣以償還債務。現行機制是<strong>荷蘭式拍賣</strong>（價格由高往低遞減）：</p>
+    <ol>
+      <li>任何人可呼叫清算函式，啟動拍賣並獲得一筆獎勵（誘因來源）。</li>
+      <li>拍賣起始價高於市價，隨時間<strong>線性或指數下降</strong>。</li>
+      <li>買家在自己覺得划算時買入，可分批承接。</li>
+      <li>所得先償還債務與<strong>清算罰金</strong>，剩餘退還金庫持有人。</li>
+    </ol>
+    <p>荷蘭式拍賣取代了早期的英式拍賣，關鍵理由是<strong>抗價格崩跌</strong>：2020 年 3 月的「黑色星期四」曾出現網路壅塞導致零出價得標、系統產生鉅額壞帳的事故。新機制讓買家能立即成交、並可用<a href="./flash-loan.html">閃電貸</a>即時取得資金。</p>
+
+    <h2>開發者整合注意事項</h2>
+    <ul>
+      <li><strong>先確認是 DAI 還是 USDS</strong>：兩者是不同合約地址、不同流動性。轉換合約可雙向 1:1，但你的介面要講清楚使用者持有哪一種。</li>
+      <li><strong>USDS 與 DAI 都是 18 位小數</strong>，但別假設所有穩定幣都是——USDC 是 6 位，混用會差 10¹² 倍。</li>
+      <li><strong>sUSDS 是生息包裝</strong>：它的餘額或兌換率會變動，不要當成 1:1 的 USDS 快取。</li>
+      <li><strong>穩定費持續累積</strong>：讀債務時要用即時值，不要快取。</li>
+      <li><strong>治理可改參數</strong>：抵押率、穩定費、債務上限、甚至抵押品類型都由 SKY 持有者投票決定。你的假設可能被一次投票推翻。</li>
+    </ul>
+
+<pre><code><span class="c">// DAI ↔ USDS：透過官方轉換合約，1:1 雙向，無滑點</span>
+IERC20(DAI).approve(address(CONVERTER), amount);
+CONVERTER.daiToUsds(msg.sender, amount);     <span class="c">// 反向為 usdsToDai</span>
+
+<span class="c">// 讀金庫狀態（MCD 命名很簡短：urn=金庫, ink=抵押品, art=標準化債務）</span>
+(uint256 ink, uint256 art) = VAT.urns(ilk, vaultOwner);
+(, uint256 rate, uint256 spot, , ) = VAT.ilks(ilk);
+
+<span class="c">// 實際債務 = art × rate（rate 內含累積的穩定費，會隨時間變大）</span>
+uint256 debt = art * rate / 1e27;            <span class="c">// rate 是 27 位小數（ray）</span>
+
+<span class="c">// spot 已內含抵押率折扣：ink × spot 就是「可安全借到的上限」</span>
+require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
+    <blockquote><p>三種精度混在一起是這裡最常見的錯誤來源：<strong>wad = 18 位、ray = 27 位、rad = 45 位</strong>。<code>art × rate</code> 的結果是 rad，拿去跟 wad 比較會差 10²⁷ 倍。整合前先確認每個變數的單位。</p></blockquote>
+
+    <h2>使用者風險</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>抵押品集中度</strong></td><td>若大量供給由 PSM 中的 USDC 或特定 RWA 支撐，USDS 就繼承了那些資產的風險。這是<strong>最該持續留意的一項</strong>。</td></tr>
+        <tr><td><strong>清算罰金</strong></td><td>被清算不只失去抵押品，還要付罰金。行情劇烈時，維持高抵押率比事後補救便宜得多。</td></tr>
+        <tr><td><strong>預言機延遲</strong></td><td>系統按預言機價格判定清算。在暴跌中預言機更新的時點可能讓你在「看起來還安全」時就被清算。</td></tr>
+        <tr><td><strong>治理風險</strong></td><td>SKY 持有者可調整所有關鍵參數。治理權集中或被攻擊時，規則可能對你不利地改變。</td></tr>
+        <tr><td><strong>壞帳的最終承擔者</strong></td><td>若拍賣所得不足以覆蓋債務，缺口由系統盈餘吸收；不足時會增發治理代幣稀釋持有者。</td></tr>
+        <tr><td><strong>儲蓄利率不是無風險</strong></td><td>SSR 的收益來自穩定費與 RWA 收益，由治理設定，可隨時調整，也承擔上述所有系統性風險。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://sky.money/">Sky 官方網站</a></li>
+      <li><a href="https://docs.sky.money/">Sky 技術文件</a></li>
+      <li><a href="https://forum.sky.money/">Sky 治理論壇（參數變更都在這裡討論）</a></li>
+      <li><a href="https://defillama.com/protocol/sky">DefiLlama：Sky 數據</a></li>
+    </ul>
+    <p class="meta">內容查證時間：2026-09-19</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>MakerDAO, Sky, and the Stablecoin</h1>
+    <p class="meta">2026-09-19 · STABLECOINS · CDP · LIQUIDATION AUCTIONS · DEVELOPER GUIDE</p>
+
+    <p>DeFi's oldest and most consequential stablecoin system. This note is about <strong>what actually makes it worth a dollar</strong> — not reserves in a bank account, but over-collateralisation, arbitrage incentives and liquidation auctions holding each other in check. And what it has cost to keep the peg.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li><strong>Names first</strong>: MakerDAO has completed its migration to <strong>Sky</strong>; DAI upgrades to <strong>USDS</strong>, and MKR converts to <strong>SKY</strong> at 1:24,000. Both stablecoins circulate, but USDS has overtaken DAI in size.</li>
+        <li>The peg rests on <strong>incentives, not reserves</strong>: above $1 it pays to mint and sell, below $1 it pays to buy back and repay, and arbitrageurs push the price home.</li>
+        <li>One tension worth naming: the <strong>PSM</strong> that stabilises the peg (1:1 swaps against USDC) makes this "decentralised stablecoin" <strong>heavily dependent on centralised assets in practice</strong>.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners → "Three stablecoin models" and "How a vault works"; Solidity engineers → liquidation auctions and integration notes; PMs and risk → market background and user risk, especially the PSM section.</p>
+    </div>
+
+    <h2>Market background: a migration that just ended</h2>
+    <p>If the tutorial you are reading still says "MakerDAO and DAI", it is probably out of date. The Endgame rebrand began in August 2024 and <strong>the migration wrapped up in August 2026</strong>.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure / status</th></tr></thead>
+      <tbody>
+        <tr><td>Brand</td><td>MakerDAO → <strong>Sky</strong> (started 2024-08, completed 2026-08)</td></tr>
+        <tr><td>Stablecoin</td><td>DAI → <strong>USDS</strong> (1:1 both ways via a converter)</td></tr>
+        <tr><td>Governance token</td><td>MKR → <strong>SKY</strong> at 1:24,000</td></tr>
+        <tr><td>USDS supply</td><td>~$7.6B–8.7B</td></tr>
+        <tr><td>DAI market cap</td><td>~$4.66B</td></tr>
+        <tr><td>Sky Savings Rate (SSR)</td><td>~3.75%–4.5% APY in early 2026</td></tr>
+        <tr><td>Yield-bearing wrapper</td><td>sUSDS</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate, current as of 2026-09; re-verify before acting on them.</p>
+    <p>What this means for developers: <strong>two tokens, two addresses, one underlying system.</strong> Major exchanges force-converted DAI balances to USDS during April–May 2026, but on-chain both remain swappable through the converter. Decide which you support (or both), and note that liquidity is consolidating into USDS.</p>
+
+    <h2>First, three stablecoin models</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Model</th><th>Why it is worth $1</th><th>Main risk</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Fiat-reserved</strong><br>(USDC, USDT)</td><td>The issuer holds dollars and short bills, promising 1:1 redemption</td><td>Issuer credit, banking, regulatory freezes, redemption gates</td></tr>
+        <tr><td><strong>Over-collateralised</strong><br>(USDS / DAI)</td><td><em>More valuable</em> crypto assets are locked on-chain, verifiable by anyone</td><td>Collateral crashes, failed liquidation, oracles, governance</td></tr>
+        <tr><td><strong>Algorithmic</strong><br>(mostly failed)</td><td>Mint/burn incentives alone, with no real collateral</td><td>Death spiral — once confidence goes it cannot recover</td></tr>
+      </tbody>
+    </table></div>
+    <p>USDS is the second kind. <strong>The key difference is that you need trust no company, only that the collateral holds value and liquidation works.</strong> The cost is capital efficiency — minting $100 requires locking more than $100.</p>
+
+    <h2>How a vault works</h2>
+    <p>A user opens a vault, locks collateral, and mints stablecoins. It is <strong>a loan to yourself</strong>:</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="Vault lifecycle: a user locks collateral and mints stablecoins creating debt, a stability fee accrues over time, repaying the stablecoins and fee clears the debt and releases the collateral, while falling below the collateral ratio triggers liquidation.">
+          <defs><marker id="n1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="n1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="22" y="40" width="166" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="105" y="68" text-anchor="middle">① lock collateral</text>
+          <text class="svg-ncode" x="105" y="88" text-anchor="middle">ETH / wstETH / RWA…</text>
+          <rect class="svg-node-a" x="224" y="40" width="180" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="314" y="68" text-anchor="middle">② mint USDS</text>
+          <text class="svg-ncode" x="314" y="88" text-anchor="middle">cap = value ÷ collateral ratio</text>
+          <rect class="svg-node" x="440" y="40" width="166" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="523" y="68" text-anchor="middle">③ stability fee accrues</text>
+          <text class="svg-ncode" x="523" y="88" text-anchor="middle">debt keeps growing</text>
+          <rect class="svg-node" x="642" y="40" width="120" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="702" y="68" text-anchor="middle">④ repay</text>
+          <text class="svg-ncode" x="702" y="88" text-anchor="middle">burns USDS</text>
+          <line class="svg-flow" x1="188" y1="73" x2="222" y2="73" marker-end="url(#n1)"></line>
+          <line class="svg-flow" x1="404" y1="73" x2="438" y2="73" marker-end="url(#n1)"></line>
+          <line class="svg-flow" x1="606" y1="73" x2="640" y2="73" marker-end="url(#n1)"></line>
+          <rect class="svg-node" x="440" y="172" width="166" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="523" y="200" text-anchor="middle">⑤ release collateral</text>
+          <text class="svg-ncode" x="523" y="220" text-anchor="middle">fully, once debt is zero</text>
+          <line class="svg-flow" x1="702" y1="106" x2="702" y2="150" marker-end="url(#n1)"></line>
+          <line class="svg-flow" x1="702" y1="150" x2="610" y2="192" marker-end="url(#n1)"></line>
+          <rect class="svg-node" x="120" y="172" width="250" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="245" y="200" text-anchor="middle">x ratio breached → liquidation</text>
+          <text class="svg-ncode" x="245" y="220" text-anchor="middle">collateral auctioned, penalty charged</text>
+          <line class="svg-flow-a" x1="314" y1="106" x2="260" y2="168" marker-end="url(#n1a)"></line>
+          <text class="svg-step" x="200" y="146">price falls</text>
+          <text class="svg-mono" x="390" y="276" text-anchor="middle">the stability fee is loan interest, not a transaction fee — it settles on repayment</text>
+        </svg>
+      </div>
+      <figcaption>The key difference from <a href="./aave.html">Aave</a>: Aave <strong>lends you other people's deposits</strong> at a supply-and-demand rate; Sky <strong>mints new stablecoins against your collateral</strong> at a governance-set fee. One is a money market, the other is currency issuance.</figcaption>
+    </figure>
+
+    <h2>Holding the peg: arbitrage, not promises</h2>
+    <p>Nobody guarantees USDS is worth a dollar. The peg is held by <strong>arbitrage that pays in both directions</strong>:</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 290" role="img" aria-label="Peg mechanism: above one dollar it pays to mint and sell, increasing supply and pushing the price down; below one dollar it pays to buy cheaply and repay debt, reducing supply and pushing the price up.">
+          <defs><marker id="n2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="n2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <line class="svg-axis" x1="60" y1="145" x2="720" y2="145"></line>
+          <text class="svg-mono-a" x="390" y="138" text-anchor="middle">$1.00　the peg</text>
+          <rect class="svg-node" x="80" y="36" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="205" y="64" text-anchor="middle">price &gt; $1</text>
+          <text class="svg-ncode" x="205" y="84" text-anchor="middle">mint USDS and sell → profit</text>
+          <text class="svg-ncode" x="205" y="100" text-anchor="middle">supply rises, price falls back</text>
+          <rect class="svg-node" x="450" y="36" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="64" text-anchor="middle">direction of the incentive</text>
+          <text class="svg-ncode" x="575" y="84" text-anchor="middle">more minting → more supply → lower price</text>
+          <line class="svg-flow" x1="330" y1="72" x2="448" y2="72" marker-end="url(#n2)"></line>
+          <rect class="svg-node" x="80" y="180" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="205" y="208" text-anchor="middle">price &lt; $1</text>
+          <text class="svg-ncode" x="205" y="228" text-anchor="middle">buy cheap and repay → profit</text>
+          <text class="svg-ncode" x="205" y="244" text-anchor="middle">supply falls, price rises back</text>
+          <rect class="svg-node" x="450" y="180" width="250" height="72" rx="10"></rect>
+          <text class="svg-nlabel" x="575" y="208" text-anchor="middle">direction of the incentive</text>
+          <text class="svg-ncode" x="575" y="228" text-anchor="middle">more repaying → less supply → higher price</text>
+          <line class="svg-flow" x1="330" y1="216" x2="448" y2="216" marker-end="url(#n2)"></line>
+          <line class="svg-flow-a" x1="205" y1="108" x2="205" y2="140" marker-end="url(#n2a)"></line>
+          <line class="svg-flow-a" x1="205" y1="180" x2="205" y2="150" marker-end="url(#n2a)"></line>
+        </svg>
+      </div>
+      <figcaption>Governance holds one more dial: <strong>the stability fee</strong>. Raise it and borrowing gets expensive, people repay, supply shrinks and the price rises; lower it for the opposite. It is effectively a decentralised interest-rate policy.</figcaption>
+    </figure>
+
+    <h2>The PSM, and what the peg costs</h2>
+    <p>Arbitrage is sufficient in theory but too slow in practice. Hence the <strong>Peg Stability Module</strong>: anyone may swap USDC for USDS <strong>1:1 with no slippage</strong>, and back again.</p>
+    <p>The effect is immediate — the peg becomes very tight. But the cost should be stated plainly:</p>
+    <blockquote><p>When a large share of USDS is backed by USDC sitting in the PSM, <strong>USDS effectively inherits USDC's centralisation risk</strong>. If USDC is frozen or depegs, USDS follows. The label "decentralised stablecoin" therefore needs a footnote: the <strong>mechanism</strong> is decentralised, but the <strong>collateral mix</strong> may not be.</p></blockquote>
+    <p>When USDC briefly depegged during the Silicon Valley Bank episode in March 2023, DAI was dragged along with it — direct evidence of that structural dependency. It is also part of why the system later moved heavily into <strong>real-world assets</strong> and a broader collateral mix — but RWAs introduce a different centralisation (custodians, legal jurisdiction). <strong>This is an unresolved trade-off, not a solved problem.</strong></p>
+
+    <h2>Liquidation: a Dutch auction</h2>
+    <p>When a vault falls below its collateral ratio, the collateral is auctioned to repay the debt. The current mechanism is a <strong>Dutch auction</strong>, with the price descending from a high start:</p>
+    <ol>
+      <li>Anyone may call the liquidation function, starting the auction and earning a reward (the incentive).</li>
+      <li>The starting price sits above market and <strong>decreases over time</strong>, linearly or exponentially.</li>
+      <li>Buyers take as much as they like, whenever the price looks good, in partial fills.</li>
+      <li>Proceeds first cover the debt and the <strong>liquidation penalty</strong>; anything left returns to the vault owner.</li>
+    </ol>
+    <p>Dutch auctions replaced the earlier English format mainly for <strong>resilience to crashes</strong>: during "Black Thursday" in March 2020, network congestion allowed zero-bid wins and left the system with substantial bad debt. The new design lets buyers fill instantly and fund themselves with a <a href="./flash-loan.html">flash loan</a>.</p>
+
+    <h2>Integration notes</h2>
+    <ul>
+      <li><strong>Confirm DAI versus USDS</strong>: different contracts, different liquidity. The converter is 1:1 both ways, but your interface should be explicit about which the user holds.</li>
+      <li><strong>USDS and DAI both use 18 decimals</strong> — but do not assume all stablecoins do; USDC uses 6, and mixing them is a factor of 10¹².</li>
+      <li><strong>sUSDS is a yield wrapper</strong>: its balance or exchange rate moves, so never cache it as 1:1 USDS.</li>
+      <li><strong>Stability fees accrue continuously</strong>: read debt live, never from a cache.</li>
+      <li><strong>Governance can change parameters</strong>: collateral ratios, stability fees, debt ceilings, even which collateral is accepted, are all SKY votes. Your assumptions can be overturned by one proposal.</li>
+    </ul>
+
+<pre><code><span class="c">// DAI to USDS: via the official converter, 1:1 both ways, no slippage</span>
+IERC20(DAI).approve(address(CONVERTER), amount);
+CONVERTER.daiToUsds(msg.sender, amount);     <span class="c">// usdsToDai goes the other way</span>
+
+<span class="c">// Read a vault (MCD names are terse: urn=vault, ink=collateral, art=normalised debt)</span>
+(uint256 ink, uint256 art) = VAT.urns(ilk, vaultOwner);
+(, uint256 rate, uint256 spot, , ) = VAT.ilks(ilk);
+
+<span class="c">// Actual debt = art x rate (rate carries accrued stability fees and grows over time)</span>
+uint256 debt = art * rate / 1e27;            <span class="c">// rate has 27 decimals (a "ray")</span>
+
+<span class="c">// spot already includes the collateral-ratio haircut: ink x spot is the safe ceiling</span>
+require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
+    <blockquote><p>Mixing the three precisions is the classic bug here: <strong>wad = 18 decimals, ray = 27, rad = 45</strong>. The product <code>art * rate</code> is a rad, and comparing it to a wad is off by 10²⁷. Confirm the unit of every variable before integrating.</p></blockquote>
+
+    <h2>User risk</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Collateral concentration</strong></td><td>If much of the supply is backed by PSM USDC or particular RWAs, USDS inherits those risks. <strong>This is the one to keep watching.</strong></td></tr>
+        <tr><td><strong>Liquidation penalty</strong></td><td>Being liquidated costs more than the collateral sold — there is a penalty on top. In volatile markets, keeping a high ratio is far cheaper than reacting late.</td></tr>
+        <tr><td><strong>Oracle lag</strong></td><td>Liquidation follows the oracle, not the screen. In a sharp fall, the update timing can liquidate you while the market "looks" still safe.</td></tr>
+        <tr><td><strong>Governance risk</strong></td><td>SKY holders can adjust every key parameter. Concentrated or captured governance can change the rules against you.</td></tr>
+        <tr><td><strong>Who absorbs bad debt</strong></td><td>If auction proceeds fall short, the surplus buffer absorbs it; beyond that, governance tokens are minted, diluting holders.</td></tr>
+        <tr><td><strong>The savings rate is not risk-free</strong></td><td>SSR yield comes from stability fees and RWA income, is set by governance, can change at any time, and carries all of the systemic risks above.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://sky.money/">Sky</a></li>
+      <li><a href="https://docs.sky.money/">Sky technical documentation</a></li>
+      <li><a href="https://forum.sky.money/">Sky governance forum (where parameter changes are debated)</a></li>
+      <li><a href="https://defillama.com/protocol/sky">DefiLlama: Sky</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-19</p>
+  </div>
+
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>
