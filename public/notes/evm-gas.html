@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVM Gas 與 EIP-1559</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="EVM Gas 與 EIP-1559" data-title-en="EVM Gas and EIP-1559">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>EVM Gas 與 EIP-1559</h1>
+    <p class="meta">2026-09-19 · EVM · LONDON 硬分叉 · 費用市場 · 開發者指南</p>
+
+    <p>London 硬分叉（2021-08-05）改寫了以太坊的收費方式。這則講清楚<strong>之前是什麼、之後是什麼、為什麼要改</strong>，以及作為工程師你該怎麼設參數、怎麼省。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li><strong>London 之前</strong>是第一價格拍賣：你盲目出一個 <code>gasPrice</code>，出高了白付、出低了卡住。體驗差的根源是<strong>你在猜別人出多少</strong>。</li>
+        <li><strong>London 之後</strong>費用拆成兩塊：<strong>base fee</strong> 由協議依區塊擁擠度自動定價並<strong>銷毀</strong>，<strong>priority fee</strong> 是你給驗證者的小費。你只需設一個能接受的上限。</li>
+        <li>重點澄清：EIP-1559 <strong>沒有讓 gas 變便宜</strong>，它讓價格<strong>可預測</strong>。真正讓費用下降的是 L2 與 EIP-4844 的 blob。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「兩個時代的對照」與「一筆交易的費用怎麼算」；工程師 → 參數設定與 gas 優化；PM → 市場背景與「為什麼費用仍會暴漲」。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>London 硬分叉</td><td>2021-08-05（含 EIP-1559）</td></tr>
+        <tr><td>累計銷毀 ETH</td><td>約 452 萬–460 萬枚</td></tr>
+        <tr><td>驗證者發行量</td><td>約 1,700 ETH／日</td></tr>
+        <tr><td>淨通縮條件</td><td>單日銷毀需超過發行量</td></tr>
+        <tr><td>EIP-4844（Dencun）</td><td>2024-03，引入 blob 與獨立費用市場</td></tr>
+        <tr><td>base fee 每區塊最大變動</td><td>±12.5%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，以 2026-09 查得為準。</p>
+    <p>那個「銷毀 450 萬枚」的數字常被當成 EIP-1559 的賣點，但銷毀其實是<strong>副作用而非目的</strong>。真正的目的是修好費用市場的使用者體驗；ETH 因此具備通縮可能，是附帶結果。</p>
+
+    <h2>兩個時代的對照</h2>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 300" role="img" aria-label="London 前後的費用結構對照：之前使用者只設一個 gasPrice，全額付給礦工；之後費用拆為協議決定並銷毀的 base fee，加上付給驗證者的 priority fee，使用者設定的是可接受的上限與小費。">
+          <defs><marker id="e1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="e1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="30" y="32">London 之前</text>
+          <rect class="svg-node" x="30" y="48" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="145" y="72" text-anchor="middle">gasPrice</text>
+          <text class="svg-ncode" x="145" y="92" text-anchor="middle">使用者盲目出價</text>
+          <rect class="svg-node" x="330" y="48" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="445" y="72" text-anchor="middle">全額 → 礦工</text>
+          <text class="svg-ncode" x="445" y="92" text-anchor="middle">第一價格拍賣</text>
+          <line class="svg-flow" x1="260" y1="76" x2="328" y2="76" marker-end="url(#e1)"></line>
+          <text class="svg-mono" x="590" y="70">出高了：白付</text>
+          <text class="svg-mono" x="590" y="92">出低了：卡在 mempool</text>
+          <line class="svg-axis" x1="30" y1="132" x2="750" y2="132"></line>
+          <text class="svg-label" x="30" y="168">London 之後</text>
+          <rect class="svg-node-a" x="30" y="184" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="145" y="208" text-anchor="middle">base fee</text>
+          <text class="svg-ncode" x="145" y="228" text-anchor="middle">協議定價，隨擁擠度調整</text>
+          <rect class="svg-node" x="30" y="252" width="230" height="40" rx="10"></rect>
+          <text class="svg-ncode" x="145" y="277" text-anchor="middle">priority fee（小費）</text>
+          <rect class="svg-node" x="330" y="184" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="445" y="208" text-anchor="middle">被銷毀 🔥</text>
+          <text class="svg-ncode" x="445" y="228" text-anchor="middle">沒有人收到</text>
+          <rect class="svg-node" x="330" y="252" width="230" height="40" rx="10"></rect>
+          <text class="svg-ncode" x="445" y="277" text-anchor="middle">→ 驗證者</text>
+          <line class="svg-flow-a" x1="260" y1="212" x2="328" y2="212" marker-end="url(#e1a)"></line>
+          <line class="svg-flow" x1="260" y1="272" x2="328" y2="272" marker-end="url(#e1)"></line>
+          <text class="svg-mono-a" x="590" y="206">你只需設一個上限</text>
+          <text class="svg-mono" x="590" y="228">多付的會自動退還</text>
+          <text class="svg-mono" x="590" y="276">小費決定排序快慢</text>
+        </svg>
+      </div>
+      <figcaption>改動的本質是<strong>把「猜價格」換成「設上限」</strong>。之前你得預測整個市場的出價分布；之後協議已經算好 base fee，你只需回答「我最多願意付多少」。這也是為什麼 1559 之後錢包的 gas 估算準確度大幅提升。</figcaption>
+    </figure>
+
+    <h2>base fee 怎麼自動調整</h2>
+    <p>協議設定每個區塊的<strong>目標用量</strong>為上限的一半（目前目標約 1,500 萬 gas、上限約 3,000 萬）。下一個區塊的 base fee 依上一個區塊的滿載程度調整，<strong>單次最多變動 ±12.5%</strong>。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 300" role="img" aria-label="base fee 的調整規則：區塊用量超過目標則下一個區塊的 base fee 最多上調百分之十二點五，等於目標則不變，低於目標則最多下調百分之十二點五。">
+          <defs><marker id="e2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="e2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="280" y="24" width="220" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="48" text-anchor="middle">上一個區塊用了多少？</text>
+          <text class="svg-ncode" x="390" y="68" text-anchor="middle">目標 = 上限的一半</text>
+          <rect class="svg-node" x="30" y="140" width="210" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="135" y="168" text-anchor="middle">超過目標</text>
+          <text class="svg-ncode" x="135" y="188" text-anchor="middle">base fee 上調</text>
+          <text class="svg-mono-a" x="135" y="208" text-anchor="middle">最多 +12.5%</text>
+          <rect class="svg-node" x="285" y="140" width="210" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="168" text-anchor="middle">剛好等於目標</text>
+          <text class="svg-ncode" x="390" y="188" text-anchor="middle">base fee 不變</text>
+          <text class="svg-mono" x="390" y="208" text-anchor="middle">0%</text>
+          <rect class="svg-node" x="540" y="140" width="210" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="645" y="168" text-anchor="middle">低於目標</text>
+          <text class="svg-ncode" x="645" y="188" text-anchor="middle">base fee 下調</text>
+          <text class="svg-mono-a" x="645" y="208" text-anchor="middle">最多 −12.5%</text>
+          <line class="svg-flow" x1="330" y1="80" x2="160" y2="136" marker-end="url(#e2)"></line>
+          <line class="svg-flow" x1="390" y1="80" x2="390" y2="136" marker-end="url(#e2)"></line>
+          <line class="svg-flow" x1="450" y1="80" x2="620" y2="136" marker-end="url(#e2)"></line>
+          <text class="svg-step" x="390" y="256" text-anchor="middle">連續滿載時，base fee 每 10 個區塊約翻 3 倍——上漲可以非常快</text>
+          <text class="svg-mono" x="390" y="282" text-anchor="middle">區塊仍可彈性撐到上限（2 倍目標），所以需求尖峰不會被硬擋</text>
+        </svg>
+      </div>
+      <figcaption>±12.5% 看似溫和，但它是<strong>複利</strong>的：連續 10 個滿載區塊約等於 1.125¹⁰ ≈ 3.2 倍。所以 NFT 開賣之類的瞬間需求，仍然會在兩分鐘內把 base fee 推到數十倍——<strong>EIP-1559 讓價格可預測，但沒有、也不打算讓它變便宜</strong>。</figcaption>
+    </figure>
+
+    <h2>一筆交易的費用怎麼算</h2>
+    <p>Type 2（EIP-1559）交易由你設兩個參數：</p>
+<pre><code>maxPriorityFeePerGas  <span class="c">// 小費上限：你願意給驗證者多少</span>
+maxFeePerGas          <span class="c">// 總價上限：base fee + 小費，加起來最多多少</span></code></pre>
+<pre><code><span class="c">// 實際計費（每單位 gas）</span>
+effectiveGasPrice = min(maxFeePerGas, baseFeePerGas + maxPriorityFeePerGas)
+
+<span class="c">// 總花費</span>
+totalFee = gasUsed × effectiveGasPrice
+
+<span class="c">// 分配</span>
+銷毀    = gasUsed × baseFeePerGas
+驗證者  = gasUsed × (effectiveGasPrice - baseFeePerGas)
+退還    = gasUsed × (maxFeePerGas - effectiveGasPrice)   <span class="c">// 多設的上限不會被拿走</span></code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 260" role="img" aria-label="一筆交易的費用拆解：使用者設定的 maxFeePerGas 上限分成三段，最底層是被銷毀的 base fee，中間是付給驗證者的小費，最上層多設的額度會退還給使用者。">
+          <defs><marker id="e3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <line class="svg-axis" x1="150" y1="230" x2="150" y2="30"></line>
+          <text class="svg-mono" x="142" y="40" text-anchor="end">maxFeePerGas</text>
+          <rect x="170" y="150" width="280" height="80" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"></rect>
+          <text class="svg-nlabel" x="310" y="186" text-anchor="middle">base fee</text>
+          <text class="svg-ncode" x="310" y="206" text-anchor="middle">協議定價 → 銷毀</text>
+          <rect x="170" y="96" width="280" height="50" rx="4" fill="var(--surface)" stroke="var(--line)" stroke-width="1.6"></rect>
+          <text class="svg-nlabel" x="310" y="126" text-anchor="middle">priority fee → 驗證者</text>
+          <rect x="170" y="36" width="280" height="56" rx="4" fill="none" stroke="var(--line)" stroke-width="1.4" stroke-dasharray="4 4"></rect>
+          <text class="svg-ncode" x="310" y="60" text-anchor="middle">多設的緩衝</text>
+          <text class="svg-mono-a" x="310" y="80" text-anchor="middle">← 原封退還給你</text>
+          <line class="svg-flow" x1="456" y1="190" x2="520" y2="190" marker-end="url(#e3)"></line>
+          <text class="svg-mono" x="528" y="194">永久離開流通</text>
+          <line class="svg-flow" x1="456" y1="121" x2="520" y2="121" marker-end="url(#e3)"></line>
+          <text class="svg-mono" x="528" y="125">決定你的排序</text>
+          <line class="svg-flow" x1="456" y1="64" x2="520" y2="64" marker-end="url(#e3)"></line>
+          <text class="svg-mono" x="528" y="68">設高不會多付</text>
+          <text class="svg-step" x="310" y="252" text-anchor="middle">所以 maxFeePerGas 應該設得寬鬆——它是上限，不是報價</text>
+        </svg>
+      </div>
+      <figcaption>最重要的實務結論：<strong><code>maxFeePerGas</code> 設高不會讓你多付錢</strong>，只是允許你的交易在 base fee 上漲時仍能被打包。很多人沿用 London 前的直覺、把它壓得很緊，結果 base fee 一漲交易就卡住。</figcaption>
+    </figure>
+
+    <h2>前端怎麼設（viem）</h2>
+<pre><code>import { parseGwei } from "viem";
+
+<span class="c">// 多數情況：讓 viem 自己估，它會讀鏈上 base fee 並加上合理緩衝</span>
+const hash = await walletClient.sendTransaction({ to, value });
+
+<span class="c">// 需要自己控制時：分開設上限與小費</span>
+const block = await publicClient.getBlock();
+const base = block.baseFeePerGas;            <span class="c">// 當前 base fee</span>
+const tip  = parseGwei("1");                 <span class="c">// 小費</span>
+
+await walletClient.sendTransaction({
+  to, value,
+  maxPriorityFeePerGas: tip,
+  <span class="c">// 抓 2 倍 base fee 當緩衝：即使連續數個滿載區塊也還撐得住</span>
+  maxFeePerGas: base * 2n + tip,
+});</code></pre>
+    <p>那個 <code>base * 2n</code> 不是隨便抓的：base fee 每區塊最多漲 12.5%，2 倍緩衝約可撐過 6 個連續滿載區塊（1.125⁶ ≈ 2.03），對多數交易足夠。</p>
+
+    <h2>Gas 優化：省在哪裡</h2>
+    <p>以下依實際效益排序。前兩項的量級遠大於其餘：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>手段</th><th>為什麼有效</th></tr></thead>
+      <tbody>
+        <tr><td><strong>少碰 storage</strong></td><td>冷讀取與寫入是 EVM 最貴的操作，比運算貴好幾個數量級。能算出來的就不要存。</td></tr>
+        <tr><td><strong>變數打包</strong></td><td>同一個 32 bytes 槽位能塞下多個小變數（如兩個 <code>uint128</code>），一次寫入取代兩次。順序很重要——宣告順序決定打包結果。</td></tr>
+        <tr><td><strong>transient storage</strong></td><td>EIP-1153 的 <code>TSTORE</code>/<code>TLOAD</code> 只在交易內有效、結束即棄，比真正的 storage 便宜非常多。適合重入鎖與暫時性記帳。</td></tr>
+        <tr><td><strong><code>calldata</code> 取代 <code>memory</code></strong></td><td>外部函式的唯讀參數用 <code>calldata</code> 可省下複製成本。</td></tr>
+        <tr><td><strong><code>unchecked</code></strong></td><td>Solidity 0.8 預設每次算術都檢查溢位。在你能證明不會溢位的迴圈計數器上，跳過檢查有實質節省。</td></tr>
+        <tr><td><strong>用事件取代儲存</strong></td><td>只給鏈下讀取的歷史資料，寫成 event 比存進 storage 便宜得多。</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>但先量測再優化。用 <code>forge test --gas-report</code> 找出真正昂貴的函式，別把時間花在省幾百 gas 的微調上——<strong>一次多餘的 <code>SSTORE</code> 抵得過幾十處迴圈優化</strong>。</p></blockquote>
+
+    <h2>L2 與 blob：費用真正下降的地方</h2>
+    <p>L2 上的交易費由兩部分組成：<strong>L2 執行成本</strong>（很便宜）加上<strong>把資料發布到 L1 的成本</strong>（過去是主要開銷）。EIP-4844 引入 <strong>blob</strong>——一種專為 rollup 設計的資料格式，有<strong>獨立的費用市場</strong>，與一般交易的 base fee 分開計價，且資料只保留一段時間後即可丟棄。</p>
+    <p>結果是 L2 費用大幅下降。但也帶來新的波動來源：<strong>blob 的供需自成一個市場</strong>，當多條 rollup 同時搶 blob 空間時，blob base fee 會獨立飆升，此時 L2 費用會上漲而 L1 一般交易費卻毫無變化。想了解細節，見 <a href="./optimistic-rollup-bridge.html">Optimistic Rollup</a> 與 <a href="./zk-rollup.html">ZK Rollup</a> 兩則。</p>
+
+    <h2>開發者注意事項</h2>
+    <ul>
+      <li><strong>不要把 gas 成本寫死</strong>：硬分叉會改變 opcode 定價（歷史上多次發生）。寫死的 gas 上限在未來的分叉後可能失效。</li>
+      <li><strong>避免 <code>transfer</code> 與 <code>send</code></strong>：它們固定只轉 2300 gas，收款方若是合約可能因此失敗。改用 <code>call{value: x}("")</code> 並檢查回傳值（記得搭配重入防護）。</li>
+      <li><strong>估算要留緩衝</strong>：<code>eth_estimateGas</code> 在當前狀態下模擬，實際執行時狀態可能已變。常見做法是乘上 1.2–1.5 倍。</li>
+      <li><strong>退款規則已縮減</strong>：清空 storage 的 gas 退款上限在 London 時被大幅調低，別再依賴「gas token」那類技巧。</li>
+      <li><strong>L1 與 L2 的費用模型不同</strong>：在 L2 上，calldata 大小往往比執行步數更影響成本。</li>
+    </ul>
+
+    <h2>使用者風險</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>上限設太低 → 交易卡住</strong></td><td>base fee 漲過你的 <code>maxFeePerGas</code>，交易會一直待在 mempool。可用相同 nonce 提高費用重送來取代。</td></tr>
+        <tr><td><strong>小費設太低 → 排序落後</strong></td><td>在擁擠時段，小費太低的交易可能延遲很久，對有時效的操作（如避免清算）可能致命。</td></tr>
+        <tr><td><strong>費用尖峰無法預防</strong></td><td>base fee 可在兩分鐘內漲數倍。非緊急交易建議避開熱門鑄造或清算潮。</td></tr>
+        <tr><td><strong>失敗的交易仍要付費</strong></td><td>交易 revert 一樣消耗 gas。滑點設定不當導致失敗，錢照樣花掉。</td></tr>
+        <tr><td><strong>MEV</strong></td><td>提高小費不會保護你不被夾擊。大額交易應考慮私有 mempool。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559：費用市場改革</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-4844">EIP-4844：Shard Blob Transactions</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1153">EIP-1153：Transient Storage</a></li>
+      <li><a href="https://ethereum.org/developers/docs/gas/">ethereum.org：Gas 與費用</a></li>
+    </ul>
+    <p class="meta">內容查證時間：2026-09-19</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>EVM Gas and EIP-1559</h1>
+    <p class="meta">2026-09-19 · EVM · LONDON HARD FORK · FEE MARKET · DEVELOPER GUIDE</p>
+
+    <p>The London hard fork (2021-08-05) rewrote how Ethereum charges for blockspace. This note covers <strong>what came before, what came after, and why it changed</strong> — plus how to set the parameters and where the savings actually are.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li><strong>Before London</strong> it was a first-price auction: you guessed a <code>gasPrice</code>, overpaid if too high, got stuck if too low. The bad experience came from <strong>having to guess what everyone else would bid</strong>.</li>
+        <li><strong>After London</strong> the fee splits in two: a <strong>base fee</strong> priced by the protocol from congestion and then <strong>burned</strong>, plus a <strong>priority fee</strong> tip to the validator. You only set a ceiling you can live with.</li>
+        <li>An important correction: EIP-1559 <strong>did not make gas cheaper</strong>, it made the price <strong>predictable</strong>. What actually lowered fees was L2s and EIP-4844 blobs.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners → "The two eras" and "How a fee is computed"; engineers → parameters and gas optimisation; PMs → market background and "why fees still spike".</p>
+    </div>
+
+    <h2>Market background</h2>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>London hard fork</td><td>2021-08-05 (shipped EIP-1559)</td></tr>
+        <tr><td>Cumulative ETH burned</td><td>~4.52M–4.6M</td></tr>
+        <tr><td>Validator issuance</td><td>~1,700 ETH/day</td></tr>
+        <tr><td>Condition for net deflation</td><td>Daily burn must exceed issuance</td></tr>
+        <tr><td>EIP-4844 (Dencun)</td><td>2024-03, blobs with their own fee market</td></tr>
+        <tr><td>Max base fee change per block</td><td>±12.5%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate, current as of 2026-09.</p>
+    <p>That "4.5M ETH burned" number gets cited as the point of EIP-1559, but the burn is a <strong>side effect, not the goal</strong>. The goal was fixing the fee market's user experience; ETH's potential deflation is a consequence.</p>
+
+    <h2>The two eras</h2>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 300" role="img" aria-label="Fee structure before and after London: previously the user set a single gasPrice paid entirely to the miner; afterwards the fee splits into a protocol-set base fee that is burned plus a priority fee to the validator, with the user setting a ceiling and a tip.">
+          <defs><marker id="k1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="k1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="30" y="32">Before London</text>
+          <rect class="svg-node" x="30" y="48" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="145" y="72" text-anchor="middle">gasPrice</text>
+          <text class="svg-ncode" x="145" y="92" text-anchor="middle">a blind bid by the user</text>
+          <rect class="svg-node" x="330" y="48" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="445" y="72" text-anchor="middle">all of it → miner</text>
+          <text class="svg-ncode" x="445" y="92" text-anchor="middle">first-price auction</text>
+          <line class="svg-flow" x1="260" y1="76" x2="328" y2="76" marker-end="url(#k1)"></line>
+          <text class="svg-mono" x="590" y="70">too high: you overpaid</text>
+          <text class="svg-mono" x="590" y="92">too low: stuck in the mempool</text>
+          <line class="svg-axis" x1="30" y1="132" x2="750" y2="132"></line>
+          <text class="svg-label" x="30" y="168">After London</text>
+          <rect class="svg-node-a" x="30" y="184" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="145" y="208" text-anchor="middle">base fee</text>
+          <text class="svg-ncode" x="145" y="228" text-anchor="middle">protocol-set, tracks congestion</text>
+          <rect class="svg-node" x="30" y="252" width="230" height="40" rx="10"></rect>
+          <text class="svg-ncode" x="145" y="277" text-anchor="middle">priority fee (tip)</text>
+          <rect class="svg-node" x="330" y="184" width="230" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="445" y="208" text-anchor="middle">burned</text>
+          <text class="svg-ncode" x="445" y="228" text-anchor="middle">nobody receives it</text>
+          <rect class="svg-node" x="330" y="252" width="230" height="40" rx="10"></rect>
+          <text class="svg-ncode" x="445" y="277" text-anchor="middle">→ validator</text>
+          <line class="svg-flow-a" x1="260" y1="212" x2="328" y2="212" marker-end="url(#k1a)"></line>
+          <line class="svg-flow" x1="260" y1="272" x2="328" y2="272" marker-end="url(#k1)"></line>
+          <text class="svg-mono-a" x="590" y="206">you only set a ceiling</text>
+          <text class="svg-mono" x="590" y="228">the excess is refunded</text>
+          <text class="svg-mono" x="590" y="276">the tip sets your ordering</text>
+        </svg>
+      </div>
+      <figcaption>The essence of the change is <strong>replacing "guess the price" with "set a ceiling"</strong>. Before, you had to predict the market's whole bid distribution; after, the protocol has already computed the base fee and you just answer "what is the most I will pay". That is why wallet gas estimates got so much better post-1559.</figcaption>
+    </figure>
+
+    <h2>How the base fee adjusts</h2>
+    <p>The protocol targets each block at <strong>half</strong> the limit (currently ~15M gas target, ~30M limit). The next block's base fee adjusts from how full the last one was, <strong>by at most ±12.5% per block</strong>.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 300" role="img" aria-label="Base fee adjustment rule: a block above target raises the next base fee by up to 12.5 percent, exactly at target leaves it unchanged, and below target lowers it by up to 12.5 percent.">
+          <defs><marker id="k2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="280" y="24" width="220" height="56" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="48" text-anchor="middle">how full was the last block?</text>
+          <text class="svg-ncode" x="390" y="68" text-anchor="middle">target = half the limit</text>
+          <rect class="svg-node" x="30" y="140" width="210" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="135" y="168" text-anchor="middle">above target</text>
+          <text class="svg-ncode" x="135" y="188" text-anchor="middle">base fee rises</text>
+          <text class="svg-mono-a" x="135" y="208" text-anchor="middle">up to +12.5%</text>
+          <rect class="svg-node" x="285" y="140" width="210" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="168" text-anchor="middle">exactly at target</text>
+          <text class="svg-ncode" x="390" y="188" text-anchor="middle">base fee unchanged</text>
+          <text class="svg-mono" x="390" y="208" text-anchor="middle">0%</text>
+          <rect class="svg-node" x="540" y="140" width="210" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="645" y="168" text-anchor="middle">below target</text>
+          <text class="svg-ncode" x="645" y="188" text-anchor="middle">base fee falls</text>
+          <text class="svg-mono-a" x="645" y="208" text-anchor="middle">up to −12.5%</text>
+          <line class="svg-flow" x1="330" y1="80" x2="160" y2="136" marker-end="url(#k2)"></line>
+          <line class="svg-flow" x1="390" y1="80" x2="390" y2="136" marker-end="url(#k2)"></line>
+          <line class="svg-flow" x1="450" y1="80" x2="620" y2="136" marker-end="url(#k2)"></line>
+          <text class="svg-step" x="390" y="256" text-anchor="middle">sustained full blocks roughly triple the base fee every 10 blocks — it can climb fast</text>
+          <text class="svg-mono" x="390" y="282" text-anchor="middle">blocks can still stretch to the limit (2x target), so demand spikes are not hard-blocked</text>
+        </svg>
+      </div>
+      <figcaption>±12.5% sounds gentle, but it <strong>compounds</strong>: ten consecutive full blocks is 1.125¹⁰ ≈ 3.2x. So a sudden surge — an NFT mint, say — can still push the base fee up tens of times within minutes. <strong>EIP-1559 made the price predictable; it never intended to make it low.</strong></figcaption>
+    </figure>
+
+    <h2>How a fee is computed</h2>
+    <p>A type 2 (EIP-1559) transaction takes two parameters from you:</p>
+<pre><code>maxPriorityFeePerGas  <span class="c">// tip ceiling: what you will pay the validator</span>
+maxFeePerGas          <span class="c">// total ceiling: base fee + tip, combined maximum</span></code></pre>
+<pre><code><span class="c">// What you actually pay, per unit of gas</span>
+effectiveGasPrice = min(maxFeePerGas, baseFeePerGas + maxPriorityFeePerGas)
+
+<span class="c">// Total</span>
+totalFee = gasUsed x effectiveGasPrice
+
+<span class="c">// Where it goes</span>
+burned    = gasUsed x baseFeePerGas
+validator = gasUsed x (effectiveGasPrice - baseFeePerGas)
+refunded  = gasUsed x (maxFeePerGas - effectiveGasPrice)   <span class="c">// headroom is never taken</span></code></pre>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 260" role="img" aria-label="Breakdown of one transaction's fee: the user's maxFeePerGas ceiling divides into the burned base fee at the bottom, the validator's priority fee in the middle, and unused headroom at the top which is refunded.">
+          <defs><marker id="k3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <line class="svg-axis" x1="150" y1="230" x2="150" y2="30"></line>
+          <text class="svg-mono" x="142" y="40" text-anchor="end">maxFeePerGas</text>
+          <rect x="170" y="150" width="280" height="80" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"></rect>
+          <text class="svg-nlabel" x="310" y="186" text-anchor="middle">base fee</text>
+          <text class="svg-ncode" x="310" y="206" text-anchor="middle">protocol-set → burned</text>
+          <rect x="170" y="96" width="280" height="50" rx="4" fill="var(--surface)" stroke="var(--line)" stroke-width="1.6"></rect>
+          <text class="svg-nlabel" x="310" y="126" text-anchor="middle">priority fee → validator</text>
+          <rect x="170" y="36" width="280" height="56" rx="4" fill="none" stroke="var(--line)" stroke-width="1.4" stroke-dasharray="4 4"></rect>
+          <text class="svg-ncode" x="310" y="60" text-anchor="middle">unused headroom</text>
+          <text class="svg-mono-a" x="310" y="80" text-anchor="middle">← refunded in full</text>
+          <line class="svg-flow" x1="456" y1="190" x2="520" y2="190" marker-end="url(#k3)"></line>
+          <text class="svg-mono" x="528" y="194">leaves circulation forever</text>
+          <line class="svg-flow" x1="456" y1="121" x2="520" y2="121" marker-end="url(#k3)"></line>
+          <text class="svg-mono" x="528" y="125">sets your ordering</text>
+          <line class="svg-flow" x1="456" y1="64" x2="520" y2="64" marker-end="url(#k3)"></line>
+          <text class="svg-mono" x="528" y="68">setting it high costs nothing</text>
+          <text class="svg-step" x="310" y="252" text-anchor="middle">so maxFeePerGas should be generous — it is a ceiling, not a quote</text>
+        </svg>
+      </div>
+      <figcaption>The practical takeaway: <strong>a high <code>maxFeePerGas</code> does not cost you more</strong>; it merely lets your transaction survive a rising base fee. Many people carry the pre-London instinct, set it tight, and get stuck the moment the base fee climbs.</figcaption>
+    </figure>
+
+    <h2>Setting it from the front end (viem)</h2>
+<pre><code>import { parseGwei } from "viem";
+
+<span class="c">// Usually: let viem estimate — it reads the on-chain base fee and adds sane headroom</span>
+const hash = await walletClient.sendTransaction({ to, value });
+
+<span class="c">// When you need control: set the ceiling and the tip separately</span>
+const block = await publicClient.getBlock();
+const base = block.baseFeePerGas;            <span class="c">// current base fee</span>
+const tip  = parseGwei("1");                 <span class="c">// the tip</span>
+
+await walletClient.sendTransaction({
+  to, value,
+  maxPriorityFeePerGas: tip,
+  <span class="c">// 2x base fee as headroom: survives several consecutive full blocks</span>
+  maxFeePerGas: base * 2n + tip,
+});</code></pre>
+    <p>That <code>base * 2n</code> is not arbitrary: at a maximum of +12.5% per block, 2x headroom survives about six consecutive full blocks (1.125⁶ ≈ 2.03), which is enough for most transactions.</p>
+
+    <h2>Gas optimisation: where the savings are</h2>
+    <p>Ordered by real impact. The first two dwarf the rest:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Technique</th><th>Why it works</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Touch storage less</strong></td><td>Cold reads and writes are the EVM's most expensive operations, orders of magnitude above computation. If it can be derived, do not store it.</td></tr>
+        <tr><td><strong>Pack variables</strong></td><td>One 32-byte slot holds several small variables (two <code>uint128</code>s, say), turning two writes into one. Declaration order decides the packing.</td></tr>
+        <tr><td><strong>Transient storage</strong></td><td>EIP-1153's <code>TSTORE</code>/<code>TLOAD</code> live only for the transaction and cost far less than real storage. Ideal for reentrancy locks and scratch accounting.</td></tr>
+        <tr><td><strong><code>calldata</code> over <code>memory</code></strong></td><td>Read-only parameters of external functions avoid a copy when declared <code>calldata</code>.</td></tr>
+        <tr><td><strong><code>unchecked</code></strong></td><td>Solidity 0.8 checks every arithmetic op for overflow. On loop counters you can prove safe, skipping the check saves real gas.</td></tr>
+        <tr><td><strong>Events instead of storage</strong></td><td>History only read off-chain is far cheaper as an event than as stored state.</td></tr>
+      </tbody>
+    </table></div>
+    <blockquote><p>But measure before optimising. Use <code>forge test --gas-report</code> to find the genuinely expensive functions rather than shaving a few hundred gas — <strong>one avoidable <code>SSTORE</code> outweighs dozens of loop micro-optimisations</strong>.</p></blockquote>
+
+    <h2>L2s and blobs: where fees really fell</h2>
+    <p>An L2 transaction fee has two parts: <strong>L2 execution</strong> (very cheap) and <strong>publishing data to L1</strong> (historically the bulk). EIP-4844 introduced <strong>blobs</strong> — a data format built for rollups with its <strong>own fee market</strong>, priced separately from ordinary transactions and discarded after a retention window.</p>
+    <p>L2 fees dropped sharply as a result. It also created a new source of volatility: <strong>blob space has its own supply and demand</strong>, so when many rollups compete for it the blob base fee spikes independently — L2 fees rise while ordinary L1 fees do not move at all. For details see the <a href="./optimistic-rollup-bridge.html">Optimistic Rollup</a> and <a href="./zk-rollup.html">ZK Rollup</a> notes.</p>
+
+    <h2>Developer notes</h2>
+    <ul>
+      <li><strong>Never hardcode gas costs</strong>: hard forks reprice opcodes, and have several times. A hardcoded gas stipend can break after a future fork.</li>
+      <li><strong>Avoid <code>transfer</code> and <code>send</code></strong>: they forward a fixed 2300 gas, which fails when the recipient is a contract. Use <code>call{value: x}("")</code> and check the return (with reentrancy protection).</li>
+      <li><strong>Pad your estimates</strong>: <code>eth_estimateGas</code> simulates against current state, which may have changed by execution time. Multiplying by 1.2–1.5 is common.</li>
+      <li><strong>Refunds were cut back</strong>: the gas refund for clearing storage was sharply reduced at London — "gas token" tricks no longer work.</li>
+      <li><strong>L1 and L2 fee models differ</strong>: on an L2, calldata size often matters more than execution steps.</li>
+    </ul>
+
+    <h2>User risk</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Ceiling too low → stuck</strong></td><td>If the base fee climbs past your <code>maxFeePerGas</code>, the transaction sits in the mempool. Replace it by resending with the same nonce at a higher fee.</td></tr>
+        <tr><td><strong>Tip too low → slow ordering</strong></td><td>In congestion a low tip can delay you a long time, which matters for time-sensitive actions like avoiding liquidation.</td></tr>
+        <tr><td><strong>Spikes cannot be prevented</strong></td><td>The base fee can multiply within minutes. For non-urgent transactions, avoid popular mints and liquidation waves.</td></tr>
+        <tr><td><strong>Failed transactions still cost</strong></td><td>A revert consumes gas. A badly set slippage that fails still spends your money.</td></tr>
+        <tr><td><strong>MEV</strong></td><td>A bigger tip does not protect you from being sandwiched. Large trades should consider a private mempool.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559: fee market change</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-4844">EIP-4844: shard blob transactions</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1153">EIP-1153: transient storage</a></li>
+      <li><a href="https://ethereum.org/developers/docs/gas/">ethereum.org: gas and fees</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-19</p>
+  </div>
+
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

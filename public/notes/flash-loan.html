@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>閃電貸</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="閃電貸" data-title-en="Flash Loans">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>閃電貸</h1>
+    <p class="meta">2026-09-19 · DEFI · 原子性 · AAVE · 開發者指南</p>
+
+    <p>無需抵押、金額不限、費用極低——條件只有一個：<strong>在同一筆交易結束前還清</strong>。這則講它為什麼能成立、怎麼寫、以及為什麼它同時是最有用的工具與最危險的攻擊載體。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>閃電貸不是「信任你會還」，而是<strong>還不出來就整筆交易 revert，等於借款從未發生</strong>。它是區塊鏈原子性的直接產物，傳統金融做不到。</li>
+        <li>因此它<strong>徹底廢除了「資本」這道門檻</strong>：任何人都能在一瞬間調動數億美元。套利者用它，攻擊者也用它。</li>
+        <li>它本身<strong>不是漏洞</strong>。約 62% 的價格操縱攻擊用到閃電貸，但真正的漏洞是「協議讀了可被單筆交易推動的價格」——閃電貸只是讓攻擊變便宜。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 先看「為什麼能不用抵押」；Solidity 工程師 → 直接看實作與抵押品置換範例；PM／風控 → 市場背景與「它如何改變威脅模型」。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>閃電貸的經濟規模不在「借出多少」（因為借完就還，未平倉永遠是零），而在<strong>它改變了誰能發動大額操作</strong>。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>Aave V3 閃電貸費率（預設）</td><td>0.05%（<code>FLASHLOAN_PREMIUM_TOTAL</code>，可治理調整）</td></tr>
+        <tr><td>其中歸協議的部分</td><td>約 4 bps；其餘歸存款人</td></tr>
+        <tr><td>價格操縱攻擊中使用閃電貸的比例</td><td>約 62.1%</td></tr>
+        <tr><td>Aave 佔借貸類 TVL</td><td>約 35.1%（類別總額約 $51.96B）</td></tr>
+        <tr><td>攻擊者所需自有資金</td><td><strong>僅 gas</strong></td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，以 2026-09 查得為準；費率由治理決定，使用前請讀鏈上實際值。</p>
+    <p>最後一列才是重點。傳統金融的風控有一個隱含假設：<strong>能動用一億美元的人不多，且他們有身份、有聲譽、有法律責任</strong>。閃電貸讓這個假設徹底失效——攻擊者匿名、零成本、失敗不罰。所有「因為攻擊者沒那麼多錢所以不會發生」的風險評估，在 2020 年之後都作廢了。</p>
+
+    <h2>為什麼可以不用抵押</h2>
+    <p>關鍵是<strong>原子性</strong>：一筆以太坊交易要嘛全部成功，要嘛全部回滾。借款合約的邏輯其實很笨：</p>
+    <ol>
+      <li>把錢轉給你。</li>
+      <li>呼叫你的回呼函式，讓你愛做什麼做什麼。</li>
+      <li>回來檢查餘額：<strong>有沒有還夠？</strong></li>
+      <li>沒還夠就 <code>revert</code>——連同第 1 步的轉帳一起撤銷，彷彿從未發生。</li>
+    </ol>
+    <p>所以放款方<strong>不需要信任你</strong>，也不需要抵押品。它唯一承擔的風險是 gas，而那由你付。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 330" role="img" aria-label="閃電貸生命週期：資金池先把款項轉給借款合約，再呼叫其 executeOperation 回呼函式執行任意邏輯，回呼結束後資金池檢查本金加手續費是否已備妥，足額則收回並提交，不足則整筆交易回滾。">
+          <defs><marker id="f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="f1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-dash" x="14" y="12" width="752" height="242" rx="14"></rect>
+          <text class="svg-mono-a" x="30" y="36">同一筆交易內——任何一步失敗，整串一起消失</text>
+          <rect class="svg-node-a" x="34" y="58" width="176" height="176" rx="10"></rect>
+          <text class="svg-nlabel" x="122" y="88" text-anchor="middle">Aave Pool</text>
+          <text class="svg-ncode" x="122" y="108" text-anchor="middle">放款方</text>
+          <rect class="svg-node" x="556" y="58" width="190" height="176" rx="10"></rect>
+          <text class="svg-nlabel" x="651" y="88" text-anchor="middle">你的合約</text>
+          <text class="svg-ncode" x="651" y="108" text-anchor="middle">IFlashLoanSimpleReceiver</text>
+          <line class="svg-flow" x1="210" y1="132" x2="554" y2="132" marker-end="url(#f1)"></line>
+          <text class="svg-flowlabel" x="382" y="124" text-anchor="middle">① 轉出本金（無抵押）</text>
+          <line class="svg-flow-a" x1="210" y1="166" x2="554" y2="166" marker-end="url(#f1a)"></line>
+          <text class="svg-step" x="382" y="158" text-anchor="middle">② executeOperation() 回呼</text>
+          <text class="svg-mono" x="651" y="150" text-anchor="middle">套利 / 置換 / 清算…</text>
+          <line class="svg-flow" x1="554" y1="206" x2="212" y2="206" marker-end="url(#f1)"></line>
+          <text class="svg-flowlabel" x="382" y="198" text-anchor="middle">③ 授權 Pool 收回 本金 + 手續費</text>
+          <text class="svg-mono" x="122" y="200" text-anchor="middle">④ 檢查餘額</text>
+          <line class="svg-flow-a" x1="180" y1="278" x2="330" y2="278" marker-end="url(#f1a)"></line>
+          <text class="svg-step" x="346" y="282">足額 → 交易成立</text>
+          <line class="svg-flow" x1="180" y1="308" x2="330" y2="308" marker-end="url(#f1)"></line>
+          <text class="svg-mono" x="346" y="312">不足 → revert，借款視同從未發生</text>
+          <text class="svg-mono" x="100" y="282" text-anchor="end">④ 的結果</text>
+        </svg>
+      </div>
+      <figcaption>放款方的安全性<strong>完全來自第 ④ 步</strong>，不來自對借款人的信任。這也解釋了為什麼閃電貸費率能壓到 0.05%——它幾乎沒有信用風險，只有智慧合約風險。</figcaption>
+    </figure>
+
+    <h2>實作：Aave V3</h2>
+    <p>兩個入口：<code>flashLoanSimple</code>（單一資產，較省 gas）與 <code>flashLoan</code>（多資產）。以 simple 版為例，你的合約只需實作一個回呼：</p>
+<pre><code>contract MyFlashLoan is IFlashLoanSimpleReceiver {
+    IPool public immutable POOL;
+
+    <span class="c">// ① 發起：Pool 會先轉錢給我，再回呼下面的 executeOperation</span>
+    function start(address asset, uint256 amount) external {
+        POOL.flashLoanSimple(
+            address(this),   <span class="c">// receiver</span>
+            asset,
+            amount,
+            "",              <span class="c">// params：會原封不動傳進回呼</span>
+            0                <span class="c">// referralCode</span>
+        );
+    }
+
+    <span class="c">// ② Pool 回呼這裡；此刻 asset 已經在本合約餘額中</span>
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,     <span class="c">// 手續費，約 amount 的 0.05%</span>
+        address initiator,
+        bytes calldata params
+    ) external override returns (bool) {
+        require(msg.sender == address(POOL), "only pool");      <span class="c">// ← 絕不可少</span>
+        require(initiator == address(this), "bad initiator");   <span class="c">// ← 也絕不可少</span>
+
+        <span class="c">// ===== 你的邏輯寫在這裡：套利、置換抵押品、自我清算… =====</span>
+
+        <span class="c">// ③ 授權 Pool 把 本金 + 手續費 拉回去（Pool 用 transferFrom 收款）</span>
+        IERC20(asset).approve(address(POOL), amount + premium);
+        return true;
+    }
+}</code></pre>
+    <blockquote><p>那兩行 <code>require</code> 是<strong>最常被漏掉、後果最嚴重</strong>的部分。少了它們，任何人都能直接呼叫你的 <code>executeOperation</code>，用假參數觸發合約內的邏輯與授權。這正是<a href="./solidity-security.html">安全筆記</a>裡「回呼必須驗證呼叫者」那一條的實例。</p></blockquote>
+
+    <h2>正當用途：抵押品置換</h2>
+    <p>閃電貸最常見的合法用途不是套利，而是<strong>做一件本來需要先有錢才能做的事</strong>。例如：你在 Aave 用 ETH 抵押借了 USDC，現在想把抵押品換成 wstETH，但你沒有多餘資金先還款。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="用閃電貸置換抵押品的流程：借入穩定幣還清既有債務、取回原抵押品、換成新的抵押品、重新存入並再次借出穩定幣以償還閃電貸，全部在同一筆交易內完成。">
+          <defs><marker id="f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="40" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="68" text-anchor="middle">① 閃電借 USDC</text>
+          <text class="svg-ncode" x="104" y="88" text-anchor="middle">金額 = 現有債務</text>
+          <rect class="svg-node" x="222" y="40" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="306" y="68" text-anchor="middle">② 還清債務</text>
+          <text class="svg-ncode" x="306" y="88" text-anchor="middle">部位解除鎖定</text>
+          <rect class="svg-node" x="424" y="40" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="508" y="68" text-anchor="middle">③ 取回 ETH</text>
+          <text class="svg-ncode" x="508" y="88" text-anchor="middle">原抵押品</text>
+          <rect class="svg-node" x="612" y="40" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="687" y="68" text-anchor="middle">④ 換 wstETH</text>
+          <text class="svg-ncode" x="687" y="88" text-anchor="middle">在 DEX 成交</text>
+          <line class="svg-flow" x1="188" y1="72" x2="220" y2="72" marker-end="url(#f2)"></line>
+          <line class="svg-flow" x1="390" y1="72" x2="422" y2="72" marker-end="url(#f2)"></line>
+          <line class="svg-flow" x1="592" y1="72" x2="610" y2="72" marker-end="url(#f2)"></line>
+          <rect class="svg-node" x="424" y="164" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="508" y="192" text-anchor="middle">⑤ 存入 wstETH</text>
+          <text class="svg-ncode" x="508" y="212" text-anchor="middle">成為新抵押品</text>
+          <rect class="svg-node" x="222" y="164" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="306" y="192" text-anchor="middle">⑥ 再借 USDC</text>
+          <text class="svg-ncode" x="306" y="212" text-anchor="middle">同樣金額</text>
+          <rect class="svg-node-a" x="20" y="164" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="192" text-anchor="middle">⑦ 還閃電貸</text>
+          <text class="svg-ncode" x="104" y="212" text-anchor="middle">本金 + 0.05%</text>
+          <line class="svg-flow" x1="687" y1="104" x2="687" y2="146" marker-end="url(#f2)"></line>
+          <line class="svg-flow" x1="687" y1="146" x2="596" y2="182" marker-end="url(#f2)"></line>
+          <line class="svg-flow" x1="422" y1="196" x2="392" y2="196" marker-end="url(#f2)"></line>
+          <line class="svg-flow" x1="220" y1="196" x2="190" y2="196" marker-end="url(#f2)"></line>
+          <text class="svg-step" x="390" y="272" text-anchor="middle">全程同一筆交易——你從頭到尾不需要額外本金</text>
+        </svg>
+      </div>
+      <figcaption>其他同構的用途：<strong>債務再融資</strong>（把貸款從高利率協議搬到低利率協議）、<strong>自我清算</strong>（健康度將破線時自己平倉，避免付清算罰金）、<strong>跨 DEX 套利</strong>。共同點都是「需要一筆過橋資金，但只需要幾秒鐘」。</figcaption>
+    </figure>
+
+    <h2>它如何改變威脅模型</h2>
+    <p>閃電貸本身沒有漏洞，但它把兩類風險從「理論上可能」變成「每天都在發生」：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>被放大的弱點</th><th>為什麼</th></tr></thead>
+      <tbody>
+        <tr><td><strong>用現貨價當預言機</strong></td><td>攻擊者能在單筆交易內把池子價格推到任意位置。任何讀 <code>slot0</code>、<code>getReserves()</code> 的估值都不可信。</td></tr>
+        <tr><td><strong>用即時餘額或總量計算</strong></td><td>金庫每股淨值、代幣總供給、池子深度——只要能在一筆交易內被改動，就能被操縱。</td></tr>
+        <tr><td><strong>以代幣餘額計票的治理</strong></td><td>借入大量治理代幣 → 投票 → 還款。防禦是用<strong>快照</strong>（snapshot）而非即時餘額計票。</td></tr>
+        <tr><td><strong>「資金門檻」型假設</strong></td><td>任何「要操縱需要 X 百萬美元，不划算」的推論都失效了——攻擊者不需要擁有那筆錢。</td></tr>
+      </tbody>
+    </table></div>
+    <p>常見但<strong>不可靠</strong>的防禦：偵測「這筆交易是否來自閃電貸」。做不乾淨——攻擊者可以拆成多個合約、或用自有資金達到同樣效果。<strong>正確的防禦是讓被讀取的數值本身無法在單筆交易內被操縱</strong>（TWAP、外部預言機、快照），而不是試圖辨認攻擊者的資金來源。</p>
+
+    <h2>開發者安全清單</h2>
+    <ul>
+      <li><strong>回呼要驗身份</strong>：<code>msg.sender == POOL</code> 與 <code>initiator == address(this)</code>，兩者都要。</li>
+      <li><strong>不要留下殘餘授權</strong>：回呼結束前把多餘的 <code>approve</code> 歸零，避免被後續交易利用。</li>
+      <li><strong>估算手續費</strong>：<code>amount + premium</code> 必須備齊；別忘了 0.05% 也是實際成本，套利利潤要能覆蓋它與 gas。</li>
+      <li><strong>不要用閃電貸資金充當自有資金證明</strong>：任何「持有 X 代幣即可…」的檢查都應改用時間加權或快照。</li>
+      <li><strong>重入</strong>：回呼期間你的合約處於中間狀態，若同時提供對外 <code>view</code> 介面，要考慮唯讀重入。</li>
+    </ul>
+
+    <h2>使用者風險</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>你間接承擔了它的存在</strong></td><td>即使你從不使用閃電貸，你存錢的協議若用了可操縱的價格來源，仍可能被閃電貸攻擊而產生壞帳。</td></tr>
+        <tr><td><strong>套利與清算是零和的</strong></td><td>閃電貸讓清算與套利競爭極度高效。對一般使用者而言，這意味著<strong>健康度一破線幾乎立刻被清算</strong>，沒有寬限時間。</td></tr>
+        <tr><td><strong>高 APY 常伴隨可操縱設計</strong></td><td>新協議為了快速上線，常直接讀現貨價。收益越高，越該確認它的價格來源。</td></tr>
+        <tr><td><strong>治理代幣的閃電貸攻擊</strong></td><td>若你持有的協議用即時餘額計票，攻擊者可短暫借票通過惡意提案。</td></tr>
+      </tbody>
+    </table></div>
+    <p>延伸閱讀：<a href="./solidity-security.html">Solidity 安全漏洞圖鑑</a>的「價格操縱」一節，以及 <a href="./aave.html">Aave</a> 的清算機制。</p>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://aave.com/docs/aave-v3/guides/flash-loans">Aave V3 文件：Flash Loans</a></li>
+      <li><a href="https://aave.com/docs/aave-v3/smart-contracts/pool">Aave V3 文件：Pool 合約</a></li>
+      <li><a href="https://docs.soliditylang.org/en/latest/security-considerations.html">Solidity 官方：安全考量</a></li>
+    </ul>
+    <p class="meta">內容查證時間：2026-09-19</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Flash Loans</h1>
+    <p class="meta">2026-09-19 · DEFI · ATOMICITY · AAVE · DEVELOPER GUIDE</p>
+
+    <p>No collateral, no size limit, negligible fee — on one condition: <strong>repay before the same transaction ends</strong>. Here is why that works, how to write one, and why it is simultaneously the most useful tool and the most dangerous attack vehicle in DeFi.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>A flash loan does not trust you to repay. <strong>If you cannot, the whole transaction reverts and the loan never happened.</strong> It is a direct consequence of blockchain atomicity, impossible in traditional finance.</li>
+        <li>So it <strong>abolishes capital as a barrier</strong>: anyone can command hundreds of millions for one instant. Arbitrageurs use it; so do attackers.</li>
+        <li>It is <strong>not itself a vulnerability</strong>. About 62% of price-manipulation attacks use one, but the actual bug is "the protocol read a price movable within a single transaction" — the flash loan just made the attack cheap.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners → "Why no collateral is needed"; Solidity engineers → the implementation and the collateral-swap example; PMs and risk → market background and "How it changes the threat model".</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>The economic weight of flash loans is not in volume lent (it is borrowed and repaid instantly, so outstanding balance is always zero) but in <strong>who is now able to move size</strong>.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>Aave V3 flash loan fee (default)</td><td>0.05% (<code>FLASHLOAN_PREMIUM_TOTAL</code>, governable)</td></tr>
+        <tr><td>Protocol's share of that</td><td>~4 bps; the rest goes to depositors</td></tr>
+        <tr><td>Price-manipulation attacks using flash loans</td><td>~62.1%</td></tr>
+        <tr><td>Aave's share of lending TVL</td><td>~35.1% (category ~$51.96B)</td></tr>
+        <tr><td>Attacker's own capital required</td><td><strong>gas only</strong></td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate, current as of 2026-09; the fee is set by governance — read the on-chain value before relying on it.</p>
+    <p>That last row is the point. Traditional risk management carries an implicit assumption: <strong>few people can move $100M, and those who can have identities, reputations and legal exposure</strong>. Flash loans void it — the attacker is anonymous, costless, and unpunished on failure. Every risk assessment resting on "an attacker would not have that much money" expired in 2020.</p>
+
+    <h2>Why no collateral is needed</h2>
+    <p>The key is <strong>atomicity</strong>: an Ethereum transaction either fully succeeds or fully reverts. The lender's logic is almost naive:</p>
+    <ol>
+      <li>Send you the money.</li>
+      <li>Call your callback; do whatever you like.</li>
+      <li>On return, check the balance: <strong>did enough come back?</strong></li>
+      <li>If not, <code>revert</code> — undoing step 1 along with everything else, as if it never happened.</li>
+    </ol>
+    <p>So the lender <strong>need not trust you</strong> and needs no collateral. Its only exposure is gas, and you pay that.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 330" role="img" aria-label="Flash loan lifecycle: the pool transfers funds to the borrowing contract, calls its executeOperation callback to run arbitrary logic, then checks whether principal plus fee is available, collecting it and committing if so, or reverting the whole transaction if not.">
+          <defs><marker id="g1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="g1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-dash" x="14" y="12" width="752" height="242" rx="14"></rect>
+          <text class="svg-mono-a" x="30" y="36">one transaction — if any step fails, the whole chain disappears</text>
+          <rect class="svg-node-a" x="34" y="58" width="176" height="176" rx="10"></rect>
+          <text class="svg-nlabel" x="122" y="88" text-anchor="middle">Aave Pool</text>
+          <text class="svg-ncode" x="122" y="108" text-anchor="middle">the lender</text>
+          <rect class="svg-node" x="556" y="58" width="190" height="176" rx="10"></rect>
+          <text class="svg-nlabel" x="651" y="88" text-anchor="middle">your contract</text>
+          <text class="svg-ncode" x="651" y="108" text-anchor="middle">IFlashLoanSimpleReceiver</text>
+          <line class="svg-flow" x1="210" y1="132" x2="554" y2="132" marker-end="url(#g1)"></line>
+          <text class="svg-flowlabel" x="382" y="124" text-anchor="middle">① send principal (no collateral)</text>
+          <line class="svg-flow-a" x1="210" y1="166" x2="554" y2="166" marker-end="url(#g1a)"></line>
+          <text class="svg-step" x="382" y="158" text-anchor="middle">② executeOperation() callback</text>
+          <text class="svg-mono" x="651" y="150" text-anchor="middle">arb / swap / liquidate…</text>
+          <line class="svg-flow" x1="554" y1="206" x2="212" y2="206" marker-end="url(#g1)"></line>
+          <text class="svg-flowlabel" x="382" y="198" text-anchor="middle">③ approve Pool to pull principal + fee</text>
+          <text class="svg-mono" x="122" y="200" text-anchor="middle">④ check balance</text>
+          <line class="svg-flow-a" x1="180" y1="278" x2="330" y2="278" marker-end="url(#g1a)"></line>
+          <text class="svg-step" x="346" y="282">enough → transaction commits</text>
+          <line class="svg-flow" x1="180" y1="308" x2="330" y2="308" marker-end="url(#g1)"></line>
+          <text class="svg-mono" x="346" y="312">short → revert; the loan never existed</text>
+          <text class="svg-mono" x="100" y="282" text-anchor="end">result of ④</text>
+        </svg>
+      </div>
+      <figcaption>The lender's safety comes <strong>entirely from step ④</strong>, never from trusting the borrower. That is also why the fee can be as low as 0.05% — there is essentially no credit risk, only smart-contract risk.</figcaption>
+    </figure>
+
+    <h2>Implementation: Aave V3</h2>
+    <p>Two entry points: <code>flashLoanSimple</code> (one asset, cheaper) and <code>flashLoan</code> (several). With the simple form your contract implements one callback:</p>
+<pre><code>contract MyFlashLoan is IFlashLoanSimpleReceiver {
+    IPool public immutable POOL;
+
+    <span class="c">// ① Kick off: the Pool sends funds, then calls executeOperation below</span>
+    function start(address asset, uint256 amount) external {
+        POOL.flashLoanSimple(
+            address(this),   <span class="c">// receiver</span>
+            asset,
+            amount,
+            "",              <span class="c">// params: passed through to the callback verbatim</span>
+            0                <span class="c">// referralCode</span>
+        );
+    }
+
+    <span class="c">// ② The Pool calls back here; the asset is already in this contract's balance</span>
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,     <span class="c">// the fee, ~0.05% of amount</span>
+        address initiator,
+        bytes calldata params
+    ) external override returns (bool) {
+        require(msg.sender == address(POOL), "only pool");      <span class="c">// ← never omit</span>
+        require(initiator == address(this), "bad initiator");   <span class="c">// ← never omit</span>
+
+        <span class="c">// ===== your logic here: arbitrage, collateral swap, self-liquidation… =====</span>
+
+        <span class="c">// ③ Approve the Pool to pull principal + fee back (it uses transferFrom)</span>
+        IERC20(asset).approve(address(POOL), amount + premium);
+        return true;
+    }
+}</code></pre>
+    <blockquote><p>Those two <code>require</code> lines are the <strong>most commonly omitted and most damaging</strong> part. Without them anyone can call your <code>executeOperation</code> directly with forged arguments and drive whatever logic and approvals live inside. This is exactly the "authenticate the callback" rule from the <a href="./solidity-security.html">security note</a>.</p></blockquote>
+
+    <h2>A legitimate use: swapping collateral</h2>
+    <p>The most common honest use is not arbitrage but <strong>doing something that would otherwise require having the money first</strong>. Say you borrowed USDC against ETH on Aave and now want wstETH as collateral instead, with no spare funds to repay first.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="Swapping collateral with a flash loan: borrow stablecoins to clear the existing debt, withdraw the old collateral, swap it for the new asset, re-deposit and borrow again to repay the flash loan, all within one transaction.">
+          <defs><marker id="g2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="40" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="68" text-anchor="middle">① flash borrow USDC</text>
+          <text class="svg-ncode" x="104" y="88" text-anchor="middle">= current debt</text>
+          <rect class="svg-node" x="222" y="40" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="306" y="68" text-anchor="middle">② repay the debt</text>
+          <text class="svg-ncode" x="306" y="88" text-anchor="middle">position unlocked</text>
+          <rect class="svg-node" x="424" y="40" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="508" y="68" text-anchor="middle">③ withdraw ETH</text>
+          <text class="svg-ncode" x="508" y="88" text-anchor="middle">old collateral</text>
+          <rect class="svg-node" x="612" y="40" width="150" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="687" y="68" text-anchor="middle">④ swap to wstETH</text>
+          <text class="svg-ncode" x="687" y="88" text-anchor="middle">on a DEX</text>
+          <line class="svg-flow" x1="188" y1="72" x2="220" y2="72" marker-end="url(#g2)"></line>
+          <line class="svg-flow" x1="390" y1="72" x2="422" y2="72" marker-end="url(#g2)"></line>
+          <line class="svg-flow" x1="592" y1="72" x2="610" y2="72" marker-end="url(#g2)"></line>
+          <rect class="svg-node" x="424" y="164" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="508" y="192" text-anchor="middle">⑤ deposit wstETH</text>
+          <text class="svg-ncode" x="508" y="212" text-anchor="middle">new collateral</text>
+          <rect class="svg-node" x="222" y="164" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="306" y="192" text-anchor="middle">⑥ borrow USDC again</text>
+          <text class="svg-ncode" x="306" y="212" text-anchor="middle">same amount</text>
+          <rect class="svg-node-a" x="20" y="164" width="168" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="104" y="192" text-anchor="middle">⑦ repay flash loan</text>
+          <text class="svg-ncode" x="104" y="212" text-anchor="middle">principal + 0.05%</text>
+          <line class="svg-flow" x1="687" y1="104" x2="687" y2="146" marker-end="url(#g2)"></line>
+          <line class="svg-flow" x1="687" y1="146" x2="596" y2="182" marker-end="url(#g2)"></line>
+          <line class="svg-flow" x1="422" y1="196" x2="392" y2="196" marker-end="url(#g2)"></line>
+          <line class="svg-flow" x1="220" y1="196" x2="190" y2="196" marker-end="url(#g2)"></line>
+          <text class="svg-step" x="390" y="272" text-anchor="middle">all one transaction — you never needed extra capital</text>
+        </svg>
+      </div>
+      <figcaption>Structurally identical uses: <strong>debt refinancing</strong> (moving a loan from a high-rate protocol to a cheaper one), <strong>self-liquidation</strong> (closing your own position before the health factor breaks, avoiding the liquidation penalty), and <strong>cross-DEX arbitrage</strong>. All share the shape "I need bridge capital, but only for a few seconds".</figcaption>
+    </figure>
+
+    <h2>How it changes the threat model</h2>
+    <p>Flash loans contain no bug, but they moved two risk classes from "theoretically possible" to "happens weekly":</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Weakness amplified</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Spot price as an oracle</strong></td><td>An attacker can push a pool to any price within one transaction. Any valuation reading <code>slot0</code> or <code>getReserves()</code> is untrustworthy.</td></tr>
+        <tr><td><strong>Instantaneous balances or totals</strong></td><td>Vault value-per-share, token supply, pool depth — anything mutable within one transaction is manipulable.</td></tr>
+        <tr><td><strong>Governance weighted by token balance</strong></td><td>Borrow governance tokens → vote → repay. The defence is <strong>snapshots</strong>, not live balances.</td></tr>
+        <tr><td><strong>"Capital barrier" assumptions</strong></td><td>Any reasoning of the form "manipulating this costs $X million, so it is uneconomic" is void — the attacker need not own the money.</td></tr>
+      </tbody>
+    </table></div>
+    <p>A common but <strong>unreliable</strong> defence is detecting "is this transaction using a flash loan". It cannot be done cleanly — attackers split across contracts, or simply use their own capital for the same effect. <strong>The correct defence is making the value you read unmanipulable within one transaction</strong> (TWAP, external oracle, snapshot), not trying to identify where the attacker's funds came from.</p>
+
+    <h2>Developer checklist</h2>
+    <ul>
+      <li><strong>Authenticate the callback</strong>: both <code>msg.sender == POOL</code> and <code>initiator == address(this)</code>.</li>
+      <li><strong>Leave no residual approval</strong>: zero out any excess <code>approve</code> before the callback ends, so later transactions cannot exploit it.</li>
+      <li><strong>Budget the fee</strong>: <code>amount + premium</code> must be on hand; 0.05% is a real cost that arbitrage profit must clear, alongside gas.</li>
+      <li><strong>Never treat flash-loaned funds as proof of holdings</strong>: any "holding X tokens entitles you to…" check should use time-weighting or a snapshot.</li>
+      <li><strong>Reentrancy</strong>: during the callback your contract is mid-state; if you also expose <code>view</code> functions, consider read-only reentrancy.</li>
+    </ul>
+
+    <h2>User risk</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>You are exposed even if you never use one</strong></td><td>If a protocol holding your deposits reads a manipulable price, it can be flash-loan attacked into bad debt that depositors absorb.</td></tr>
+        <tr><td><strong>Liquidation is now instant</strong></td><td>Flash loans make liquidation and arbitrage brutally efficient. In practice, <strong>crossing the health threshold means near-immediate liquidation</strong>, with no grace period.</td></tr>
+        <tr><td><strong>High APY often signals manipulable design</strong></td><td>New protocols frequently read spot prices to ship faster. The higher the yield, the more you should check the price source.</td></tr>
+        <tr><td><strong>Governance attacks</strong></td><td>If a protocol you hold counts votes by live balance, an attacker can borrow votes briefly and pass a malicious proposal.</td></tr>
+      </tbody>
+    </table></div>
+    <p>See also: the "price manipulation" section of the <a href="./solidity-security.html">Solidity security field guide</a>, and liquidation mechanics in <a href="./aave.html">Aave</a>.</p>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://aave.com/docs/aave-v3/guides/flash-loans">Aave V3 docs: Flash Loans</a></li>
+      <li><a href="https://aave.com/docs/aave-v3/smart-contracts/pool">Aave V3 docs: the Pool contract</a></li>
+      <li><a href="https://docs.soliditylang.org/en/latest/security-considerations.html">Solidity docs: security considerations</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-19</p>
+  </div>
+
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>

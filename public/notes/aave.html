@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aave 借貸協議</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Aave 借貸協議" data-title-en="Aave: Lending Mechanics">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Aave 借貸協議</h1>
+    <p class="meta">2026-09-19 · DEFI · 借貸 · 清算 · 開發者指南</p>
+
+    <p>DeFi 三大支柱之一。這則拆開它的四個核心：<strong>aToken 怎麼計息、利率怎麼決定、健康度怎麼算、清算怎麼發生</strong>——以及整合時最容易算錯的地方。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>Aave 是<strong>超額抵押</strong>的資金池借貸：你存進去的每種資產都能當抵押品，借出的價值必須始終低於抵押品價值乘以其 LTV。</li>
+        <li>利率不是人訂的，而是<strong>由資金利用率自動決定</strong>——一條在「最適利用率」處急轉向上的折線，目的是把資金池推回可提領的狀態。</li>
+        <li>健康度低於 1 就會被清算，而且因為閃電貸讓清算競爭極度高效，<strong>破線幾乎等於立刻被平倉</strong>，沒有寬限期。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「存與借的代幣流」與「健康度」；Solidity 工程師 → 整合程式碼與清算機制；PM／風控 → 市場背景與使用者投資風險。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>借貸是 DeFi 裡集中度最高的類別之一，而 Aave 是其中的明確龍頭。</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>數字</th></tr></thead>
+      <tbody>
+        <tr><td>Aave 佔借貸類 TVL</td><td>約 35.1%（類別總額約 $51.96B）</td></tr>
+        <tr><td>Aave 全版本合計 TVL</td><td>約 $14.49B</td></tr>
+        <tr><td>V3 佔 Aave 自身 TVL</td><td>約 96.6%</td></tr>
+        <tr><td>V2 剩餘（退場中）</td><td>約 $493M</td></tr>
+        <tr><td>V3 部署鏈數</td><td>21 條</td></tr>
+        <tr><td>V4 方向</td><td>模組化 hub-and-spoke、健康度導向清算</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">數據為約略值，以 2026-09 查得為準；決策前請自行複核。</p>
+    <p>對整合者的實際意義：<strong>V3 就是現在</strong>（96.6%），V2 只剩退場流量，不值得為它寫程式。V4 帶來的是架構改動（模組化的 hub 與 spoke、可自訂風險設定），但 V3 的核心概念——aToken、利用率利率、健康度、清算——都會延續，先學 V3 不會白費。</p>
+
+    <h2>存與借：代幣流</h2>
+    <p>Aave 的帳目全部用代幣表示，這讓部位可組合、也可轉移：</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="Aave 的存款與借款代幣流：存入資產會鑄造等額的 aToken 作為存款憑證並持續增值，借出資產則鑄造債務代幣記錄欠款並持續累積利息，還款時銷毀債務代幣，提領時銷毀 aToken。">
+          <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="a1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="300" y="112" width="180" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="144" text-anchor="middle">Aave Pool</text>
+          <text class="svg-ncode" x="390" y="164" text-anchor="middle">單一資金池</text>
+          <rect class="svg-node" x="24" y="34" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="62" text-anchor="middle">存款人</text>
+          <text class="svg-ncode" x="119" y="82" text-anchor="middle">supply(asset, amount)</text>
+          <rect class="svg-node" x="24" y="200" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="228" text-anchor="middle">借款人</text>
+          <text class="svg-ncode" x="119" y="248" text-anchor="middle">borrow(asset, amount)</text>
+          <rect class="svg-node" x="566" y="34" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="661" y="62" text-anchor="middle">aToken</text>
+          <text class="svg-ncode" x="661" y="82" text-anchor="middle">餘額隨利息自動增長</text>
+          <rect class="svg-node" x="566" y="200" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="661" y="228" text-anchor="middle">variableDebtToken</text>
+          <text class="svg-ncode" x="661" y="248" text-anchor="middle">餘額隨利息自動增長</text>
+          <line class="svg-flow" x1="214" y1="76" x2="330" y2="118" marker-end="url(#a1)"></line>
+          <text class="svg-flowlabel" x="252" y="108">① 存入資產</text>
+          <line class="svg-flow-a" x1="450" y1="118" x2="564" y2="76" marker-end="url(#a1a)"></line>
+          <text class="svg-step" x="520" y="108" text-anchor="middle">② 鑄 aToken</text>
+          <line class="svg-flow" x1="330" y1="182" x2="216" y2="224" marker-end="url(#a1)"></line>
+          <text class="svg-flowlabel" x="250" y="200">③ 借出資產</text>
+          <line class="svg-flow-a" x1="450" y1="182" x2="564" y2="224" marker-end="url(#a1a)"></line>
+          <text class="svg-step" x="520" y="200" text-anchor="middle">④ 鑄債務代幣</text>
+          <text class="svg-mono" x="390" y="292" text-anchor="middle">還款銷毀債務代幣；提領銷毀 aToken——利息體現在「餘額本身變多」</text>
+        </svg>
+      </div>
+      <figcaption><strong>aToken 與債務代幣都是「會自己長大」的餘額</strong>：不需要領取、不需要複投，<code>balanceOf</code> 每個區塊都在變。整合時最常見的錯誤是<strong>把 aToken 餘額快取起來</strong>——下一個區塊它就不準了，任何比對都要即時讀取。</figcaption>
+    </figure>
+
+    <h2>利率：由利用率決定</h2>
+    <p>利用率 <code>U = 已借出 / 總存入</code>。利率隨 <code>U</code> 上升，並在<strong>最適利用率</strong>（<code>U_optimal</code>）處急轉直上——這個轉折是刻意的，目的是在資金快被借光時<strong>用高利率逼借款人還錢、同時吸引新存款</strong>，好讓存款人始終能提領。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="Aave 的折線利率模型：借款利率隨資金利用率緩慢上升，到達最適利用率後斜率急遽變陡，利用率接近百分之百時利率極高。">
+          <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <line class="svg-axis" x1="80" y1="250" x2="700" y2="250"></line>
+          <line class="svg-axis" x1="80" y1="40" x2="80" y2="255"></line>
+          <text class="svg-mono" x="698" y="272" text-anchor="end">資金利用率 U →</text>
+          <text class="svg-mono" x="88" y="34">↑ 借款利率</text>
+          <polyline points="80,250 320,245 560,240 620,146 680,53" fill="none" stroke="var(--accent)" stroke-width="2.5"></polyline>
+          <line class="svg-price" x1="560" y1="60" x2="560" y2="258"></line>
+          <text class="svg-mono-a" x="560" y="274" text-anchor="middle">U_optimal（約 80%）</text>
+          <text class="svg-mono" x="90" y="272">0%</text>
+          <text class="svg-mono" x="680" y="272" text-anchor="middle">100%</text>
+          <text class="svg-flowlabel" x="300" y="228" text-anchor="middle">緩坡：資金充裕，借款便宜</text>
+          <text class="svg-step" x="600" y="100" text-anchor="end">陡坡：資金將耗盡</text>
+          <text class="svg-step" x="600" y="118" text-anchor="end">利率飆升逼人還款</text>
+          <circle cx="560" cy="240" r="5" fill="var(--accent)"></circle>
+        </svg>
+      </div>
+      <figcaption>轉折點之後斜率通常是之前的<strong>十幾倍</strong>。這解釋了兩個現象：借款利率平時很穩，但一旦某資產被大量借走就會瞬間跳到令人不安的數字；以及<strong>存款人偶爾會提不出錢</strong>——當 U 接近 100%，池子裡沒有閒置資金，你必須等借款人還款或新存款進來。</figcaption>
+    </figure>
+
+    <h2>健康度與清算</h2>
+    <p>Aave 用<strong>健康度（Health Factor）</strong>一個數字總結你的部位安全程度：</p>
+<pre><code>Health Factor = Σ(抵押品價值 × 清算門檻) / Σ(借款價值)
+
+<span class="c">// HF &gt; 1  安全；HF = 1 臨界；HF &lt; 1 可被任何人清算</span></code></pre>
+    <p>注意分子用的是<strong>清算門檻（Liquidation Threshold）</strong>，不是 LTV。兩者不同且都重要：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>參數</th><th>意義</th></tr></thead>
+      <tbody>
+        <tr><td><strong>LTV</strong></td><td>你<em>最多能借到</em>多少。例如 ETH 的 LTV 80%，存 $100 最多借 $80。</td></tr>
+        <tr><td><strong>Liquidation Threshold</strong></td><td>你<em>撐到哪裡會被清算</em>。通常比 LTV 高幾個百分點（如 82.5%），中間那段就是你的緩衝。</td></tr>
+        <tr><td><strong>Liquidation Bonus</strong></td><td>清算人的獎勵（如 5%）。這筆錢<strong>從你的抵押品扣</strong>——這就是被清算的實際代價。</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 320" role="img" aria-label="清算流程：抵押品價格下跌使健康度跌破一，清算人代為償還部分債務，並以折扣價取得相應的抵押品，價差即為清算獎勵，借款人的抵押品因此減少。">
+          <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="a3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="24" y="30" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="56" text-anchor="middle">① 抵押品下跌</text>
+          <text class="svg-ncode" x="124" y="76" text-anchor="middle">或借款資產上漲</text>
+          <rect class="svg-node-a" x="290" y="30" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="56" text-anchor="middle">② HF 跌破 1</text>
+          <text class="svg-ncode" x="390" y="76" text-anchor="middle">部位立即可被清算</text>
+          <rect class="svg-node" x="556" y="30" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="56" text-anchor="middle">③ 清算人出手</text>
+          <text class="svg-ncode" x="656" y="76" text-anchor="middle">常用閃電貸墊款</text>
+          <line class="svg-flow" x1="224" y1="60" x2="288" y2="60" marker-end="url(#a3)"></line>
+          <line class="svg-flow-a" x1="490" y1="60" x2="554" y2="60" marker-end="url(#a3a)"></line>
+          <rect class="svg-node" x="556" y="150" width="200" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="178" text-anchor="middle">④ 代償部分債務</text>
+          <text class="svg-ncode" x="656" y="198" text-anchor="middle">最多至close factor 上限</text>
+          <rect class="svg-node" x="290" y="150" width="200" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="178" text-anchor="middle">⑤ 取走抵押品</text>
+          <text class="svg-ncode" x="390" y="198" text-anchor="middle">含清算獎勵（如 5%）</text>
+          <rect class="svg-node" x="24" y="150" width="200" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="178" text-anchor="middle">⑥ 借款人</text>
+          <text class="svg-ncode" x="124" y="198" text-anchor="middle">債務減少、抵押品少更多</text>
+          <line class="svg-flow" x1="656" y1="90" x2="656" y2="148" marker-end="url(#a3)"></line>
+          <line class="svg-flow-a" x1="554" y1="183" x2="492" y2="183" marker-end="url(#a3a)"></line>
+          <line class="svg-flow" x1="288" y1="183" x2="226" y2="183" marker-end="url(#a3)"></line>
+          <text class="svg-step" x="390" y="268" text-anchor="middle">清算獎勵就是借款人的淨損失——它從抵押品裡扣</text>
+          <text class="svg-mono" x="390" y="296" text-anchor="middle">整串通常在同一筆交易內完成，機器人以毫秒級競爭</text>
+        </svg>
+      </div>
+      <figcaption>清算人<strong>不需要自有資金</strong>：用閃電貸借穩定幣代償、拿到折扣抵押品、賣掉、還閃電貸、留下價差。這正是<a href="./flash-loan.html">閃電貸</a>的正當用途之一，但對借款人而言結果是——<strong>健康度破線後幾乎沒有反應時間</strong>。</figcaption>
+    </figure>
+
+    <h2>整合程式碼</h2>
+<pre><code><span class="c">// 存入（先 approve 給 Pool）</span>
+IERC20(asset).approve(address(POOL), amount);
+POOL.supply(asset, amount, onBehalfOf, 0);
+
+<span class="c">// 借出：interestRateMode 2 = variable</span>
+POOL.borrow(asset, amount, 2, 0, onBehalfOf);
+
+<span class="c">// 還款：amount 傳 type(uint256).max 表示「全部還清」</span>
+IERC20(asset).approve(address(POOL), type(uint256).max);
+POOL.repay(asset, type(uint256).max, 2, onBehalfOf);
+
+<span class="c">// 提領：同樣可用 max 表示全部</span>
+POOL.withdraw(asset, type(uint256).max, to);</code></pre>
+<pre><code><span class="c">// 讀部位狀態——上線前務必監控 healthFactor</span>
+(
+    uint256 totalCollateralBase,
+    uint256 totalDebtBase,
+    uint256 availableBorrowsBase,
+    uint256 currentLiquidationThreshold,
+    uint256 ltv,
+    uint256 healthFactor        <span class="c">// 1e18 = 1.0</span>
+) = POOL.getUserAccountData(user);
+
+require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
+    <blockquote><p>兩個容易踩的坑：<strong>Base 單位不是該資產的單位</strong>——<code>getUserAccountData</code> 回傳的是以基準貨幣（通常 8 位小數的 USD）計價的總額，不要跟代幣數量混用。以及<strong><code>healthFactor</code> 在沒有借款時會回傳 <code>type(uint256).max</code></strong>，直接比大小的判斷要先處理這個情況。</p></blockquote>
+
+    <h2>V3 的幾個關鍵設定</h2>
+    <ul>
+      <li><strong>E-Mode（效率模式）</strong>：當抵押品與借款資產高度相關（如 ETH 與 wstETH、各種穩定幣之間），可切換到更高的 LTV。代價是該模式下只能借特定類別的資產。</li>
+      <li><strong>Isolation Mode（隔離模式）</strong>：風險較高的新資產只能作為<em>唯一</em>抵押品，且有鑄造上限、只能借白名單穩定幣。目的是把壞帳侷限在該資產。</li>
+      <li><strong>Siloed Borrowing（隔離借款）</strong>：某些資產一旦借了，就不能同時借其他資產。</li>
+      <li><strong>Supply / Borrow Caps</strong>：每種資產的總量上限，防止單一資產的風險無上限累積。整合時要處理「達到上限而交易失敗」的情況。</li>
+    </ul>
+
+    <h2>智慧合約安全風險（開發者）</h2>
+    <ul>
+      <li><strong>不要快取 aToken 或債務餘額</strong>：它們每個區塊都在變，快取值會讓你的會計慢慢偏離真實。</li>
+      <li><strong>健康度要留緩衝</strong>：以 1.0 為目標等於立刻被清算。自動化策略應以 1.3–1.5 以上為操作區間，並考慮預言機更新的跳動。</li>
+      <li><strong>處理上限與暫停</strong>：supply/borrow cap 達標、資產被凍結或下架，都會讓交易 revert。整合要有降級路徑。</li>
+      <li><strong>預言機依賴</strong>：Aave 用外部預言機定價。若你的策略疊在 Aave 之上，你同時繼承了它的預言機風險。</li>
+      <li><strong>E-Mode 切換會改變健康度</strong>：進出 E-Mode 會即時改變 LTV 與清算門檻，自動化流程要重算。</li>
+    </ul>
+
+    <h2>使用者投資風險</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>清算沒有寬限期</strong></td><td>機器人以毫秒競爭，HF 破 1 通常在同一個區塊內就被清算，並從抵押品扣走清算獎勵。</td></tr>
+        <tr><td><strong>利率會瞬間跳升</strong></td><td>利用率越過轉折點後，借款利率可能在數小時內從個位數跳到數十個百分點。浮動利率借款要持續盯。</td></tr>
+        <tr><td><strong>存款未必隨時可提</strong></td><td>當利用率接近 100%，池中沒有閒置資金，提領會失敗——只能等還款或加息吸引新存款。</td></tr>
+        <tr><td><strong>壞帳由存款人承擔</strong></td><td>若價格瞬間崩跌導致清算不及，抵押品不足以覆蓋債務，缺口最終由該資產的存款人分攤。</td></tr>
+        <tr><td><strong>預言機風險</strong></td><td>清算依預言機價格而非你看到的市場價。預言機異常或延遲可能觸發非預期清算。</td></tr>
+        <tr><td><strong>循環槓桿會放大一切</strong></td><td>存款→借款→再存入的循環操作能把曝險放到數倍，同時把清算距離壓到極薄。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://aave.com/docs/aave-v3/smart-contracts/pool">Aave V3 文件：Pool 合約</a></li>
+      <li><a href="https://aave.com/docs/aave-v3/guides/flash-loans">Aave V3 文件：Flash Loans</a></li>
+      <li><a href="https://governance.aave.com/">Aave 治理論壇（參數變更都在這裡）</a></li>
+      <li><a href="https://defillama.com/protocol/aave">DefiLlama：Aave TVL 與費用</a></li>
+    </ul>
+    <p class="meta">內容查證時間：2026-09-19</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Aave: Lending Mechanics</h1>
+    <p class="meta">2026-09-19 · DEFI · LENDING · LIQUIDATION · DEVELOPER GUIDE</p>
+
+    <p>One of DeFi's three pillars. This note opens up its four core pieces — <strong>how aTokens accrue, how rates are set, how health is computed, how liquidation happens</strong> — and where integrations most often get the maths wrong.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>Aave is <strong>over-collateralised</strong> pooled lending: everything you supply can serve as collateral, and borrowed value must stay below collateral value times its LTV.</li>
+        <li>Rates are not set by anyone; they are <strong>a function of utilisation</strong> — a kinked curve that turns sharply upward at an "optimal" point, designed to push the pool back to a withdrawable state.</li>
+        <li>Below a health factor of 1 you are liquidated, and because flash loans make liquidation fiercely competitive, <strong>crossing the line means near-instant closure</strong> with no grace period.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners → "Token flows" and "Health factor"; Solidity engineers → the integration code and liquidation mechanics; PMs and risk → market background and user investment risk.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>Lending is among DeFi's most concentrated categories, and Aave is the clear leader.</p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
+      <tbody>
+        <tr><td>Aave share of lending TVL</td><td>~35.1% (category ~$51.96B)</td></tr>
+        <tr><td>Aave TVL, all versions</td><td>~$14.49B</td></tr>
+        <tr><td>V3 share of Aave's own TVL</td><td>~96.6%</td></tr>
+        <tr><td>V2 remaining (winding down)</td><td>~$493M</td></tr>
+        <tr><td>V3 chains deployed</td><td>21</td></tr>
+        <tr><td>V4 direction</td><td>Modular hub-and-spoke, health-targeted liquidation</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Figures are approximate, current as of 2026-09; re-verify before acting on them.</p>
+    <p>What that means for integrators: <strong>V3 is the present</strong> at 96.6%, and V2 is runoff not worth writing code for. V4 changes the architecture (modular hubs and spokes, configurable risk), but V3's core concepts — aTokens, utilisation-driven rates, health factor, liquidation — carry over, so learning V3 is not wasted.</p>
+
+    <h2>Supplying and borrowing: token flows</h2>
+    <p>Aave represents every position as a token, which makes positions composable and transferable:</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="Aave supply and borrow token flows: supplying an asset mints an equivalent aToken receipt that grows in value, borrowing mints a debt token that accrues interest, repayment burns the debt token and withdrawal burns the aToken.">
+          <defs><marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="b1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node-a" x="300" y="112" width="180" height="76" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="144" text-anchor="middle">Aave Pool</text>
+          <text class="svg-ncode" x="390" y="164" text-anchor="middle">a single pool</text>
+          <rect class="svg-node" x="24" y="34" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="62" text-anchor="middle">supplier</text>
+          <text class="svg-ncode" x="119" y="82" text-anchor="middle">supply(asset, amount)</text>
+          <rect class="svg-node" x="24" y="200" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="228" text-anchor="middle">borrower</text>
+          <text class="svg-ncode" x="119" y="248" text-anchor="middle">borrow(asset, amount)</text>
+          <rect class="svg-node" x="566" y="34" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="661" y="62" text-anchor="middle">aToken</text>
+          <text class="svg-ncode" x="661" y="82" text-anchor="middle">balance grows with interest</text>
+          <rect class="svg-node" x="566" y="200" width="190" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="661" y="228" text-anchor="middle">variableDebtToken</text>
+          <text class="svg-ncode" x="661" y="248" text-anchor="middle">balance grows with interest</text>
+          <line class="svg-flow" x1="214" y1="76" x2="330" y2="118" marker-end="url(#b1)"></line>
+          <text class="svg-flowlabel" x="252" y="108">① deposit asset</text>
+          <line class="svg-flow-a" x1="450" y1="118" x2="564" y2="76" marker-end="url(#b1a)"></line>
+          <text class="svg-step" x="520" y="108" text-anchor="middle">② mint aToken</text>
+          <line class="svg-flow" x1="330" y1="182" x2="216" y2="224" marker-end="url(#b1)"></line>
+          <text class="svg-flowlabel" x="250" y="200">③ send asset</text>
+          <line class="svg-flow-a" x1="450" y1="182" x2="564" y2="224" marker-end="url(#b1a)"></line>
+          <text class="svg-step" x="520" y="200" text-anchor="middle">④ mint debt token</text>
+          <text class="svg-mono" x="390" y="292" text-anchor="middle">repaying burns debt tokens; withdrawing burns aTokens — interest shows up as a bigger balance</text>
+        </svg>
+      </div>
+      <figcaption><strong>aTokens and debt tokens are balances that grow by themselves</strong>: nothing to claim, nothing to compound; <code>balanceOf</code> changes every block. The most common integration bug is <strong>caching an aToken balance</strong> — it is stale one block later, so every comparison must read live.</figcaption>
+    </figure>
+
+    <h2>Rates: a function of utilisation</h2>
+    <p>Utilisation is <code>U = borrowed / supplied</code>. Rates rise with <code>U</code> and turn sharply upward at the <strong>optimal utilisation</strong> point. That kink is deliberate: when funds are nearly exhausted, <strong>a punishing rate pushes borrowers to repay and attracts new deposits</strong>, so suppliers can still withdraw.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="Aave's kinked interest rate model: the borrow rate rises gently with utilisation, then the slope steepens sharply past the optimal utilisation point, reaching very high rates near full utilisation.">
+          <line class="svg-axis" x1="80" y1="250" x2="700" y2="250"></line>
+          <line class="svg-axis" x1="80" y1="40" x2="80" y2="255"></line>
+          <text class="svg-mono" x="698" y="272" text-anchor="end">utilisation U →</text>
+          <text class="svg-mono" x="88" y="34">↑ borrow rate</text>
+          <polyline points="80,250 320,245 560,240 620,146 680,53" fill="none" stroke="var(--accent)" stroke-width="2.5"></polyline>
+          <line class="svg-price" x1="560" y1="60" x2="560" y2="258"></line>
+          <text class="svg-mono-a" x="560" y="274" text-anchor="middle">U_optimal (~80%)</text>
+          <text class="svg-mono" x="90" y="272">0%</text>
+          <text class="svg-mono" x="680" y="272" text-anchor="middle">100%</text>
+          <text class="svg-flowlabel" x="300" y="228" text-anchor="middle">gentle: liquidity is ample, borrowing is cheap</text>
+          <text class="svg-step" x="600" y="100" text-anchor="end">steep: liquidity nearly gone</text>
+          <text class="svg-step" x="600" y="118" text-anchor="end">rates spike to force repayment</text>
+          <circle cx="560" cy="240" r="5" fill="var(--accent)"></circle>
+        </svg>
+      </div>
+      <figcaption>Past the kink the slope is typically <strong>an order of magnitude steeper</strong>. That explains two things: borrow rates are stable until an asset gets heavily borrowed, then jump to alarming numbers; and <strong>suppliers sometimes cannot withdraw</strong> — near 100% utilisation there is no idle liquidity, so you wait for repayments or new deposits.</figcaption>
+    </figure>
+
+    <h2>Health factor and liquidation</h2>
+    <p>Aave compresses position safety into one number, the <strong>health factor</strong>:</p>
+<pre><code>Health Factor = Σ(collateral value × liquidation threshold) / Σ(borrow value)
+
+<span class="c">// HF &gt; 1  safe;  HF = 1 at the edge;  HF &lt; 1 anyone may liquidate you</span></code></pre>
+    <p>Note the numerator uses the <strong>liquidation threshold</strong>, not LTV. They differ, and both matter:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Parameter</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><strong>LTV</strong></td><td>How much you <em>may borrow</em>. With ETH at 80% LTV, $100 supplied allows $80 borrowed.</td></tr>
+        <tr><td><strong>Liquidation threshold</strong></td><td>How far you can drift <em>before liquidation</em>. Usually a few points above LTV (say 82.5%); the gap is your buffer.</td></tr>
+        <tr><td><strong>Liquidation bonus</strong></td><td>The liquidator's reward (say 5%), <strong>taken out of your collateral</strong> — this is what being liquidated actually costs.</td></tr>
+      </tbody>
+    </table></div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 320" role="img" aria-label="Liquidation flow: falling collateral prices push the health factor below one, a liquidator repays part of the debt and receives collateral at a discount, and the difference is the liquidation bonus deducted from the borrower's collateral.">
+          <defs><marker id="b3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="b3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="24" y="30" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="56" text-anchor="middle">① collateral falls</text>
+          <text class="svg-ncode" x="124" y="76" text-anchor="middle">or the borrowed asset rises</text>
+          <rect class="svg-node-a" x="290" y="30" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="56" text-anchor="middle">② HF drops below 1</text>
+          <text class="svg-ncode" x="390" y="76" text-anchor="middle">immediately liquidatable</text>
+          <rect class="svg-node" x="556" y="30" width="200" height="60" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="56" text-anchor="middle">③ a liquidator acts</text>
+          <text class="svg-ncode" x="656" y="76" text-anchor="middle">often funded by a flash loan</text>
+          <line class="svg-flow" x1="224" y1="60" x2="288" y2="60" marker-end="url(#b3)"></line>
+          <line class="svg-flow-a" x1="490" y1="60" x2="554" y2="60" marker-end="url(#b3a)"></line>
+          <rect class="svg-node" x="556" y="150" width="200" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="656" y="178" text-anchor="middle">④ repays part of the debt</text>
+          <text class="svg-ncode" x="656" y="198" text-anchor="middle">up to the close factor</text>
+          <rect class="svg-node" x="290" y="150" width="200" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="390" y="178" text-anchor="middle">⑤ takes collateral</text>
+          <text class="svg-ncode" x="390" y="198" text-anchor="middle">plus the bonus (e.g. 5%)</text>
+          <rect class="svg-node" x="24" y="150" width="200" height="66" rx="10"></rect>
+          <text class="svg-nlabel" x="124" y="178" text-anchor="middle">⑥ the borrower</text>
+          <text class="svg-ncode" x="124" y="198" text-anchor="middle">less debt, much less collateral</text>
+          <line class="svg-flow" x1="656" y1="90" x2="656" y2="148" marker-end="url(#b3)"></line>
+          <line class="svg-flow-a" x1="554" y1="183" x2="492" y2="183" marker-end="url(#b3a)"></line>
+          <line class="svg-flow" x1="288" y1="183" x2="226" y2="183" marker-end="url(#b3)"></line>
+          <text class="svg-step" x="390" y="268" text-anchor="middle">the liquidation bonus is the borrower's net loss — it comes out of collateral</text>
+          <text class="svg-mono" x="390" y="296" text-anchor="middle">usually all in one transaction, with bots competing in milliseconds</text>
+        </svg>
+      </div>
+      <figcaption>Liquidators need <strong>no capital of their own</strong>: flash-borrow stablecoins, repay the debt, take discounted collateral, sell, repay the loan, keep the spread. This is one of the honest uses of <a href="./flash-loan.html">flash loans</a> — but for the borrower it means <strong>there is effectively no reaction time once health breaks</strong>.</figcaption>
+    </figure>
+
+    <h2>Integration code</h2>
+<pre><code><span class="c">// Supply (approve the Pool first)</span>
+IERC20(asset).approve(address(POOL), amount);
+POOL.supply(asset, amount, onBehalfOf, 0);
+
+<span class="c">// Borrow: interestRateMode 2 = variable</span>
+POOL.borrow(asset, amount, 2, 0, onBehalfOf);
+
+<span class="c">// Repay: passing type(uint256).max means "repay everything"</span>
+IERC20(asset).approve(address(POOL), type(uint256).max);
+POOL.repay(asset, type(uint256).max, 2, onBehalfOf);
+
+<span class="c">// Withdraw: max works here too</span>
+POOL.withdraw(asset, type(uint256).max, to);</code></pre>
+<pre><code><span class="c">// Read position state — always monitor healthFactor before going live</span>
+(
+    uint256 totalCollateralBase,
+    uint256 totalDebtBase,
+    uint256 availableBorrowsBase,
+    uint256 currentLiquidationThreshold,
+    uint256 ltv,
+    uint256 healthFactor        <span class="c">// 1e18 = 1.0</span>
+) = POOL.getUserAccountData(user);
+
+require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
+    <blockquote><p>Two easy traps: <strong>"Base" units are not the asset's units</strong> — <code>getUserAccountData</code> returns totals in the base currency (usually USD with 8 decimals), so never mix them with token amounts. And <strong><code>healthFactor</code> returns <code>type(uint256).max</code> when there is no debt</strong>, so a naive comparison needs that case handled first.</p></blockquote>
+
+    <h2>Key V3 configurations</h2>
+    <ul>
+      <li><strong>E-Mode</strong>: when collateral and borrowed asset are highly correlated (ETH and wstETH, or stablecoins among themselves), you can switch to a much higher LTV. The trade-off is that you may only borrow assets in that category.</li>
+      <li><strong>Isolation mode</strong>: a riskier new asset may only be used as the <em>sole</em> collateral, with a debt ceiling and a stablecoin allowlist. The point is to confine bad debt to that asset.</li>
+      <li><strong>Siloed borrowing</strong>: some assets, once borrowed, prevent borrowing anything else simultaneously.</li>
+      <li><strong>Supply / borrow caps</strong>: per-asset ceilings so exposure cannot accumulate without limit. Integrations must handle the "cap reached, transaction reverts" case.</li>
+    </ul>
+
+    <h2>Smart-contract security (developers)</h2>
+    <ul>
+      <li><strong>Never cache aToken or debt balances</strong>: they change every block, and a cached value drifts your accounting away from reality.</li>
+      <li><strong>Keep health-factor headroom</strong>: targeting 1.0 means instant liquidation. Automated strategies should operate at 1.3–1.5 or above, allowing for oracle jumps.</li>
+      <li><strong>Handle caps and pauses</strong>: hitting a supply/borrow cap, or an asset being frozen or offboarded, reverts transactions. Have a degraded path.</li>
+      <li><strong>Oracle dependency</strong>: Aave prices via external oracles. A strategy built on Aave inherits Aave's oracle risk.</li>
+      <li><strong>Toggling E-Mode changes health</strong>: entering or leaving E-Mode instantly changes LTV and threshold; recompute in automated flows.</li>
+    </ul>
+
+    <h2>User investment risk</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>No grace period on liquidation</strong></td><td>Bots compete in milliseconds; crossing HF 1 usually means liquidation in the same block, with the bonus taken from your collateral.</td></tr>
+        <tr><td><strong>Rates can spike instantly</strong></td><td>Past the kink, borrow rates can go from single digits to tens of percent within hours. Variable-rate borrowing needs watching.</td></tr>
+        <tr><td><strong>Deposits are not always withdrawable</strong></td><td>Near 100% utilisation there is no idle liquidity and withdrawals fail — you wait for repayments or for higher rates to attract deposits.</td></tr>
+        <tr><td><strong>Bad debt falls on suppliers</strong></td><td>If a price gaps down faster than liquidation can clear, collateral may not cover the debt, and the shortfall is ultimately borne by that asset's suppliers.</td></tr>
+        <tr><td><strong>Oracle risk</strong></td><td>Liquidation uses the oracle price, not the market price you see. An anomaly or lag can trigger unexpected liquidation.</td></tr>
+        <tr><td><strong>Looped leverage magnifies everything</strong></td><td>Supply → borrow → re-supply loops multiply exposure while compressing the distance to liquidation to almost nothing.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://aave.com/docs/aave-v3/smart-contracts/pool">Aave V3 docs: the Pool contract</a></li>
+      <li><a href="https://aave.com/docs/aave-v3/guides/flash-loans">Aave V3 docs: Flash Loans</a></li>
+      <li><a href="https://governance.aave.com/">Aave governance forum (all parameter changes live here)</a></li>
+      <li><a href="https://defillama.com/protocol/aave">DefiLlama: Aave TVL and fees</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-09-19</p>
+  </div>
+
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>
