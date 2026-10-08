@@ -415,6 +415,7 @@ l1Nullifier.finalizeWithdrawal(
         <tr><td><strong>升級金鑰／安全委員會</strong></td><td>電路或合約有 bug 時通常靠緊急升級處理。這代表有一組權限能改變規則，權限本身即風險。</td></tr>
         <tr><td><strong>證明系統的 bug</strong></td><td>電路若有瑕疵，可能產生「看似有效」的錯誤證明。與 optimistic 不同，這裡<strong>沒有挑戰期作為第二道防線</strong>。</td></tr>
         <tr><td><strong>zkEVM 等價程度差異</strong></td><td>不同型別的 zkEVM 相容程度不同，某些 opcode 或 gas 行為可能與主網不一致，導致合約行為有出入。</td></tr>
+        <tr><td><strong>OFT 的 USDC ≠ canonical USDC</strong></td><td>同一 ticker 可能同時存在官方橋的 ERC-20 與第三方 OFT。贖回路徑與對手方完全不同；產品文案寫「USDC」時要寫清是哪一種。</td></tr>
         <tr><td><strong>你持有的是橋接代表物</strong></td><td>與其他 L2 相同，L2 上的資產多為橋接鑄造的代表物，橋出事即可能脫鉤。</td></tr>
       </tbody>
     </table></div>
@@ -801,6 +802,7 @@ l1Nullifier.finalizeWithdrawal(
         <tr><td><strong>Upgrade keys / security council</strong></td><td>Circuit or contract bugs are handled by emergency upgrade. That means a set of keys can change the rules, and those keys are themselves the risk.</td></tr>
         <tr><td><strong>Proof-system bugs</strong></td><td>A flawed circuit can produce a "valid-looking" but wrong proof. Unlike optimistic rollups, there is <strong>no challenge window as a second line of defence</strong>.</td></tr>
         <tr><td><strong>zkEVM equivalence differs</strong></td><td>Equivalence varies by type; some opcodes or gas behaviour may differ from mainnet, so contracts can behave differently.</td></tr>
+        <tr><td><strong>OFT USDC ≠ canonical USDC</strong></td><td>The same ticker can be the official-bridge ERC-20 and a third-party OFT at once. Redemption paths and counterparties differ; if product copy says "USDC", say which one.</td></tr>
         <tr><td><strong>You hold a bridged representation</strong></td><td>As on other L2s, assets are usually minted representations and can depeg if the bridge fails.</td></tr>
       </tbody>
     </table></div>
