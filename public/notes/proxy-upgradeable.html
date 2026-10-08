@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proxy 與可升級合約</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-title-zh="Proxy 與可升級合約" data-title-en="Proxies and Upgradeable Contracts">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+  <a class="back" href="../index.html">
+    <span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span>
+  </a>
+
+  <!-- ================= 中文 ================= -->
+  <div data-l="zh">
+    <h1>Proxy 與可升級合約</h1>
+    <p class="meta">2026-10-08 · SOLIDITY · 代理模式 · 儲存佈局 · 開發者指南</p>
+
+    <p>合約部署後不可變，但產品需要修 bug、加功能。代理模式是整個產業的解法——代價是引入了一組全新的、而且<strong>安靜失敗</strong>的錯誤類型。這則講三種主流模式、儲存佈局怎麼對齊，以及升級本身為何已成為頂級攻擊面。</p>
+
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>原理只有一句：<strong>proxy 持有儲存與地址，implementation 只提供程式碼</strong>，兩者靠 <code>delegatecall</code> 接起來。升級＝換掉那個程式碼地址。</li>
+        <li>最大的風險不是寫錯邏輯，而是<strong>儲存佈局錯位</strong>——它不會 revert，只會安靜地把某個欄位讀成另一個欄位的值。</li>
+        <li>而且<strong>「可升級」本身就是一種中心化</strong>：誰握有升級權，誰就能重寫規則。2026 年單筆約 $280M 的 Drift 事件，根因就在升級機制。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「delegatecall 到底做了什麼」與三種模式對照；Solidity 工程師 → 儲存佈局、ERC-7201、初始化與升級清單；PM／風控 → 市場背景與使用者風險。</p>
+    </div>
+
+    <h2>市場背景</h2>
+    <p>可升級在生產環境幾乎是預設值——主流 DeFi 協議大多跑在代理之後。這帶來一個常被低估的事實：<strong>你評估一個協議的安全性時，實際上是在評估「誰能升級它」。</strong></p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>指標</th><th>狀態</th></tr></thead>
+      <tbody>
+        <tr><td>2026 年最大事件之一：Drift</td><td>約 $280M，根因為<strong>升級機制</strong>漏洞</td></tr>
+        <tr><td>OpenZeppelin v5 的儲存方案</td><td>改用 <strong>ERC-7201 命名空間儲存</strong>，取代 <code>__gap</code></td></tr>
+        <tr><td>OZ v5 的介面變動</td><td><code>upgradeTo</code> 已移除，只剩 <code>upgradeToAndCall</code></td></tr>
+        <tr><td>OZ v5 的 Transparent proxy</td><td>admin 改為 <strong>immutable</strong>，升級權改由 ProxyAdmin 的 ownership 控制</td></tr>
+        <tr><td>學術關注度</td><td>代理碰撞偵測已是獨立研究主題（Proxion、USCSA 等）</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">狀態以 2026-10 查得為準；函式庫介面變動頻繁，實作前請對照你實際安裝的版本。</p>
+    <blockquote><p>如果你讀的教學還在教 <code>__gap</code> 與 <code>upgradeTo</code>，它寫在 OZ v5 之前。<strong>v4 與 v5 的儲存模型不相容</strong>——從 v4 的順序儲存升級到 v5 的命名空間儲存若沒處理好，已有回報造成無法復原的鎖死。跨大版本升級前務必先驗證佈局。</p></blockquote>
+
+    <h2>delegatecall 到底做了什麼</h2>
+    <p>一般的 <code>call</code> 是「去對方家、用對方的東西」；<code>delegatecall</code> 是<strong>「把對方的程式碼搬來、用自己的東西執行」</strong>。所以：</p>
+    <ul>
+      <li>執行的是 implementation 的<strong>程式碼</strong>。</li>
+      <li>讀寫的是 proxy 的<strong>儲存</strong>。</li>
+      <li><code>msg.sender</code> 與 <code>msg.value</code> 維持原本的呼叫者與金額。</li>
+      <li><code>address(this)</code> 是 <strong>proxy</strong>，不是 implementation。</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 320" role="img" aria-label="代理模式的呼叫流程：使用者呼叫 proxy，proxy 從固定儲存槽讀出 implementation 位址，以 delegatecall 執行其程式碼，但所有狀態讀寫都落在 proxy 自己的儲存上，implementation 的儲存則完全未被使用。">
+          <defs><marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="p1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="108" width="140" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="90" y="136" text-anchor="middle">使用者</text>
+          <text class="svg-ncode" x="90" y="156" text-anchor="middle">呼叫固定地址</text>
+          <rect class="svg-node-a" x="250" y="60" width="200" height="160" rx="10"></rect>
+          <text class="svg-nlabel" x="350" y="90" text-anchor="middle">Proxy</text>
+          <text class="svg-ncode" x="350" y="112" text-anchor="middle">地址永遠不變</text>
+          <text class="svg-mono-a" x="350" y="146" text-anchor="middle">★ 所有狀態在這裡</text>
+          <text class="svg-ncode" x="350" y="168" text-anchor="middle">owner / balances / …</text>
+          <text class="svg-ncode" x="350" y="196" text-anchor="middle">EIP-1967 槽位存 impl 位址</text>
+          <rect class="svg-node" x="560" y="60" width="200" height="160" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="90" text-anchor="middle">Implementation</text>
+          <text class="svg-ncode" x="660" y="112" text-anchor="middle">升級時換掉這個</text>
+          <text class="svg-mono" x="660" y="150" text-anchor="middle">只提供程式碼</text>
+          <text class="svg-mono" x="660" y="176" text-anchor="middle">自己的 storage</text>
+          <text class="svg-mono" x="660" y="196" text-anchor="middle">完全沒被用到</text>
+          <line class="svg-flow" x1="160" y1="140" x2="248" y2="140" marker-end="url(#p1)"></line>
+          <text class="svg-flowlabel" x="204" y="132" text-anchor="middle">① call</text>
+          <line class="svg-flow-a" x1="450" y1="128" x2="558" y2="128" marker-end="url(#p1a)"></line>
+          <text class="svg-step" x="504" y="120" text-anchor="middle">② delegatecall</text>
+          <line class="svg-flow" x1="558" y1="172" x2="452" y2="172" marker-end="url(#p1)"></line>
+          <text class="svg-flowlabel" x="504" y="190" text-anchor="middle">③ 讀寫落回 proxy</text>
+          <text class="svg-mono" x="390" y="260" text-anchor="middle">msg.sender 保持為使用者　·　address(this) 是 Proxy</text>
+          <text class="svg-step" x="390" y="292" text-anchor="middle">升級 = 只改 ① 裡那個 impl 位址，使用者的地址與資料完全不動</text>
+        </svg>
+      </div>
+      <figcaption>這張圖解釋了代理模式的全部價值：<strong>使用者面對的地址永遠不變、資產永遠不用搬家</strong>，但背後的邏輯可以換。也解釋了全部危險：implementation 的程式碼是用 proxy 的儲存槽在跑，<strong>兩邊對「第幾槽是什麼」的認知必須完全一致</strong>。</figcaption>
+    </figure>
+
+<pre><code><span class="c">// proxy 的核心就這一段——所有未匹配的呼叫都轉給 implementation</span>
+fallback() external payable {
+    address impl = _implementation();          <span class="c">// 從 EIP-1967 固定槽位讀出</span>
+    assembly {
+        calldatacopy(0, 0, calldatasize())     <span class="c">// 原封不動複製 calldata</span>
+        <span class="c">// 用「本合約的 storage」執行 impl 的 code</span>
+        let ok := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
+        returndatacopy(0, 0, returndatasize())
+        switch ok
+        case 0 { revert(0, returndatasize()) }
+        default { return(0, returndatasize()) }
+    }
+}</code></pre>
+
+    <h2>三種主流模式</h2>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 860 300" role="img" aria-label="三種代理模式的架構對照：Transparent 模式把升級邏輯放在 proxy 並由獨立的 ProxyAdmin 控制；UUPS 把升級函式放在 implementation 內；Beacon 模式讓多個 proxy 共用一個 beacon，升級 beacon 即一次更新全部。">
+          <defs><marker id="p2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="p2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="20" y="26">Transparent</text>
+          <rect class="svg-node" x="20" y="40" width="110" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="75" y="70" text-anchor="middle">Proxy</text>
+          <rect class="svg-node-a" x="20" y="108" width="110" height="46" rx="8"></rect>
+          <text class="svg-ncode" x="75" y="136" text-anchor="middle">ProxyAdmin</text>
+          <rect class="svg-node" x="160" y="40" width="110" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="215" y="70" text-anchor="middle">Impl</text>
+          <line class="svg-flow" x1="130" y1="66" x2="158" y2="66" marker-end="url(#p2)"></line>
+          <line class="svg-flow-a" x1="75" y1="104" x2="75" y2="94" marker-end="url(#p2a)"></line>
+          <text class="svg-mono" x="20" y="180">升級邏輯在 proxy</text>
+          <text class="svg-mono" x="20" y="200">admin 與使用者走不同路徑</text>
+          <text class="svg-mono" x="20" y="220">部署成本最高</text>
+          <text class="svg-mono-a" x="20" y="244">v5：admin 為 immutable</text>
+          <text class="svg-label" x="300" y="26">UUPS</text>
+          <rect class="svg-node" x="300" y="40" width="110" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="355" y="70" text-anchor="middle">Proxy</text>
+          <rect class="svg-node-a" x="440" y="40" width="130" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="505" y="64" text-anchor="middle">Impl</text>
+          <text class="svg-ncode" x="505" y="82" text-anchor="middle">含升級函式</text>
+          <line class="svg-flow-a" x1="410" y1="66" x2="438" y2="66" marker-end="url(#p2a)"></line>
+          <text class="svg-mono" x="300" y="180">升級邏輯在 implementation</text>
+          <text class="svg-mono" x="300" y="200">proxy 較輕、部署便宜</text>
+          <text class="svg-mono" x="300" y="220">沒有選擇器衝突問題</text>
+          <text class="svg-step" x="300" y="244">⚠ 新版忘了帶升級函式 = 永久鎖死</text>
+          <text class="svg-label" x="610" y="26">Beacon</text>
+          <rect class="svg-node" x="610" y="40" width="80" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="650" y="64" text-anchor="middle">Proxy A</text>
+          <rect class="svg-node" x="610" y="88" width="80" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="650" y="112" text-anchor="middle">Proxy B</text>
+          <rect class="svg-node-a" x="700" y="64" width="86" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="743" y="88" text-anchor="middle">Beacon</text>
+          <line class="svg-flow-a" x1="690" y1="60" x2="698" y2="78" marker-end="url(#p2a)"></line>
+          <line class="svg-flow-a" x1="690" y1="108" x2="698" y2="92" marker-end="url(#p2a)"></line>
+          <text class="svg-mono" x="610" y="180">多個 proxy 共用一個 beacon</text>
+          <text class="svg-mono" x="610" y="200">升級 beacon = 全部一起換</text>
+          <text class="svg-mono" x="610" y="220">適合大量同質合約</text>
+          <text class="svg-step" x="610" y="244">⚠ 一次失誤影響全部實例</text>
+          <text class="svg-mono" x="400" y="286" text-anchor="middle">另有 Diamond（EIP-2535）：多個 facet 分攤邏輯，解決合約大小上限，但複雜度最高</text>
+        </svg>
+      </div>
+      <figcaption>怎麼選：<strong>單一合約、想省 gas → UUPS</strong>（目前最常見）；<strong>要部署上百個同質合約（如每個使用者一個金庫）→ Beacon</strong>；<strong>Transparent</strong> 主要出現在既有的舊系統；<strong>Diamond</strong> 只在你真的撞到 24KB 合約大小上限時才值得那份複雜度。</figcaption>
+    </figure>
+
+    <h2>EIP-1967：為什麼需要固定槽位</h2>
+    <p>proxy 自己也要存東西（implementation 位址、admin），但它的儲存跟 implementation 共用同一個空間。如果 proxy 把 implementation 位址放在 slot 0，而 implementation 的第一個變數剛好也在 slot 0——<strong>兩者會互相覆蓋</strong>。</p>
+    <p>EIP-1967 的解法是把這些值放到<strong>幾乎不可能被一般變數佔用的位置</strong>：取一個字串的 keccak256 再減 1。</p>
+<pre><code><span class="c">// 三個標準槽位（直接背起來也無妨，debug 時很常用）</span>
+implementation : 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+admin          : 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
+beacon         : 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50
+
+<span class="c">// 推導方式：bytes32(uint256(keccak256('eip1967.proxy.implementation')) - 1)</span>
+<span class="c">// 減 1 是為了讓這個值不等於任何已知 preimage 的雜湊，進一步降低碰撞可能</span></code></pre>
+    <p>實務用途：想知道任何一個代理合約現在指向哪個 implementation，直接讀它的第一個槽位即可——區塊瀏覽器的「Read as Proxy」就是這樣做的。</p>
+
+    <h2>儲存佈局：最大的坑</h2>
+    <p>升級<strong>只換程式碼，不動資料</strong>。所以新版對儲存佈局的理解必須與舊版完全相容，否則欄位含義會整排位移——而且<strong>不會 revert</strong>。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 330" role="img" aria-label="兩種儲存佈局方案對照：順序佈局必須只在尾端追加並以保留間隙預留空間，一旦在中間插入變數就會造成錯位；命名空間佈局則讓每個模組的變數落在以雜湊計算出的獨立區段，從結構上避免碰撞。">
+          <defs><marker id="p3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="20" y="26">舊做法：順序佈局 + __gap</text>
+          <text class="svg-mono" x="20" y="60">slot 0</text>
+          <rect class="svg-node" x="80" y="42" width="150" height="32" rx="5"></rect>
+          <text class="svg-ncode" x="155" y="63" text-anchor="middle">owner</text>
+          <text class="svg-mono" x="20" y="98">slot 1</text>
+          <rect class="svg-node" x="80" y="80" width="150" height="32" rx="5"></rect>
+          <text class="svg-ncode" x="155" y="101" text-anchor="middle">total</text>
+          <text class="svg-mono" x="20" y="136">2…51</text>
+          <rect class="svg-node" x="80" y="118" width="150" height="32" rx="5" stroke-dasharray="4 4"></rect>
+          <text class="svg-ncode" x="155" y="139" text-anchor="middle">__gap[50]　保留</text>
+          <text class="svg-mono" x="20" y="176">新增只能加在這之後</text>
+          <text class="svg-step" x="20" y="202">✗ 在中間插入 → 之後全部錯位</text>
+          <text class="svg-step" x="20" y="222">✗ 刪除或重排 → 同樣錯位</text>
+          <text class="svg-step" x="20" y="242">✗ 繼承順序改變 → 也會錯位</text>
+          <text class="svg-label" x="430" y="26">OZ v5：ERC-7201 命名空間</text>
+          <rect class="svg-node-a" x="430" y="42" width="330" height="54" rx="8"></rect>
+          <text class="svg-ncode" x="595" y="64" text-anchor="middle">erc7201:myapp.main</text>
+          <text class="svg-mono" x="595" y="84" text-anchor="middle">起始槽 = keccak 推導的隨機位置</text>
+          <rect class="svg-node-a" x="430" y="110" width="330" height="54" rx="8"></rect>
+          <text class="svg-ncode" x="595" y="132" text-anchor="middle">erc7201:myapp.staking</text>
+          <text class="svg-mono" x="595" y="152" text-anchor="middle">另一個互不相干的區段</text>
+          <line class="svg-flow-a" x1="330" y1="135" x2="426" y2="135" marker-end="url(#p3)"></line>
+          <text class="svg-mono-a" x="430" y="196">各模組有自己的區段，彼此不可能相撞</text>
+          <text class="svg-mono-a" x="430" y="218">模組內新增變數不影響其他模組</text>
+          <text class="svg-mono-a" x="430" y="240">不再需要 __gap 這種手動預留</text>
+          <text class="svg-step" x="400" y="294" text-anchor="middle">⚠ 兩種模型不相容：v4 → v5 的升級必須驗證佈局，否則可能永久鎖死</text>
+          <text class="svg-mono" x="400" y="318" text-anchor="middle">無論哪種方案，升級前都該用工具自動比對佈局，不要靠肉眼</text>
+        </svg>
+      </div>
+      <figcaption><code>__gap</code> 的邏輯是「先佔好 50 個空槽，以後加變數就吃掉 gap，後面的欄位不位移」。能用，但要手算、而且多重繼承時很難維護。<strong>ERC-7201 從根本換掉這個問題</strong>：每個模組的變數放進一段由名稱雜湊出來的獨立區域，彼此在數學上不可能相撞。</figcaption>
+    </figure>
+
+<pre><code><span class="c">// ERC-7201 的實際寫法（OZ v5 內部全面採用）</span>
+<span class="c">/// @custom:storage-location erc7201:myapp.main</span>
+struct MainStorage {
+    address owner;
+    uint256 total;
+}
+
+<span class="c">// 槽位 = keccak256(abi.encode(uint256(keccak256("myapp.main")) - 1)) &amp; ~bytes32(uint256(0xff))</span>
+<span class="c">// 實際數值請用工具算（forge script 或 OZ 的 helper），不要手寫</span>
+bytes32 private constant MAIN_STORAGE = 0x<span class="c">…由上式計算…</span>;
+
+function _main() private pure returns (MainStorage storage $) {
+    assembly { $.slot := MAIN_STORAGE }
+}
+
+function setTotal(uint256 v) external {
+    _main().total = v;        <span class="c">// 透過 $ 存取，不再有順序問題</span>
+}</code></pre>
+
+    <h2>初始化：constructor 不能用</h2>
+    <p><code>constructor</code> 在部署時執行，而且寫進的是 <strong>implementation 自己的儲存</strong>——proxy 根本看不到。所以可升級合約改用 <code>initialize()</code>，但這就產生了新問題：<strong>它是一個誰都能呼叫的普通函式</strong>。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="未初始化的 implementation 被接管的流程：部署後 implementation 本身未被初始化，攻擊者直接對它呼叫初始化函式成為擁有者，再透過升級函式讓它委派執行惡意程式碼，在 UUPS 模式下可導致 implementation 被破壞而使所有代理失效。">
+          <defs><marker id="p4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="p4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="24" y="40" width="190" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="68" text-anchor="middle">① 部署 implementation</text>
+          <text class="svg-ncode" x="119" y="88" text-anchor="middle">只初始化了 proxy</text>
+          <rect class="svg-node-a" x="266" y="40" width="210" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="371" y="68" text-anchor="middle">② implementation 本身</text>
+          <text class="svg-ncode" x="371" y="88" text-anchor="middle">仍是未初始化狀態</text>
+          <rect class="svg-node" x="528" y="40" width="226" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="641" y="68" text-anchor="middle">③ 攻擊者直接呼叫</text>
+          <text class="svg-ncode" x="641" y="88" text-anchor="middle">initialize(攻擊者)</text>
+          <line class="svg-flow" x1="214" y1="72" x2="264" y2="72" marker-end="url(#p4)"></line>
+          <line class="svg-flow-a" x1="476" y1="72" x2="526" y2="72" marker-end="url(#p4a)"></line>
+          <rect class="svg-node" x="528" y="168" width="226" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="641" y="196" text-anchor="middle">④ 成為 impl 的 owner</text>
+          <text class="svg-ncode" x="641" y="216" text-anchor="middle">取得升級權限</text>
+          <line class="svg-flow-a" x1="641" y1="104" x2="641" y2="166" marker-end="url(#p4a)"></line>
+          <rect class="svg-node" x="266" y="168" width="210" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="371" y="196" text-anchor="middle">⑤ 令其 delegatecall</text>
+          <text class="svg-ncode" x="371" y="216" text-anchor="middle">到含 selfdestruct 的合約</text>
+          <line class="svg-flow-a" x1="526" y1="200" x2="478" y2="200" marker-end="url(#p4a)"></line>
+          <rect class="svg-node" x="24" y="168" width="190" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="196" text-anchor="middle">⑥ 所有 proxy 失效</text>
+          <text class="svg-ncode" x="119" y="216" text-anchor="middle">指向一個沒有程式碼的地址</text>
+          <line class="svg-flow-a" x1="264" y1="200" x2="216" y2="200" marker-end="url(#p4a)"></line>
+          <text class="svg-step" x="390" y="272" text-anchor="middle">防線只有一道：在 implementation 的 constructor 裡呼叫 _disableInitializers()</text>
+        </svg>
+      </div>
+      <figcaption>這不是理論——歷史上多次發生。關鍵認知是：<strong>implementation 是一個獨立存在、可被直接呼叫的合約</strong>，不是只能透過 proxy 存取的「程式碼片段」。它自己的儲存若被攻擊者初始化，在 UUPS 模式下就能被當成跳板。</figcaption>
+    </figure>
+
+<pre><code>contract MyApp is UUPSUpgradeable, OwnableUpgradeable {
+    <span class="c">/// @custom:oz-upgrades-unsafe-allow constructor</span>
+    constructor() {
+        _disableInitializers();          <span class="c">// ★ 鎖死 implementation 自身，必寫</span>
+    }
+
+    function initialize(address owner_) public initializer {
+        __Ownable_init(owner_);          <span class="c">// initializer 修飾器保證只跑一次</span>
+        __UUPSUpgradeable_init();
+    }
+
+    <span class="c">// 第二次升級要加欄位時，用 reinitializer 指定版本號</span>
+    function initializeV2(uint256 fee_) public reinitializer(2) {
+        _main().fee = fee_;
+    }
+
+    <span class="c">// UUPS 的升級守衛——這是唯一的權限檢查，漏了等於任何人都能升級</span>
+    function _authorizeUpgrade(address newImpl) internal override onlyOwner {}
+}</code></pre>
+    <blockquote><p>UUPS 特有的致命失誤：<strong>新版的 implementation 忘記繼承 <code>UUPSUpgradeable</code></strong>。升級成功之後，升級函式本身消失了——這個 proxy 從此<strong>永久無法再升級</strong>，資金也可能跟著鎖死。OZ 的升級外掛會檢查這一點，手動部署則完全沒有保護。</p></blockquote>
+
+    <h2>選擇器衝突：Transparent 的由來</h2>
+    <p>如果 proxy 自己有 <code>upgradeTo(address)</code>，而 implementation 剛好也有同名或<strong>相同四位元組選擇器</strong>的函式，那麼這個呼叫會被 proxy 攔截，永遠到不了 implementation。這就是 <strong>function selector clash</strong>。</p>
+    <p>Transparent 模式的解法是依呼叫者分流：<strong>admin 呼叫走 proxy 的管理邏輯，其他人一律直接轉給 implementation</strong>。代價是每次呼叫都要讀一次 admin 做判斷（OZ v5 把 admin 改成 immutable 就是為了省掉這次讀取）。</p>
+    <p>UUPS 的解法更乾淨：<strong>proxy 身上根本沒有管理函式</strong>，升級邏輯放在 implementation 裡，自然不可能衝突。這也是 UUPS 成為主流的原因之一。</p>
+
+    <h2>升級前的檢查清單</h2>
+    <ol>
+      <li><strong>用工具比對儲存佈局</strong>。OpenZeppelin Upgrades（Hardhat／Foundry 皆有）會自動擋下不相容的變更。<strong>不要靠肉眼看 diff。</strong></li>
+      <li><strong>確認新版仍保有升級能力</strong>（UUPS 必須繼續繼承 <code>UUPSUpgradeable</code>）。</li>
+      <li><strong>implementation 的 constructor 要有 <code>_disableInitializers()</code></strong>。</li>
+      <li><strong>新增的初始化邏輯用 <code>reinitializer(n)</code></strong>，不要重用 <code>initializer</code>。</li>
+      <li><strong>在 fork 上演練升級</strong>：用主網狀態跑一次 <code>upgradeToAndCall</code>，再驗證關鍵欄位的值沒有跑掉。</li>
+      <li><strong>升級權交多簽 + 時間鎖</strong>，讓使用者有時間觀察與退出。</li>
+      <li><strong>注意 OZ v4 → v5</strong>：順序儲存與命名空間儲存不相容，跨版本升級要特別驗證。</li>
+    </ol>
+
+    <h2>智慧合約安全風險（開發者）</h2>
+    <ul>
+      <li><strong>儲存錯位不會 revert</strong>：它安靜地回傳錯誤的值。這是代理模式最危險的特性——測試若只檢查「有沒有成功」會完全漏掉。</li>
+      <li><strong>不可變數不存在儲存裡</strong>：<code>immutable</code> 與 <code>constant</code> 被編進 bytecode，升級換掉 implementation 就等於換掉它們的值，而且 proxy 的儲存毫無記錄。</li>
+      <li><strong>絕不 <code>delegatecall</code> 到不可信位址</strong>：等同於把自己的儲存交出去任意改寫。</li>
+      <li><strong>繼承順序會改變佈局</strong>：在順序佈局下，調整父合約的繼承次序就足以讓所有欄位位移。</li>
+      <li><strong>Beacon 的影響範圍是全部實例</strong>：一次錯誤的 beacon 升級會同時打壞所有 proxy。</li>
+      <li><strong>驗證與開源</strong>：proxy 與 implementation 都要在區塊瀏覽器驗證，否則使用者無從得知自己在跟什麼程式碼互動。</li>
+    </ul>
+
+    <h2>使用者風險</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>風險</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>規則可被重寫</strong></td><td>你審過的程式碼隨時可能被換掉。<strong>「這個協議安全嗎」實質上是「誰能升級它」。</strong></td></tr>
+        <tr><td><strong>單一金鑰的升級權</strong></td><td>若升級權在一個 EOA 手上，該私鑰外洩即等同整個協議被接管。進場前確認是否多簽。</td></tr>
+        <tr><td><strong>沒有時間鎖 = 沒有退出窗口</strong></td><td>有時間鎖時，惡意升級至少會先公開排隊，你有機會撤資；沒有的話，變更在一個區塊內生效。</td></tr>
+        <tr><td><strong>審計的範圍</strong></td><td>「已審計」通常指某個版本的 implementation。升級後的新版未必在審計範圍內。</td></tr>
+        <tr><td><strong>升級本身就是事故來源</strong></td><td>2026 年約 $280M 的 Drift 事件根因即在升級機制——這不是罕見的邊緣案例。</td></tr>
+        <tr><td><strong>怎麼自己查</strong></td><td>在區塊瀏覽器讀 proxy 的 <code>0x3608…</code> 槽位可看出目前的 implementation；讀 admin 槽位可看出誰有權升級。</td></tr>
+      </tbody>
+    </table></div>
+    <p>延伸閱讀：<a href="./solidity-security.html">Solidity 安全漏洞圖鑑</a>的 delegatecall 與存取控制兩節。</p>
+
+    <h2>官方來源</h2>
+    <ul>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1967">EIP-1967：代理儲存槽</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-7201">ERC-7201：命名空間儲存佈局</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1822">EIP-1822：UUPS</a>／<a href="https://eips.ethereum.org/EIPS/eip-2535">EIP-2535：Diamond</a></li>
+      <li><a href="https://docs.openzeppelin.com/contracts/5.x/api/proxy">OpenZeppelin v5：Proxy API</a></li>
+      <li><a href="https://docs.openzeppelin.com/upgrades-plugins/">OpenZeppelin Upgrades Plugins（佈局驗證工具）</a></li>
+    </ul>
+    <p class="meta">內容查證時間：2026-10-08</p>
+  </div>
+
+  <!-- ================= English ================= -->
+  <div data-l="en">
+    <h1>Proxies and Upgradeable Contracts</h1>
+    <p class="meta">2026-10-08 · SOLIDITY · PROXY PATTERNS · STORAGE LAYOUT · DEVELOPER GUIDE</p>
+
+    <p>Deployed contracts are immutable, but products need bug fixes and new features. Proxies are the industry's answer — at the cost of a whole new category of errors that <strong>fail silently</strong>. Here are the three mainstream patterns, how to keep storage aligned, and why the upgrade mechanism is now a first-class attack surface.</p>
+
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>One sentence covers the mechanism: <strong>the proxy owns the storage and the address, the implementation only supplies code</strong>, joined by <code>delegatecall</code>. Upgrading swaps that code address.</li>
+        <li>The biggest risk is not buggy logic but <strong>storage layout drift</strong> — it does not revert, it quietly reads one field as another field's value.</li>
+        <li>And <strong>"upgradeable" is itself a form of centralisation</strong>: whoever holds the upgrade key can rewrite the rules. The ~$280M Drift incident in 2026 traced back to the upgrade mechanism.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners → "What delegatecall actually does" and the pattern comparison; Solidity engineers → storage layout, ERC-7201, initialisers and the upgrade checklist; PMs and risk → market background and user risk.</p>
+    </div>
+
+    <h2>Market background</h2>
+    <p>Upgradeability is effectively the default in production — most major DeFi protocols run behind a proxy. That makes an under-appreciated point: <strong>when you assess a protocol's safety, you are really assessing who can upgrade it.</strong></p>
+    <div class="scroll"><table class="market">
+      <thead><tr><th>Metric</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>One of 2026's largest incidents: Drift</td><td>~$280M, root cause in the <strong>upgrade mechanism</strong></td></tr>
+        <tr><td>OpenZeppelin v5 storage approach</td><td>Moved to <strong>ERC-7201 namespaced storage</strong>, replacing <code>__gap</code></td></tr>
+        <tr><td>OZ v5 interface change</td><td><code>upgradeTo</code> removed; only <code>upgradeToAndCall</code> remains</td></tr>
+        <tr><td>OZ v5 transparent proxy</td><td>Admin is now <strong>immutable</strong>; upgrade rights move via ProxyAdmin ownership</td></tr>
+        <tr><td>Research attention</td><td>Proxy collision detection is its own research topic (Proxion, USCSA, others)</td></tr>
+      </tbody>
+    </table></div>
+    <p class="asof">Status current as of 2026-10; library interfaces change often — check against the version you actually installed.</p>
+    <blockquote><p>If the tutorial you are reading still teaches <code>__gap</code> and <code>upgradeTo</code>, it predates OZ v5. <strong>The v4 and v5 storage models are incompatible</strong> — upgrading from v4's sequential storage to v5's namespaced storage has been reported to cause unrecoverable deadlock when mishandled. Validate the layout before any major-version upgrade.</p></blockquote>
+
+    <h2>What delegatecall actually does</h2>
+    <p>A normal <code>call</code> means "go to their house and use their things"; <code>delegatecall</code> means <strong>"bring their code here and run it on my things"</strong>. So:</p>
+    <ul>
+      <li>The <strong>code</strong> executed belongs to the implementation.</li>
+      <li>The <strong>storage</strong> read and written belongs to the proxy.</li>
+      <li><code>msg.sender</code> and <code>msg.value</code> stay as the original caller and amount.</li>
+      <li><code>address(this)</code> is the <strong>proxy</strong>, not the implementation.</li>
+    </ul>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 320" role="img" aria-label="Proxy call flow: a user calls the proxy, the proxy reads the implementation address from a fixed storage slot and delegatecalls its code, but every state read and write lands in the proxy's own storage while the implementation's storage goes entirely unused.">
+          <defs><marker id="q1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="q1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="108" width="140" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="90" y="136" text-anchor="middle">user</text>
+          <text class="svg-ncode" x="90" y="156" text-anchor="middle">calls a fixed address</text>
+          <rect class="svg-node-a" x="250" y="60" width="200" height="160" rx="10"></rect>
+          <text class="svg-nlabel" x="350" y="90" text-anchor="middle">Proxy</text>
+          <text class="svg-ncode" x="350" y="112" text-anchor="middle">address never changes</text>
+          <text class="svg-mono-a" x="350" y="146" text-anchor="middle">★ all state lives here</text>
+          <text class="svg-ncode" x="350" y="168" text-anchor="middle">owner / balances / …</text>
+          <text class="svg-ncode" x="350" y="196" text-anchor="middle">EIP-1967 slot holds impl</text>
+          <rect class="svg-node" x="560" y="60" width="200" height="160" rx="10"></rect>
+          <text class="svg-nlabel" x="660" y="90" text-anchor="middle">Implementation</text>
+          <text class="svg-ncode" x="660" y="112" text-anchor="middle">swapped on upgrade</text>
+          <text class="svg-mono" x="660" y="150" text-anchor="middle">supplies code only</text>
+          <text class="svg-mono" x="660" y="176" text-anchor="middle">its own storage</text>
+          <text class="svg-mono" x="660" y="196" text-anchor="middle">is never touched</text>
+          <line class="svg-flow" x1="160" y1="140" x2="248" y2="140" marker-end="url(#q1)"></line>
+          <text class="svg-flowlabel" x="204" y="132" text-anchor="middle">① call</text>
+          <line class="svg-flow-a" x1="450" y1="128" x2="558" y2="128" marker-end="url(#q1a)"></line>
+          <text class="svg-step" x="504" y="120" text-anchor="middle">② delegatecall</text>
+          <line class="svg-flow" x1="558" y1="172" x2="452" y2="172" marker-end="url(#q1)"></line>
+          <text class="svg-flowlabel" x="504" y="190" text-anchor="middle">③ reads/writes land in proxy</text>
+          <text class="svg-mono" x="390" y="260" text-anchor="middle">msg.sender stays the user　·　address(this) is the Proxy</text>
+          <text class="svg-step" x="390" y="292" text-anchor="middle">upgrading only changes that impl address — user addresses and data never move</text>
+        </svg>
+      </div>
+      <figcaption>This picture is the whole value of the pattern: <strong>the address users hold never changes and assets never migrate</strong>, while the logic behind it can. It is also the whole danger: the implementation's code runs against the proxy's slots, so <strong>both sides must agree exactly on what lives in which slot</strong>.</figcaption>
+    </figure>
+
+<pre><code><span class="c">// The core of a proxy is this one block — every unmatched call is forwarded</span>
+fallback() external payable {
+    address impl = _implementation();          <span class="c">// read from the fixed EIP-1967 slot</span>
+    assembly {
+        calldatacopy(0, 0, calldatasize())     <span class="c">// copy calldata verbatim</span>
+        <span class="c">// run impl's code against THIS contract's storage</span>
+        let ok := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
+        returndatacopy(0, 0, returndatasize())
+        switch ok
+        case 0 { revert(0, returndatasize()) }
+        default { return(0, returndatasize()) }
+    }
+}</code></pre>
+
+    <h2>Three mainstream patterns</h2>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 860 300" role="img" aria-label="Comparison of three proxy patterns: Transparent keeps upgrade logic in the proxy controlled by a separate ProxyAdmin, UUPS puts the upgrade function inside the implementation, and Beacon lets many proxies share one beacon so upgrading it updates all of them at once.">
+          <defs><marker id="q2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="q2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="20" y="26">Transparent</text>
+          <rect class="svg-node" x="20" y="40" width="110" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="75" y="70" text-anchor="middle">Proxy</text>
+          <rect class="svg-node-a" x="20" y="108" width="110" height="46" rx="8"></rect>
+          <text class="svg-ncode" x="75" y="136" text-anchor="middle">ProxyAdmin</text>
+          <rect class="svg-node" x="160" y="40" width="110" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="215" y="70" text-anchor="middle">Impl</text>
+          <line class="svg-flow" x1="130" y1="66" x2="158" y2="66" marker-end="url(#q2)"></line>
+          <line class="svg-flow-a" x1="75" y1="104" x2="75" y2="94" marker-end="url(#q2a)"></line>
+          <text class="svg-mono" x="20" y="180">upgrade logic in the proxy</text>
+          <text class="svg-mono" x="20" y="200">admin and users take different paths</text>
+          <text class="svg-mono" x="20" y="220">highest deployment cost</text>
+          <text class="svg-mono-a" x="20" y="244">v5: admin is immutable</text>
+          <text class="svg-label" x="300" y="26">UUPS</text>
+          <rect class="svg-node" x="300" y="40" width="110" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="355" y="70" text-anchor="middle">Proxy</text>
+          <rect class="svg-node-a" x="440" y="40" width="130" height="52" rx="8"></rect>
+          <text class="svg-ncode" x="505" y="64" text-anchor="middle">Impl</text>
+          <text class="svg-ncode" x="505" y="82" text-anchor="middle">holds the upgrade fn</text>
+          <line class="svg-flow-a" x1="410" y1="66" x2="438" y2="66" marker-end="url(#q2a)"></line>
+          <text class="svg-mono" x="300" y="180">upgrade logic in the implementation</text>
+          <text class="svg-mono" x="300" y="200">lighter proxy, cheaper to deploy</text>
+          <text class="svg-mono" x="300" y="220">no selector clash by construction</text>
+          <text class="svg-step" x="300" y="244">⚠ omit it in a new version = locked forever</text>
+          <text class="svg-label" x="610" y="26">Beacon</text>
+          <rect class="svg-node" x="610" y="40" width="80" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="650" y="64" text-anchor="middle">Proxy A</text>
+          <rect class="svg-node" x="610" y="88" width="80" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="650" y="112" text-anchor="middle">Proxy B</text>
+          <rect class="svg-node-a" x="700" y="64" width="86" height="40" rx="8"></rect>
+          <text class="svg-ncode" x="743" y="88" text-anchor="middle">Beacon</text>
+          <line class="svg-flow-a" x1="690" y1="60" x2="698" y2="78" marker-end="url(#q2a)"></line>
+          <line class="svg-flow-a" x1="690" y1="108" x2="698" y2="92" marker-end="url(#q2a)"></line>
+          <text class="svg-mono" x="610" y="180">many proxies share one beacon</text>
+          <text class="svg-mono" x="610" y="200">upgrade the beacon = all at once</text>
+          <text class="svg-mono" x="610" y="220">suits many identical contracts</text>
+          <text class="svg-step" x="610" y="244">⚠ one mistake hits every instance</text>
+          <text class="svg-mono" x="400" y="286" text-anchor="middle">also Diamond (EIP-2535): logic split across facets to beat the size limit, at the highest complexity</text>
+        </svg>
+      </div>
+      <figcaption>How to choose: <strong>a single contract where gas matters → UUPS</strong> (the common default today); <strong>hundreds of identical contracts, such as one vault per user → Beacon</strong>; <strong>Transparent</strong> mostly appears in existing legacy systems; <strong>Diamond</strong> only earns its complexity when you genuinely hit the 24KB contract size limit.</figcaption>
+    </figure>
+
+    <h2>EIP-1967: why fixed slots</h2>
+    <p>The proxy needs to store things too (the implementation address, the admin), but its storage is shared with the implementation's. If the proxy put the implementation address in slot 0 and the implementation's first variable also landed in slot 0, <strong>they would overwrite each other</strong>.</p>
+    <p>EIP-1967 solves this by placing those values somewhere <strong>an ordinary variable will essentially never reach</strong>: the keccak256 of a string, minus one.</p>
+<pre><code><span class="c">// The three standard slots (worth memorising; you will read them while debugging)</span>
+implementation : 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+admin          : 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
+beacon         : 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50
+
+<span class="c">// Derivation: bytes32(uint256(keccak256('eip1967.proxy.implementation')) - 1)</span>
+<span class="c">// The minus one makes the value the hash of no known preimage, lowering collision risk further</span></code></pre>
+    <p>Practical use: to find which implementation any proxy currently points at, just read its first slot — that is exactly what a block explorer's "Read as Proxy" does.</p>
+
+    <h2>Storage layout: the big trap</h2>
+    <p>An upgrade <strong>replaces code, not data</strong>. So the new version's understanding of the layout must be fully compatible with the old one, or every field shifts meaning — <strong>without reverting</strong>.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 800 330" role="img" aria-label="Two storage layout approaches compared: sequential layout requires appending only at the end with a reserved gap, and inserting in the middle shifts everything; namespaced layout places each module's variables in an independent hashed region, removing collisions structurally.">
+          <defs><marker id="q3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-label" x="20" y="26">Old: sequential + __gap</text>
+          <text class="svg-mono" x="20" y="60">slot 0</text>
+          <rect class="svg-node" x="80" y="42" width="150" height="32" rx="5"></rect>
+          <text class="svg-ncode" x="155" y="63" text-anchor="middle">owner</text>
+          <text class="svg-mono" x="20" y="98">slot 1</text>
+          <rect class="svg-node" x="80" y="80" width="150" height="32" rx="5"></rect>
+          <text class="svg-ncode" x="155" y="101" text-anchor="middle">total</text>
+          <text class="svg-mono" x="20" y="136">2…51</text>
+          <rect class="svg-node" x="80" y="118" width="150" height="32" rx="5" stroke-dasharray="4 4"></rect>
+          <text class="svg-ncode" x="155" y="139" text-anchor="middle">__gap[50] reserved</text>
+          <text class="svg-mono" x="20" y="176">new fields may only go after this</text>
+          <text class="svg-step" x="20" y="202">x insert in the middle → everything shifts</text>
+          <text class="svg-step" x="20" y="222">x delete or reorder → same shift</text>
+          <text class="svg-step" x="20" y="242">x change inheritance order → also shifts</text>
+          <text class="svg-label" x="430" y="26">OZ v5: ERC-7201 namespaces</text>
+          <rect class="svg-node-a" x="430" y="42" width="330" height="54" rx="8"></rect>
+          <text class="svg-ncode" x="595" y="64" text-anchor="middle">erc7201:myapp.main</text>
+          <text class="svg-mono" x="595" y="84" text-anchor="middle">base slot = a hashed, effectively random spot</text>
+          <rect class="svg-node-a" x="430" y="110" width="330" height="54" rx="8"></rect>
+          <text class="svg-ncode" x="595" y="132" text-anchor="middle">erc7201:myapp.staking</text>
+          <text class="svg-mono" x="595" y="152" text-anchor="middle">an unrelated region</text>
+          <line class="svg-flow-a" x1="330" y1="135" x2="426" y2="135" marker-end="url(#q3)"></line>
+          <text class="svg-mono-a" x="430" y="196">each module owns its region; collision is impossible</text>
+          <text class="svg-mono-a" x="430" y="218">adding fields in one module cannot affect another</text>
+          <text class="svg-mono-a" x="430" y="240">no more hand-counted __gap reservations</text>
+          <text class="svg-step" x="400" y="294" text-anchor="middle">⚠ the two models are incompatible: a v4 → v5 upgrade must validate layout or risk permanent lock</text>
+          <text class="svg-mono" x="400" y="318" text-anchor="middle">either way, diff the layout with a tool before upgrading — never by eye</text>
+        </svg>
+      </div>
+      <figcaption><code>__gap</code>'s logic is "reserve 50 empty slots now, and new fields later consume the gap so nothing after it shifts". It works, but it is hand-counted and painful under multiple inheritance. <strong>ERC-7201 removes the problem at the root</strong>: each module's variables live in a region derived from a hash of its name, so collision is mathematically improbable.</figcaption>
+    </figure>
+
+<pre><code><span class="c">// ERC-7201 in practice (used throughout OZ v5 internally)</span>
+<span class="c">/// @custom:storage-location erc7201:myapp.main</span>
+struct MainStorage {
+    address owner;
+    uint256 total;
+}
+
+<span class="c">// slot = keccak256(abi.encode(uint256(keccak256("myapp.main")) - 1)) &amp; ~bytes32(uint256(0xff))</span>
+<span class="c">// compute the real value with a tool (a forge script, or OZ's helper) — never by hand</span>
+bytes32 private constant MAIN_STORAGE = 0x<span class="c">…computed from the formula above…</span>;
+
+function _main() private pure returns (MainStorage storage $) {
+    assembly { $.slot := MAIN_STORAGE }
+}
+
+function setTotal(uint256 v) external {
+    _main().total = v;        <span class="c">// accessed through $; ordering no longer matters</span>
+}</code></pre>
+
+    <h2>Initialisation: constructors do not work</h2>
+    <p>A <code>constructor</code> runs at deployment and writes to the <strong>implementation's own storage</strong> — which the proxy never sees. So upgradeable contracts use <code>initialize()</code> instead, which creates a new problem: <strong>it is an ordinary function anyone can call</strong>.</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 780 300" role="img" aria-label="Takeover of an uninitialised implementation: after deployment the implementation itself is uninitialised, an attacker calls its initialiser to become owner, then uses the upgrade function to delegatecall malicious code, which under UUPS can destroy the implementation and break every proxy pointing at it.">
+          <defs><marker id="q4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker>
+          <marker id="q4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="24" y="40" width="190" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="68" text-anchor="middle">① deploy implementation</text>
+          <text class="svg-ncode" x="119" y="88" text-anchor="middle">only the proxy was initialised</text>
+          <rect class="svg-node-a" x="266" y="40" width="210" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="371" y="68" text-anchor="middle">② the impl itself</text>
+          <text class="svg-ncode" x="371" y="88" text-anchor="middle">still uninitialised</text>
+          <rect class="svg-node" x="528" y="40" width="226" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="641" y="68" text-anchor="middle">③ attacker calls it directly</text>
+          <text class="svg-ncode" x="641" y="88" text-anchor="middle">initialize(attacker)</text>
+          <line class="svg-flow" x1="214" y1="72" x2="264" y2="72" marker-end="url(#q4)"></line>
+          <line class="svg-flow-a" x1="476" y1="72" x2="526" y2="72" marker-end="url(#q4a)"></line>
+          <rect class="svg-node" x="528" y="168" width="226" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="641" y="196" text-anchor="middle">④ becomes impl's owner</text>
+          <text class="svg-ncode" x="641" y="216" text-anchor="middle">gains upgrade rights</text>
+          <line class="svg-flow-a" x1="641" y1="104" x2="641" y2="166" marker-end="url(#q4a)"></line>
+          <rect class="svg-node" x="266" y="168" width="210" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="371" y="196" text-anchor="middle">⑤ makes it delegatecall</text>
+          <text class="svg-ncode" x="371" y="216" text-anchor="middle">into a selfdestructing contract</text>
+          <line class="svg-flow-a" x1="526" y1="200" x2="478" y2="200" marker-end="url(#q4a)"></line>
+          <rect class="svg-node" x="24" y="168" width="190" height="64" rx="10"></rect>
+          <text class="svg-nlabel" x="119" y="196" text-anchor="middle">⑥ every proxy breaks</text>
+          <text class="svg-ncode" x="119" y="216" text-anchor="middle">pointing at an address with no code</text>
+          <line class="svg-flow-a" x1="264" y1="200" x2="216" y2="200" marker-end="url(#q4a)"></line>
+          <text class="svg-step" x="390" y="272" text-anchor="middle">one defence only: call _disableInitializers() in the implementation's constructor</text>
+        </svg>
+      </div>
+      <figcaption>This is not theoretical; it has happened repeatedly. The key realisation: <strong>the implementation is a standalone contract anyone can call</strong>, not merely a "code fragment" reachable through the proxy. If an attacker initialises its own storage, UUPS turns it into a launchpad.</figcaption>
+    </figure>
+
+<pre><code>contract MyApp is UUPSUpgradeable, OwnableUpgradeable {
+    <span class="c">/// @custom:oz-upgrades-unsafe-allow constructor</span>
+    constructor() {
+        _disableInitializers();          <span class="c">// ★ locks the implementation itself; mandatory</span>
+    }
+
+    function initialize(address owner_) public initializer {
+        __Ownable_init(owner_);          <span class="c">// the initializer modifier enforces once-only</span>
+        __UUPSUpgradeable_init();
+    }
+
+    <span class="c">// Adding fields in a later upgrade: use reinitializer with a version number</span>
+    function initializeV2(uint256 fee_) public reinitializer(2) {
+        _main().fee = fee_;
+    }
+
+    <span class="c">// UUPS's upgrade guard — the only permission check; omit it and anyone can upgrade</span>
+    function _authorizeUpgrade(address newImpl) internal override onlyOwner {}
+}</code></pre>
+    <blockquote><p>A fatal UUPS-specific mistake: <strong>the new implementation forgets to inherit <code>UUPSUpgradeable</code></strong>. The upgrade succeeds, and with it the upgrade function disappears — that proxy can <strong>never be upgraded again</strong>, and funds may be stranded with it. OZ's upgrade plugin catches this; a manual deployment has no protection at all.</p></blockquote>
+
+    <h2>Selector clash: where Transparent came from</h2>
+    <p>If the proxy itself exposes <code>upgradeTo(address)</code> and the implementation happens to have a function with the same name or the same <strong>four-byte selector</strong>, the call is intercepted by the proxy and never reaches the implementation. That is a <strong>function selector clash</strong>.</p>
+    <p>The transparent pattern resolves it by routing on the caller: <strong>admin calls hit the proxy's admin logic, everyone else is forwarded straight through</strong>. The cost is reading the admin on every call — which is exactly why OZ v5 made the admin immutable.</p>
+    <p>UUPS resolves it more cleanly: <strong>the proxy has no admin functions at all</strong>. Upgrade logic lives in the implementation, so a clash is impossible by construction — one reason UUPS became the default.</p>
+
+    <h2>Pre-upgrade checklist</h2>
+    <ol>
+      <li><strong>Diff the storage layout with a tool.</strong> OpenZeppelin Upgrades (Hardhat and Foundry) blocks incompatible changes automatically. <strong>Do not eyeball the diff.</strong></li>
+      <li><strong>Confirm the new version is still upgradeable</strong> (UUPS must keep inheriting <code>UUPSUpgradeable</code>).</li>
+      <li><strong>The implementation's constructor must call <code>_disableInitializers()</code>.</strong></li>
+      <li><strong>New initialisation goes in <code>reinitializer(n)</code></strong>, never a reused <code>initializer</code>.</li>
+      <li><strong>Rehearse on a fork</strong>: run <code>upgradeToAndCall</code> against mainnet state, then assert that key fields still read correctly.</li>
+      <li><strong>Put upgrade rights behind a multisig and a timelock</strong>, so users have time to observe and exit.</li>
+      <li><strong>Mind OZ v4 → v5</strong>: sequential and namespaced storage are incompatible; validate carefully across that boundary.</li>
+    </ol>
+
+    <h2>Smart-contract security (developers)</h2>
+    <ul>
+      <li><strong>Layout drift does not revert</strong>: it silently returns wrong values. This is the pattern's most dangerous property — tests that only check "did it succeed" miss it entirely.</li>
+      <li><strong>Immutables do not live in storage</strong>: <code>immutable</code> and <code>constant</code> are baked into bytecode, so swapping the implementation swaps their values with no trace in the proxy's storage.</li>
+      <li><strong>Never <code>delegatecall</code> an untrusted address</strong>: it hands over your storage to be rewritten at will.</li>
+      <li><strong>Inheritance order changes layout</strong>: under sequential storage, reordering parents alone is enough to shift every field.</li>
+      <li><strong>A beacon's blast radius is every instance</strong>: one bad beacon upgrade breaks all proxies at once.</li>
+      <li><strong>Verify and publish both</strong> proxy and implementation on the explorer, or users cannot tell what code they are interacting with.</li>
+    </ul>
+
+    <h2>User risk</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>The rules can be rewritten</strong></td><td>The code you reviewed can be replaced at any time. <strong>"Is this protocol safe" is really "who can upgrade it".</strong></td></tr>
+        <tr><td><strong>A single key holding upgrade rights</strong></td><td>If upgrade rights sit on one EOA, that key leaking is equivalent to the whole protocol being taken over. Check for a multisig first.</td></tr>
+        <tr><td><strong>No timelock = no exit window</strong></td><td>With a timelock, a malicious upgrade at least queues in public and you can withdraw; without one it lands in a single block.</td></tr>
+        <tr><td><strong>What an audit covered</strong></td><td>"Audited" usually means one implementation version. The version shipped after an upgrade may never have been in scope.</td></tr>
+        <tr><td><strong>Upgrades are themselves an incident source</strong></td><td>The ~$280M Drift incident in 2026 traced to the upgrade mechanism — this is not a rare edge case.</td></tr>
+        <tr><td><strong>How to check yourself</strong></td><td>Read slot <code>0x3608…</code> on the explorer to see the current implementation, and the admin slot to see who may upgrade it.</td></tr>
+      </tbody>
+    </table></div>
+    <p>See also: the delegatecall and access-control sections of the <a href="./solidity-security.html">Solidity security field guide</a>.</p>
+
+    <h2>Official sources</h2>
+    <ul>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1967">EIP-1967: proxy storage slots</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-7201">ERC-7201: namespaced storage layout</a></li>
+      <li><a href="https://eips.ethereum.org/EIPS/eip-1822">EIP-1822: UUPS</a> / <a href="https://eips.ethereum.org/EIPS/eip-2535">EIP-2535: Diamond</a></li>
+      <li><a href="https://docs.openzeppelin.com/contracts/5.x/api/proxy">OpenZeppelin v5: Proxy API</a></li>
+      <li><a href="https://docs.openzeppelin.com/upgrades-plugins/">OpenZeppelin Upgrades Plugins (layout validation)</a></li>
+    </ul>
+    <p class="meta">Content last verified: 2026-10-08</p>
+  </div>
+
+  </main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js"></script>
+</body>
+</html>
