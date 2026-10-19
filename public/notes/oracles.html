@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>預言機：價格、清算與市場完整性</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
+</head>
+<body data-title-zh="預言機：價格、清算與市場完整性" data-title-en="Oracles: Prices, Liquidation, and Market Integrity">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+<a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
+<div data-l="zh"><h1>預言機：價格、清算與市場完整性</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">先定義要讀哪個市場</a></li><li><a href="#zh-section-2">三種來源與取捨</a></li><li><a href="#zh-section-3">同一個錯誤如何產生壞帳</a></li><li><a href="#zh-section-4">Consumer 驗證骨架</a></li><li><a href="#zh-section-5">失敗策略與測試</a></li><li><a href="#zh-section-6">PM：價格風險也是市場風險</a></li><li><a href="#zh-section-7">參考來源</a></li></ol></nav></details><p>借貸是否能借、vault 每股值多少、perp 何時清算，都可能取決於一個價格。預言機不是「讀一個數字」：它把外部市場觀察轉成鏈上可以採用的決策輸入。</p>
+<h2 id="zh-section-1">先定義要讀哪個市場</h2>
+<p>ETH/USD 與 ETH/USDC 不等價；USDC 脫錨時會分開。Spot、mark、index、TWAP 是不同用途的價格，沒有一個適合所有操作。只用薄池 spot 計算可借額度，會把可操縱價格變成可提取資產的權限。</p>
+<h2 id="zh-section-2">三種來源與取捨</h2>
+<div class="scroll"><table><thead><tr><th scope="col">來源</th><th scope="col">好處</th><th scope="col">必須驗證</th></tr></thead><tbody><tr><td>AMM spot</td><td>即時、簡單</td><td>單筆價格可移動；不要直接當抵押 oracle</td></tr><tr><td>AMM TWAP</td><td>提高攻擊所需時間與資本</td><td>window、觀測數、深度、liquidity 移除、multi-block 操縱</td></tr><tr><td>外部 feed</td><td>跨市場聚合，可與本地池解耦</td><td>feed address、quote currency、decimals、heartbeat、deviation、可用性</td></tr></tbody></table></div>
+<h2 id="zh-section-3">同一個錯誤如何產生壞帳</h2>
+<p>攻擊者先把池內抵押品價格推高 → 協議用它計可借額度 → 借出真實穩定幣 → 攻擊者把價格還原並還閃電貸 → 協議留下不足額抵押。防禦的目標是讓估值在攻擊能力與 liquidation 流動性下仍成立，而非辨識資金是不是 flash loan。</p>
+<p>例：2 ETH × $2,000/ETH = $4,000。amount 若有 18 decimals、price 有 8 decimals，value 的目標精度要先定義，再用 full-precision mulDiv 避免乘法 overflow 與截斷。直接相乘兩個 raw integer 不會得到可比較的 USD 數字。</p>
+<h2 id="zh-section-4">Consumer 驗證骨架</h2>
+<p>每個 feed 的 maxAge 應由 heartbeat、deviation、市場波動及產品需求定義，不能所有資產都寫一小時。明確拒絕未初始化、future timestamp、負價格；L2 需依部署使用 sequencer uptime feed 與 recovery grace。</p>
+<pre><code>// Schematic consumer: feed/maxAge/limits are configured per asset and chain.
+(, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
+require(answer &gt; 0, &quot;invalid price&quot;);
+require(updatedAt != 0 &amp;&amp; updatedAt &lt;= block.timestamp, &quot;invalid timestamp&quot;);
+require(block.timestamp - updatedAt &lt;= maxAge, &quot;stale price&quot;);
+uint8 feedDecimals = feed.decimals();
+// Normalize token amount AND feed price with full-precision mulDiv.
+// On applicable L2s, check sequencer uptime + recovery grace period first.
+</code></pre>
+<h2 id="zh-section-5">失敗策略與測試</h2>
+<p>Stale feed 不應讓新風險繼續增加，但「全部 pause」也可能擋住 repayment 或 exit。逐操作定義 borrow、withdraw、repay、liquidate 的政策，不能只換成另一個同樣可操縱的 fallback。監控 update age、跨來源偏離與 sequencer 狀態；測 outage、recovery、decimal mismatch、depeg、thin liquidity 與價格突跳。</p>
+<h2 id="zh-section-6">PM：價格風險也是市場風險</h2>
+<p>以 oracle 延遲 + liquidation 深度 + keeper 可用性評估 collateral。畫 price shock 情境：oracle 何時更新、HF 是否變低、清算人能否無損賣出、誰吸收 deficit。TWAP 降低瞬間操縱，卻也讓快速崩跌時更滯後；兩種風險需一起比較。</p>
+<h2 id="zh-section-7">參考來源</h2><ul><li><a href="https://docs.chain.link/data-feeds/api-reference">Chainlink feed interface</a></li><li><a href="https://docs.chain.link/data-feeds/l2-sequencer-feeds">L2 sequencer checks</a></li><li><a href="https://docs.uniswap.org/contracts/v3/concepts/oracle">Uniswap v3 oracle</a></li><li><a href="https://docs.openzeppelin.com/contracts/5.x/api/utils">Full-precision arithmetic utilities</a></li></ul></div>
+<div data-l="en"><h1>Oracles: Prices, Liquidation, and Market Integrity</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Define the market first</a></li><li><a href="#en-section-2">Sources and trade-offs</a></li><li><a href="#en-section-3">How price manipulation creates bad debt</a></li><li><a href="#en-section-4">Consumer validation sketch</a></li><li><a href="#en-section-5">Failure policy and tests</a></li><li><a href="#en-section-6">PM: price risk is market risk</a></li><li><a href="#en-section-7">References</a></li></ol></nav></details><p>Borrow limits, vault valuations, and perpetual liquidations can all depend on price. An oracle converts market observations into decision inputs; integrating one means selecting the market, units, freshness rules, and failure policy.</p>
+<h2 id="en-section-1">Define the market first</h2>
+<p>ETH/USD and ETH/USDC diverge when USDC depegs. Spot, mark, index, and TWAP prices serve different purposes. Valuing collateral from a thin local spot pool can turn a manipulable number into authority to extract real assets.</p>
+<h2 id="en-section-2">Sources and trade-offs</h2>
+<div class="scroll"><table><thead><tr><th scope="col">Source</th><th scope="col">Benefit</th><th scope="col">Required checks</th></tr></thead><tbody><tr><td>AMM spot</td><td>Immediate and simple</td><td>Movable in one transaction; unsuitable as a direct collateral oracle</td></tr><tr><td>AMM TWAP</td><td>Raises attack duration and capital requirements</td><td>Window, observations, depth, liquidity removal, multi-block attacks</td></tr><tr><td>External feed</td><td>Cross-market aggregation independent of the local pool</td><td>Address, quote currency, decimals, heartbeat, deviation, availability</td></tr></tbody></table></div>
+<h2 id="en-section-3">How price manipulation creates bad debt</h2>
+<p>An attacker inflates collateral’s pool price → the protocol raises borrowing power → real stablecoins leave → the attacker restores price and repays flash capital → insufficient collateral remains. Defend valuation under adversary capabilities and liquidation liquidity, rather than identifying whether funding came from a flash loan.</p>
+<p>Two ETH at $2,000/ETH equals $4,000. If amount has 18 decimals and price has eight, define the output precision and use full-precision mulDiv. Multiplying raw integers without normalization does not yield comparable USD values.</p>
+<h2 id="en-section-4">Consumer validation sketch</h2>
+<p>Choose maxAge from each feed’s heartbeat, deviation behavior, market volatility, and product requirements; one hour is not universal. Reject uninitialized/future timestamps and nonpositive answers. Applicable L2 deployments also need sequencer uptime and recovery-grace checks.</p>
+<pre><code>// Schematic consumer: feed/maxAge/limits are configured per asset and chain.
+(, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
+require(answer &gt; 0, &quot;invalid price&quot;);
+require(updatedAt != 0 &amp;&amp; updatedAt &lt;= block.timestamp, &quot;invalid timestamp&quot;);
+require(block.timestamp - updatedAt &lt;= maxAge, &quot;stale price&quot;);
+uint8 feedDecimals = feed.decimals();
+// Normalize token amount AND feed price with full-precision mulDiv.
+// On applicable L2s, check sequencer uptime + recovery grace period first.
+</code></pre>
+<h2 id="en-section-5">Failure policy and tests</h2>
+<p>A stale feed should not silently allow increased exposure, but pausing everything can block repayment or exits. Define borrow, withdraw, repay, and liquidate policies individually. Do not fall back to another easily manipulated price. Monitor update age, source divergence, and sequencer status; test outage/recovery, decimal mismatch, depeg, thin liquidity, and price jumps.</p>
+<h2 id="en-section-6">PM: price risk is market risk</h2>
+<p>Assess collateral through oracle delay, liquidation depth, and keeper availability. Stress a price shock: when does the feed update, does HF breach, can liquidators sell, and who absorbs deficits? TWAPs resist instantaneous manipulation but lag during crashes; assess both risks together.</p>
+<h2 id="en-section-7">References</h2><ul><li><a href="https://docs.chain.link/data-feeds/api-reference">Chainlink feed interface</a></li><li><a href="https://docs.chain.link/data-feeds/l2-sequencer-feeds">L2 sequencer checks</a></li><li><a href="https://docs.uniswap.org/contracts/v3/concepts/oracle">Uniswap v3 oracle</a></li><li><a href="https://docs.openzeppelin.com/contracts/5.x/api/utils">Full-precision arithmetic utilities</a></li></ul></div>
+</main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js?v=20261008-content"></script>
+</body>
+</html>

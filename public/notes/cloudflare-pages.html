@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
 </head>
 <body data-title-zh="Cloudflare Pages 部署指南" data-title-en="Deploying with Cloudflare Pages">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Cloudflare Pages 部署指南</h1>
-    <p class="meta">2026-09-15 · CLOUDFLARE PAGES · WORKERS · 靜態部署 · 步驟指南</p>
+    <p class="meta">2026-09-15 · CLOUDFLARE PAGES · WORKERS · 靜態部署 · 步驟指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">兩種部署方式，先選一種</a></li><li><a href="#zh-section-3">步驟一：連上 Git repo</a></li><li><a href="#zh-section-4">步驟二：build 設定</a></li><li><a href="#zh-section-5">步驟三：預覽部署</a></li><li><a href="#zh-section-6">步驟四：自訂網域</a></li><li><a href="#zh-section-7">重導向與標頭：_redirects 與 _headers</a></li><li><a href="#zh-section-8">Pages Functions：加上伺服器端</a></li><li><a href="#zh-section-9">該選 Pages 還是 Workers</a></li><li><a href="#zh-section-10">安全與設定風險（開發者）</a></li><li><a href="#zh-section-11">營運風險</a></li><li><a href="#zh-section-12">Web3 前端上線與回復</a></li><li><a href="#zh-section-13">官方來源</a></li></ol></nav></details>
 
     <p>從零把一個站部署到 Cloudflare Pages：連 Git、設 build、綁網域、加 Function，以及正式上線前要知道的限制。文末附上目前該選 Pages 還是 Workers 的判斷，以及遷移路徑。</p>
 
@@ -60,7 +60,7 @@
       <p class="who"><strong>誰讀哪裡：</strong>只想把站放上線 → 看「步驟一～四」就夠；後端／全端工程師 → 加看 Functions 與 <code>_headers</code>；PM／技術決策 → 直接看「市場背景」與「該選 Pages 還是 Workers」。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>靜態託管這塊已經高度商品化，真正的差異在<strong>免費額度的計費方式</strong>與<strong>邊緣運算能力</strong>。Cloudflare 的賣點一直是頻寬不計量；代價是它正在把 Pages 併進 Workers。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字 / 狀態</th></tr></thead>
@@ -75,10 +75,10 @@
         <tr><td>免費方案同時建置數</td><td>1（付費 5）</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，以 2026-09 查得為準；限制與定價變動頻繁，正式採用前請以官方文件為準。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
     <p>對照其他選項：<strong>GitHub Pages</strong> 免費但要求 repo 公開（私有需付費方案），且沒有伺服器端能力；<strong>Vercel／Netlify</strong> 開發體驗好但免費額度對頻寬計量。Cloudflare 的「頻寬不計量」在流量成長時是實質優勢——但要接受它的產品線正在整併。</p>
 
-    <h2>兩種部署方式，先選一種</h2>
+    <h2 id="zh-section-2">兩種部署方式，先選一種</h2>
     <p>Pages 有兩條路，差別在「build 在誰那裡跑」：</p>
 
     <figure>
@@ -108,7 +108,7 @@
       <figcaption><strong>Git 連動</strong>是預設選擇：push 就部署、每個分支自動有預覽網址、回滾方便。<strong>直接上傳</strong>適合 build 需要私密資料、或建置環境太特殊搬不上雲的情況——代價是失去預覽網址與自動回滾。</figcaption>
     </figure>
 
-    <h2>步驟一：連上 Git repo</h2>
+    <h2 id="zh-section-3">步驟一：連上 Git repo</h2>
     <ol>
       <li>Cloudflare Dashboard → <strong>Workers &amp; Pages</strong> → <strong>Create</strong> → <strong>Pages</strong> → <strong>Connect to Git</strong>。</li>
       <li>授權 GitHub／GitLab。建議只授權「選定的 repo」而非整個帳號——這是最小權限原則，之後要加 repo 再回來調。</li>
@@ -116,7 +116,7 @@
     </ol>
     <blockquote><p>授權那一步是唯一會動到你 GitHub 帳號權限的地方。Cloudflare 需要讀取程式碼與寫入 commit status（好把部署結果標回 PR）。</p></blockquote>
 
-    <h2>步驟二：build 設定</h2>
+    <h2 id="zh-section-4">步驟二：build 設定</h2>
     <p>這一步最常卡住，關鍵只有兩個欄位：<strong>build command</strong>（怎麼建）與 <strong>output directory</strong>（建完的檔案在哪）。填錯 output directory 就會部署出一個空站。</p>
     <div class="scroll"><table>
       <thead><tr><th>框架</th><th>Build command</th><th>Output directory</th></tr></thead>
@@ -159,7 +159,7 @@
       <figcaption>值得記住的一點：<strong>建置失敗不會弄壞線上的站</strong>。Pages 只有在建置成功、產出檔案後才會切換版本，失敗時線上維持上一個成功版本。這讓「推上去試試看」的成本很低。</figcaption>
     </figure>
 
-    <h2>步驟三：預覽部署</h2>
+    <h2 id="zh-section-5">步驟三：預覽部署</h2>
     <p>這是 Pages 相對 GitHub Pages 最實際的優勢：<strong>每個分支、每個 PR 都自動拿到一個獨立網址</strong>，可以直接把連結丟給同事或客戶看。</p>
 
     <figure>
@@ -186,7 +186,7 @@
       <figcaption>每次提交的雜湊網址會<strong>永久保留</strong>，所以回頭比對「上週那版長怎樣」很方便，回滾也只是把某個舊部署設為 production。反過來說，這也代表<strong>預覽網址預設是公開的</strong>——尚未發表的內容別以為沒人看得到，必要時要在 Pages 設定裡開啟存取控制。</figcaption>
     </figure>
 
-    <h2>步驟四：自訂網域</h2>
+    <h2 id="zh-section-6">步驟四：自訂網域</h2>
     <ol>
       <li>專案 → <strong>Custom domains</strong> → <strong>Set up a domain</strong>，輸入網域。</li>
       <li>網域若已在同一個 Cloudflare 帳號，DNS 記錄會自動建立；若在外部，照畫面指示新增 <code>CNAME</code> 指向 <code>&lt;project&gt;.pages.dev</code>。</li>
@@ -194,7 +194,7 @@
     </ol>
     <p>根網域（<code>example.com</code>）也可以直接用——Cloudflare 以 CNAME flattening 處理，不需要另外設 A 記錄。</p>
 
-    <h2>重導向與標頭：<code>_redirects</code> 與 <code>_headers</code></h2>
+    <h2 id="zh-section-7">重導向與標頭：<code>_redirects</code> 與 <code>_headers</code></h2>
     <p>這兩個檔案放在<strong>輸出目錄的根層</strong>（不是專案根目錄），Pages 會自動識別。</p>
 <pre><code><span class="c"># _redirects —— 每行：來源 目標 狀態碼</span>
 /old-post   /notes/new-post   301
@@ -208,11 +208,11 @@
   Referrer-Policy: strict-origin-when-cross-origin
 
 <span class="c"># 帶雜湊的靜態資產可以長快取</span>
-/assets/*
+/assets/hashed/*
   Cache-Control: public, max-age=31536000, immutable</code></pre>
     <p>那行 <code>/* /index.html 200</code> 是 SPA 的關鍵：狀態碼用 <strong>200 而不是 301</strong>，代表「內部改寫」而非「轉址」，網址列才會保留原路徑讓前端路由接手。</p>
 
-    <h2>Pages Functions：加上伺服器端</h2>
+    <h2 id="zh-section-8">Pages Functions：加上伺服器端</h2>
     <p>在專案根目錄建一個 <code>functions/</code> 目錄，裡面的檔案路徑就是 API 路徑，會自動變成邊緣執行的端點。</p>
 <pre><code><span class="c">// functions/api/hello.ts  →  /api/hello</span>
 export const onRequestGet: PagesFunction = async (context) =&gt; {
@@ -227,34 +227,34 @@ export const onRequestGet: PagesFunction = async (context) =&gt; {
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 800 300" role="img" aria-label="Pages 的請求路由順序：先看有沒有對應的靜態檔案，有就直接回傳；沒有則檢查 functions 目錄是否有對應的函式，有就在邊緣執行；都沒有才套用 _redirects 規則，最後回傳 404。">
+        <svg viewBox="0 0 800 300" role="img" aria-label="Pages 的請求路由順序：先匹配未被排除的 Function route；未匹配時 fallback 至靜態資產，無資產則走靜態站的 fallback／404。">
           <defs><marker id="p4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
           <rect class="svg-node-a" x="290" y="18" width="180" height="46" rx="10"></rect>
           <text class="svg-nlabel" x="380" y="47" text-anchor="middle">進來一個請求</text>
           <rect class="svg-node" x="270" y="92" width="220" height="46" rx="10"></rect>
-          <text class="svg-nlabel" x="380" y="121" text-anchor="middle">① 有對應靜態檔？</text>
+          <text class="svg-nlabel" x="380" y="121" text-anchor="middle">① Function route 匹配？</text>
           <rect class="svg-node" x="270" y="166" width="220" height="46" rx="10"></rect>
-          <text class="svg-nlabel" x="380" y="195" text-anchor="middle">② functions/ 有對應？</text>
+          <text class="svg-nlabel" x="380" y="195" text-anchor="middle">② fallback 靜態檔？</text>
           <rect class="svg-node" x="270" y="240" width="220" height="46" rx="10"></rect>
-          <text class="svg-nlabel" x="380" y="269" text-anchor="middle">③ _redirects 有規則？</text>
+          <text class="svg-nlabel" x="380" y="269" text-anchor="middle">③ 靜態路徑無對應？</text>
           <line class="svg-flow" x1="380" y1="64" x2="380" y2="90" marker-end="url(#p4)"></line>
           <line class="svg-flow" x1="380" y1="138" x2="380" y2="164" marker-end="url(#p4)"></line>
           <line class="svg-flow" x1="380" y1="212" x2="380" y2="238" marker-end="url(#p4)"></line>
           <line class="svg-flow-a" x1="490" y1="115" x2="600" y2="115" marker-end="url(#p4)"></line>
-          <text class="svg-step" x="606" y="111">是 → 直接回傳檔案</text>
+          <text class="svg-step" x="606" y="111">是 → 執行 Function</text>
           <line class="svg-flow-a" x1="490" y1="189" x2="600" y2="189" marker-end="url(#p4)"></line>
-          <text class="svg-step" x="606" y="185">是 → 邊緣執行函式</text>
+          <text class="svg-step" x="606" y="185">是 → 回傳資產</text>
           <line class="svg-flow-a" x1="490" y1="263" x2="600" y2="263" marker-end="url(#p4)"></line>
-          <text class="svg-step" x="606" y="259">是 → 轉址 / 改寫</text>
+          <text class="svg-step" x="606" y="259">是 → fallback / 404</text>
           <text class="svg-mono" x="262" y="121" text-anchor="end">否 ↓</text>
           <text class="svg-mono" x="262" y="195" text-anchor="end">否 ↓</text>
           <text class="svg-mono" x="262" y="269" text-anchor="end">否 → 404</text>
         </svg>
       </div>
-      <figcaption>順序很重要：<strong>靜態檔優先於 Function</strong>。如果你在 <code>functions/api/hello.ts</code> 定義了端點，但輸出目錄剛好也有一個 <code>api/hello</code> 檔案，回傳的會是那個靜態檔，你的函式永遠不會被呼叫——這是排查「函式沒反應」時的第一個檢查點。</figcaption>
+      <figcaption>Pages 先匹配 Function route；沒有匹配時才 fallback 至靜態檔。檢查 <code>_routes.json</code> 是否排除了該路徑，Function 也可透過 <code>env.ASSETS.fetch(request)</code> 明確取得靜態資產。Pages 與 Workers Static Assets 的路由設定不可混用。</figcaption>
     </figure>
 
-    <h2>該選 Pages 還是 Workers</h2>
+    <h2 id="zh-section-9">該選 Pages 還是 Workers</h2>
     <p>這是現在最該先想清楚的一題。<strong>Pages 沒有被棄用</strong>，現有專案可以繼續跑，Cloudflare 也沒有公布強制遷移期限。但官方已明講：所有新投資都放在 Workers，Pages 只拿到維護性更新。</p>
     <div class="scroll"><table>
       <thead><tr><th>你的情況</th><th>建議</th></tr></thead>
@@ -313,7 +313,7 @@ npx wrangler login
 npx wrangler deploy</code></pre>
     <p>本站的另一則筆記〈<a href="./deploy.html">這個站怎麼運作、怎麼部署</a>〉就是走 Workers 這條路，可以對照著看。</p>
 
-    <h2>安全與設定風險（開發者）</h2>
+    <h2 id="zh-section-10">安全與設定風險（開發者）</h2>
     <ul>
       <li><strong>預覽網址預設公開。</strong>任何知道網址的人都看得到未發表的內容。敏感專案要在設定裡開 Access 保護預覽環境。</li>
       <li><strong>密鑰別用明文環境變數。</strong>用 <em>Encrypt</em> 存成 secret；明文變數會出現在建置紀錄裡。</li>
@@ -322,7 +322,7 @@ npx wrangler deploy</code></pre>
       <li><strong>預設沒有安全標頭。</strong><code>X-Frame-Options</code>、<code>Content-Security-Policy</code> 這些要自己在 <code>_headers</code> 加。</li>
     </ul>
 
-    <h2>營運風險</h2>
+    <h2 id="zh-section-11">營運風險</h2>
     <ul>
       <li><strong>產品整併風險。</strong>Pages 處於維護模式。雖無期限，但新功能不會來，長期應規劃遷移。</li>
       <li><strong>建置額度。</strong>免費方案每月 500 次建置、同時只能跑 1 個。分支多的團隊很容易排隊，CI 高峰期會變慢。</li>
@@ -330,7 +330,11 @@ npx wrangler deploy</code></pre>
       <li><strong>供應商綁定。</strong><code>_redirects</code>、<code>_headers</code>、Functions、以及 KV／D1／R2 綁定都是 Cloudflare 專屬；純靜態部分可攜，這些則否。</li>
     </ul>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-12">Web3 前端上線與回復</h2>
+<p>發布前驗證 chain ID、官方合約地址、RPC、wallet network switch、approval spender 與連結。Secret 不可打包進 client JS；即使 build variable 加密，輸出到前端的值仍公開。DNS、repo、CI 和部署帳戶被接管，都可能替換使用者簽署的 calldata。</p>
+<p>建立 preview → review → production → smoke check → rollback 的流程；保留上一版 artifact、記錄 commit 與部署版本。驗證首頁、筆記深連結、語言切換、404 與資產 cache。版本指紋 asset 才適合長時間 immutable；穩定檔名要 revalidate。回滾網頁不會撤銷使用者已簽署或已執行的鏈上動作。</p>
+
+    <h2 id="zh-section-13">官方來源</h2>
     <ul>
       <li><a href="https://developers.cloudflare.com/pages/">Cloudflare Pages 文件</a></li>
       <li><a href="https://developers.cloudflare.com/pages/functions/">Pages Functions</a></li>
@@ -342,9 +346,9 @@ npx wrangler deploy</code></pre>
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Deploying with Cloudflare Pages</h1>
-    <p class="meta">2026-09-15 · CLOUDFLARE PAGES · WORKERS · STATIC DEPLOYMENT · STEP-BY-STEP</p>
+    <p class="meta">2026-09-15 · CLOUDFLARE PAGES · WORKERS · STATIC DEPLOYMENT · STEP-BY-STEP</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">Pick one of two deployment modes</a></li><li><a href="#en-section-3">Step one: connect the Git repo</a></li><li><a href="#en-section-4">Step two: build configuration</a></li><li><a href="#en-section-5">Step three: preview deployments</a></li><li><a href="#en-section-6">Step four: custom domain</a></li><li><a href="#en-section-7">Redirects and headers: _redirects and _headers</a></li><li><a href="#en-section-8">Pages Functions: adding a server side</a></li><li><a href="#en-section-9">Pages or Workers</a></li><li><a href="#en-section-10">Security and configuration risk (developers)</a></li><li><a href="#en-section-11">Operational risk</a></li><li><a href="#en-section-12">Shipping and recovering a Web3 frontend</a></li><li><a href="#en-section-13">Official sources</a></li></ol></nav></details>
 
     <p>Getting a site onto Cloudflare Pages from zero: connect Git, configure the build, attach a domain, add a Function, and the limits worth knowing before you go live. At the end: whether to pick Pages or Workers today, and the migration path.</p>
 
@@ -358,7 +362,7 @@ npx wrangler deploy</code></pre>
       <p class="who"><strong>Where to start:</strong> just want the site live → steps one to four are enough; backend / full-stack engineers → add Functions and <code>_headers</code>; PMs and tech leads → read "Market background" and "Pages or Workers" only.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>Static hosting is heavily commoditised; the real differences are <strong>how the free tier meters you</strong> and <strong>what edge compute you get</strong>. Cloudflare's pitch has always been unmetered bandwidth — the cost is that it is folding Pages into Workers.</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure / status</th></tr></thead>
@@ -373,10 +377,10 @@ npx wrangler deploy</code></pre>
         <tr><td>Free-plan concurrent builds</td><td>1 (paid: 5)</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate and current as of 2026-09; limits and pricing change often — check the official docs before committing.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
     <p>Against the alternatives: <strong>GitHub Pages</strong> is free but requires a public repo (private needs a paid plan) and has no server-side capability; <strong>Vercel / Netlify</strong> have excellent DX but meter bandwidth on the free tier. Cloudflare's unmetered bandwidth is a genuine advantage as traffic grows — provided you accept that its product line is consolidating.</p>
 
-    <h2>Pick one of two deployment modes</h2>
+    <h2 id="en-section-2">Pick one of two deployment modes</h2>
     <p>Pages offers two routes; the difference is <strong>where the build runs</strong>:</p>
 
     <figure>
@@ -406,7 +410,7 @@ npx wrangler deploy</code></pre>
       <figcaption><strong>Git-connected</strong> is the default: push to deploy, a preview URL per branch, easy rollback. <strong>Direct upload</strong> suits builds that need secrets, or build environments too unusual to lift into the cloud — at the cost of preview URLs and automatic rollback.</figcaption>
     </figure>
 
-    <h2>Step one: connect the Git repo</h2>
+    <h2 id="en-section-3">Step one: connect the Git repo</h2>
     <ol>
       <li>Cloudflare Dashboard → <strong>Workers &amp; Pages</strong> → <strong>Create</strong> → <strong>Pages</strong> → <strong>Connect to Git</strong>.</li>
       <li>Authorise GitHub / GitLab. Grant access to <em>selected repositories</em> rather than the whole account — least privilege; you can add more later.</li>
@@ -414,7 +418,7 @@ npx wrangler deploy</code></pre>
     </ol>
     <blockquote><p>That authorisation step is the only place this touches your GitHub account permissions. Cloudflare needs to read code and write commit statuses so results appear on your PRs.</p></blockquote>
 
-    <h2>Step two: build configuration</h2>
+    <h2 id="en-section-4">Step two: build configuration</h2>
     <p>This is where people get stuck, and only two fields matter: the <strong>build command</strong> (how to build) and the <strong>output directory</strong> (where the built files land). Get the output directory wrong and you deploy an empty site.</p>
     <div class="scroll"><table>
       <thead><tr><th>Framework</th><th>Build command</th><th>Output directory</th></tr></thead>
@@ -457,7 +461,7 @@ npx wrangler deploy</code></pre>
       <figcaption>Worth remembering: <strong>a failed build cannot break the live site</strong>. Pages only swaps versions once a build succeeds and produces files; on failure the previous good deployment stays up. That makes "push it and see" cheap.</figcaption>
     </figure>
 
-    <h2>Step three: preview deployments</h2>
+    <h2 id="en-section-5">Step three: preview deployments</h2>
     <p>This is the most practical advantage over GitHub Pages: <strong>every branch and every PR gets its own URL automatically</strong>, ready to send to a colleague or client.</p>
 
     <figure>
@@ -484,7 +488,7 @@ npx wrangler deploy</code></pre>
       <figcaption>Per-commit hash URLs are <strong>kept permanently</strong>, so comparing against "how it looked last week" is easy, and rolling back is just promoting an old deployment. The flip side: <strong>preview URLs are public by default</strong> — unpublished work is reachable by anyone with the link, so enable access control on previews when that matters.</figcaption>
     </figure>
 
-    <h2>Step four: custom domain</h2>
+    <h2 id="en-section-6">Step four: custom domain</h2>
     <ol>
       <li>Project → <strong>Custom domains</strong> → <strong>Set up a domain</strong>, enter the domain.</li>
       <li>If the domain is already on the same Cloudflare account the DNS record is created for you; if it is external, add the <code>CNAME</code> to <code>&lt;project&gt;.pages.dev</code> as instructed.</li>
@@ -492,7 +496,7 @@ npx wrangler deploy</code></pre>
     </ol>
     <p>An apex domain (<code>example.com</code>) works directly — Cloudflare handles it with CNAME flattening, so no separate A record is needed.</p>
 
-    <h2>Redirects and headers: <code>_redirects</code> and <code>_headers</code></h2>
+    <h2 id="en-section-7">Redirects and headers: <code>_redirects</code> and <code>_headers</code></h2>
     <p>Both files go in the <strong>root of the output directory</strong> (not the project root); Pages picks them up automatically.</p>
 <pre><code><span class="c"># _redirects — one per line: from to status</span>
 /old-post   /notes/new-post   301
@@ -506,11 +510,11 @@ npx wrangler deploy</code></pre>
   Referrer-Policy: strict-origin-when-cross-origin
 
 <span class="c"># hashed assets can be cached forever</span>
-/assets/*
+/assets/hashed/*
   Cache-Control: public, max-age=31536000, immutable</code></pre>
     <p>That <code>/* /index.html 200</code> line is the key for SPAs: the status is <strong>200, not 301</strong>, meaning an internal rewrite rather than a redirect, so the URL bar keeps the original path for your client-side router to handle.</p>
 
-    <h2>Pages Functions: adding a server side</h2>
+    <h2 id="en-section-8">Pages Functions: adding a server side</h2>
     <p>Create a <code>functions/</code> directory in the project root; file paths inside become API routes, running at the edge.</p>
 <pre><code><span class="c">// functions/api/hello.ts  →  /api/hello</span>
 export const onRequestGet: PagesFunction = async (context) =&gt; {
@@ -525,34 +529,34 @@ export const onRequestGet: PagesFunction = async (context) =&gt; {
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 800 300" role="img" aria-label="Pages request routing order: a matching static file is served first; otherwise a matching function under the functions directory runs at the edge; otherwise _redirects rules apply, and finally a 404 is returned.">
+        <svg viewBox="0 0 800 300" role="img" aria-label="Pages request routing order: a nonexcluded Function route runs first; unmatched paths fall back to static assets and then static-site fallback/404 behavior.">
           <defs><marker id="q4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
           <rect class="svg-node-a" x="290" y="18" width="180" height="46" rx="10"></rect>
           <text class="svg-nlabel" x="380" y="47" text-anchor="middle">request arrives</text>
           <rect class="svg-node" x="270" y="92" width="220" height="46" rx="10"></rect>
-          <text class="svg-nlabel" x="380" y="121" text-anchor="middle">① static file exists?</text>
+          <text class="svg-nlabel" x="380" y="121" text-anchor="middle">① Function route match?</text>
           <rect class="svg-node" x="270" y="166" width="220" height="46" rx="10"></rect>
-          <text class="svg-nlabel" x="380" y="195" text-anchor="middle">② functions/ match?</text>
+          <text class="svg-nlabel" x="380" y="195" text-anchor="middle">② static asset fallback?</text>
           <rect class="svg-node" x="270" y="240" width="220" height="46" rx="10"></rect>
-          <text class="svg-nlabel" x="380" y="269" text-anchor="middle">③ _redirects rule?</text>
+          <text class="svg-nlabel" x="380" y="269" text-anchor="middle">③ no static match?</text>
           <line class="svg-flow" x1="380" y1="64" x2="380" y2="90" marker-end="url(#q4)"></line>
           <line class="svg-flow" x1="380" y1="138" x2="380" y2="164" marker-end="url(#q4)"></line>
           <line class="svg-flow" x1="380" y1="212" x2="380" y2="238" marker-end="url(#q4)"></line>
           <line class="svg-flow-a" x1="490" y1="115" x2="600" y2="115" marker-end="url(#q4)"></line>
-          <text class="svg-step" x="606" y="111">yes → serve the file</text>
+          <text class="svg-step" x="606" y="111">yes → run Function</text>
           <line class="svg-flow-a" x1="490" y1="189" x2="600" y2="189" marker-end="url(#q4)"></line>
-          <text class="svg-step" x="606" y="185">yes → run at the edge</text>
+          <text class="svg-step" x="606" y="185">yes → serve asset</text>
           <line class="svg-flow-a" x1="490" y1="263" x2="600" y2="263" marker-end="url(#q4)"></line>
-          <text class="svg-step" x="606" y="259">yes → redirect / rewrite</text>
+          <text class="svg-step" x="606" y="259">yes → fallback / 404</text>
           <text class="svg-mono" x="262" y="121" text-anchor="end">no ↓</text>
           <text class="svg-mono" x="262" y="195" text-anchor="end">no ↓</text>
           <text class="svg-mono" x="262" y="269" text-anchor="end">no → 404</text>
         </svg>
       </div>
-      <figcaption>Order matters: <strong>static files win over Functions</strong>. If you define <code>functions/api/hello.ts</code> but the output directory also contains a file at <code>api/hello</code>, the static file is served and your function never runs — the first thing to check when a function "does nothing".</figcaption>
+      <figcaption>Pages matches Function routes first and falls back to static files when none match. Check whether <code>_routes.json</code> excludes the path. A Function can explicitly fetch static assets with <code>env.ASSETS.fetch(request)</code>. Do not conflate Pages routing with Workers Static Assets configuration.</figcaption>
     </figure>
 
-    <h2>Pages or Workers</h2>
+    <h2 id="en-section-9">Pages or Workers</h2>
     <p>This is the question to settle first. <strong>Pages is not deprecated</strong>, existing projects keep running, and Cloudflare has announced no forced migration deadline. But it has said plainly that all new investment goes to Workers; Pages gets maintenance updates.</p>
     <div class="scroll"><table>
       <thead><tr><th>Your situation</th><th>Recommendation</th></tr></thead>
@@ -611,7 +615,7 @@ npx wrangler login
 npx wrangler deploy</code></pre>
     <p>The companion note <a href="./deploy.html">How this site works and ships</a> takes exactly this Workers route, if you want to compare.</p>
 
-    <h2>Security and configuration risk (developers)</h2>
+    <h2 id="en-section-10">Security and configuration risk (developers)</h2>
     <ul>
       <li><strong>Preview URLs are public by default.</strong> Anyone with the link sees unpublished work. Enable Access on previews for sensitive projects.</li>
       <li><strong>Never put credentials in plaintext variables.</strong> Use <em>Encrypt</em> to store them as secrets; plaintext variables show up in build logs.</li>
@@ -620,7 +624,7 @@ npx wrangler deploy</code></pre>
       <li><strong>No security headers by default.</strong> <code>X-Frame-Options</code>, <code>Content-Security-Policy</code> and friends must be added in <code>_headers</code> yourself.</li>
     </ul>
 
-    <h2>Operational risk</h2>
+    <h2 id="en-section-11">Operational risk</h2>
     <ul>
       <li><strong>Product consolidation.</strong> Pages is in maintenance mode. No deadline, but no new features either — plan a migration for the long run.</li>
       <li><strong>Build quota.</strong> 500 builds a month on the free plan, one at a time. Teams with many branches queue quickly and slow down at CI peaks.</li>
@@ -628,7 +632,11 @@ npx wrangler deploy</code></pre>
       <li><strong>Vendor lock-in.</strong> <code>_redirects</code>, <code>_headers</code>, Functions and KV/D1/R2 bindings are Cloudflare-specific; the static files are portable, these are not.</li>
     </ul>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-12">Shipping and recovering a Web3 frontend</h2>
+<p>Before release verify chain ID, official contract addresses, RPCs, wallet network switching, approval spenders, and links. Never bundle secrets into client JavaScript: encrypted build variables become public if emitted into the frontend. Compromised DNS, repositories, CI, or deployment accounts can change the calldata users sign.</p>
+<p>Use preview → review → production → smoke check → rollback. Retain the previous artifact and record commit/deployment versions. Check home, deep note links, language toggle, 404, and asset caching. Long immutable caching requires fingerprinted filenames; stable names should revalidate. Website rollback cannot undo signed or executed on-chain actions.</p>
+
+    <h2 id="en-section-13">Official sources</h2>
     <ul>
       <li><a href="https://developers.cloudflare.com/pages/">Cloudflare Pages documentation</a></li>
       <li><a href="https://developers.cloudflare.com/pages/functions/">Pages Functions</a></li>
@@ -639,7 +647,7 @@ npx wrangler deploy</code></pre>
     <p class="meta">Content last verified: 2026-09-15</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -651,6 +659,6 @@ npx wrangler deploy</code></pre>
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261008-content"></script>
 </body>
 </html>

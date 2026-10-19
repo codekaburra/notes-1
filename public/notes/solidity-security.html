@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
 </head>
 <body data-title-zh="Solidity 安全漏洞圖鑑" data-title-en="Solidity Security: A Field Guide">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Solidity 安全漏洞圖鑑</h1>
-    <p class="meta">2026-09-18 · SOLIDITY · 安全 · 攻擊流程 · 開發者指南</p>
+    <p class="meta">2026-09-18 · SOLIDITY · 安全 · 攻擊流程 · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景：錢實際上是怎麼丟的</a></li><li><a href="#zh-section-2">一、重入（Reentrancy）</a></li><li><a href="#zh-section-3">二、存取控制與管理權</a></li><li><a href="#zh-section-4">三、價格操縱：閃電貸的主戰場</a></li><li><a href="#zh-section-5">四、簽章：重放與驗證</a></li><li><a href="#zh-section-6">五、外部呼叫與回傳值</a></li><li><a href="#zh-section-7">六、精度與四捨五入：ERC-4626 通膨攻擊</a></li><li><a href="#zh-section-8">七、delegatecall 與 storage collision</a></li><li><a href="#zh-section-9">八、拒絕服務與 griefing</a></li><li><a href="#zh-section-10">流程比技巧重要</a></li><li><a href="#zh-section-11">使用者風險</a></li><li><a href="#zh-section-12">把 checklist 變成可測的 invariant</a></li><li><a href="#zh-section-13">PM：風險登記與事故演練</a></li><li><a href="#zh-section-14">官方來源</a></li></ol></nav></details>
 
     <p>八類真正會讓錢消失的漏洞：每一類都給攻擊流程、易受攻擊的程式碼、以及修好的版本。重點不是背名詞，而是建立一種直覺——<strong>看到某種寫法就本能地警覺</strong>。</p>
 
@@ -54,32 +54,20 @@
       <span class="tldr-label">三句話版本</span>
       <ul>
         <li>絕大多數合約漏洞可以歸到一句話：<strong>你在狀態還沒更新完之前，把控制權交給了別人</strong>——重入、預言機、簽章重放都是這個形狀。</li>
-        <li>但要先認清一個殘酷的統計：<strong>2026 上半年約 76% 的失竊金額來自金鑰與營運層面的外洩，不是巧妙的 Solidity bug</strong>。程式碼漏洞貢獻的是事件數，不是金額。</li>
+        <li>安全涵蓋程式碼、權限、金鑰與營運。不同報告的分類與期間不同，不應把未查核比例當成風控依據。</li>
         <li>所以真正的防禦順序是：<strong>先把權限與金鑰管好，再談程式碼技巧</strong>。一個 <code>onlyOwner</code> 寫漏，比任何精妙的重入都致命。</li>
       </ul>
       <p class="who"><strong>誰讀哪裡：</strong>初學者 → 先讀「重入」與「存取控制」兩節，這兩類佔了大部分事故；有經驗的 Solidity 工程師 → 直接看「價格操縱」「精度與四捨五入」「storage collision」；PM／技術主管 → 市場背景與最後的「流程比技巧重要」。</p>
     </div>
 
-    <h2>市場背景：錢實際上是怎麼丟的</h2>
+    <h2 id="zh-section-1">市場背景：錢實際上是怎麼丟的</h2>
     <p>這節的數字會改變你分配安全預算的方式。2026 上半年的事故<strong>次數創了新高，金額卻明顯下降</strong>——意思是：小型、新上線、未經審計的協議被打爆得更頻繁，但大額損失的來源另有其人。</p>
-    <div class="scroll"><table class="market">
-      <thead><tr><th>指標</th><th>數字</th></tr></thead>
-      <tbody>
-        <tr><td>2026 H1 總失竊金額</td><td>約 $0.97B–1.32B（各來源口徑不一）</td></tr>
-        <tr><td>2026 H1 事件數</td><td>約 207–224 起（歷史新高）</td></tr>
-        <tr><td>對照：2025 H1 金額</td><td>約 $2.3B</td></tr>
-        <tr><td><strong>基礎設施／營運類佔失竊金額</strong></td><td><strong>約 76%</strong>（僅約 15% 的事件數）</td></tr>
-        <tr><td>私鑰外洩佔歷史總損失</td><td>約 24.4%</td></tr>
-        <tr><td>釣魚佔歷史總損失</td><td>約 19.5%</td></tr>
-        <tr><td>存取控制失誤佔歷史總損失</td><td>約 12.8%（約 $994M）</td></tr>
-        <tr><td>價格操縱攻擊中使用閃電貸的比例</td><td>約 62.1%</td></tr>
-      </tbody>
-    </table></div>
-    <p class="asof">數據為約略值，各來源統計口徑與期間不一；以 2026-09 查得為準。</p>
-    <p>把前三項加起來：<strong>私鑰外洩 + 釣魚 + 存取控制 ≈ 總損失的 57%</strong>。這三者沒有一項需要攻擊者懂組合語言，它們考驗的是<strong>誰能動什麼、鑰匙放哪裡</strong>。2026 年最大的兩起（Drift 約 $280M、KelpDAO 約 $293M）也都不是經典的演算法漏洞——Drift 是<strong>升級機制</strong>出問題。</p>
+    <div class="scroll"><table class="market"><thead><tr><th>風險層</th><th>應收集的證據</th></tr></thead><tbody><tr><td>金鑰與權限</td><td>Signer policy、角色表、多簽與 timelock</td></tr><tr><td>程式碼</td><td>固定版本 audit、負面與 invariant tests</td></tr><tr><td>市場與 oracle</td><td>Feed config、深度、liquidation 情境</td></tr><tr><td>營運</td><td>監控、pause/exit、事故演練紀錄</td></tr></tbody></table></div>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
+    <p>先盤點誰能動什麼、金鑰如何保存，再驗證合約與市場假設。事件損失比例、金額與根因應引用帶期間與分類的原始報告。</p>
     <blockquote><p>結論很直白：<strong>先做對權限設計、多簽與升級流程，再去研究重入的精妙變體。</strong>順序反了，等於在紙門上裝三道鎖。</p></blockquote>
 
-    <h2>一、重入（Reentrancy）</h2>
+    <h2 id="zh-section-2">一、重入（Reentrancy）</h2>
     <p>最經典、也最能說明核心直覺的一類。問題不在「轉帳」，而在<strong>轉帳這個動作會把控制權交給對方，而你的帳還沒記完</strong>。</p>
 <pre><code><span class="c">// ✗ 易受攻擊：先轉錢，後歸零</span>
 mapping(address =&gt; uint256) public balances;
@@ -162,17 +150,17 @@ function withdraw() external {
           <text class="svg-mono-a" x="605" y="218" text-anchor="middle">重入時讀到的已是新值</text>
         </svg>
       </div>
-      <figcaption>CEI 是<strong>順序</strong>而不是工具：Checks → Effects → Interactions。<code>ReentrancyGuard</code> 是保險而非替代品——它擋得住同函式重入，但擋不住「跨函式重入」（從 <code>withdraw</code> 重入到 <code>transfer</code>）。<strong>順序寫對了才是根本解。</strong></figcaption>
+      <figcaption>CEI 是 Checks → Effects → Interactions 的順序。OpenZeppelin 的共享 <code>ReentrancyGuard</code> 能阻止使用同一 guard 的函式彼此重入；未加 guard 的入口與中間狀態的 view 仍需檢查。CEI 與跨入口的 accounting invariants 必須一起成立。</figcaption>
     </figure>
 
     <h3>唯讀重入：容易被忽略的變體</h3>
     <p>即使你的合約自己不受影響，<strong>別人讀你的 <code>view</code> 函式時可能拿到中間狀態</strong>。經典情境：某池在轉帳回呼期間，內部餘額已扣、總量尚未更新，此時 <code>getPrice()</code> 回傳的是失真的值；另一個協議剛好在這瞬間讀它來估值，就被騙了。</p>
     <ul>
       <li>防禦方：<strong>不要相信任何可在單筆交易內被改動的 <code>view</code> 報價</strong>，讀之前先確認對方沒有處於鎖定狀態。</li>
-      <li>提供方：<strong>把 reentrancy guard 也套在 view 函式上</strong>（或提供一個可供外部查詢鎖狀態的介面）。</li>
+      <li>提供方：<strong>使用不寫狀態的 view lock check；不能直接套用寫狀態的 nonReentrant modifier</strong>（或提供一個可供外部查詢鎖狀態的介面）。</li>
     </ul>
 
-    <h2>二、存取控制（損失金額的最大宗）</h2>
+    <h2 id="zh-section-3">二、存取控制與管理權</h2>
     <p>最不炫技、卻造成最多損失的一類。三種典型寫法：</p>
 <pre><code><span class="c">// ✗ 忘記加修飾器 —— 任何人都能改 owner</span>
 function setOwner(address newOwner) external { owner = newOwner; }
@@ -197,8 +185,8 @@ function initialize(address _owner) external initializer { owner = _owner; }</co
       <li><strong>權限要能列舉。</strong>寫下「哪些函式受保護、被誰持有」的清單並定期核對；漏掉修飾器多半不是不懂，而是新增函式時忘了。</li>
     </ul>
 
-    <h2>三、價格操縱：閃電貸的主戰場</h2>
-    <p>約 <strong>62%</strong> 的價格操縱攻擊用到閃電貸。原因很簡單：閃電貸讓攻擊者在<strong>不需要本金</strong>的情況下，於單筆交易內取得足以撼動市場的資金。</p>
+    <h2 id="zh-section-4">三、價格操縱：閃電貸的主戰場</h2>
+    <p>閃電貸可以放大價格操縱：閃電貸讓攻擊者在<strong>不需要本金</strong>的情況下，於單筆交易內取得足以撼動市場的資金。</p>
 <pre><code><span class="c">// ✗ 直接讀現貨池的即時價 —— 單筆交易內即可被推歪</span>
 (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
 uint256 price = _priceFromSqrt(sqrtPriceX96);
@@ -250,7 +238,7 @@ require(answer &gt; 0, "bad price");
 require(block.timestamp - updatedAt &lt; 3600, "stale price");   <span class="c">// 別忘了這行</span></code></pre>
     <p>兩個常見的半吊子防禦：<strong>只檢查 <code>answer &gt; 0</code> 卻不檢查 <code>updatedAt</code></strong>（預言機停更時你會用到過期價格），以及<strong>用單一來源的 TWAP 卻設得太短</strong>（幾個區塊的 TWAP 在低流動性池仍可被操縱）。</p>
 
-    <h2>四、簽章：重放與驗證</h2>
+    <h2 id="zh-section-5">四、簽章：重放與驗證</h2>
 <pre><code><span class="c">// ✗ 沒有 nonce、沒綁 chainId、沒綁合約位址 → 可無限重放、跨鏈重放</span>
 bytes32 h = keccak256(abi.encodePacked(to, amount));
 require(ECDSA.recover(h, sig) == owner, "bad sig");
@@ -265,7 +253,7 @@ address signer = ECDSA.recover(digest, sig);     <span class="c">// OZ 版本失
 require(signer == owner &amp;&amp; signer != address(0), "bad sig");</code></pre>
     <p>檢查清單：<strong>nonce</strong>（防同鏈重放）、<strong>chainId</strong>（防跨鏈重放）、<strong>verifyingContract</strong>（防跨合約重放）、<strong>deadline</strong>（限制有效期）。四項缺一，就存在對應的重放面。</p>
 
-    <h2>五、外部呼叫與回傳值</h2>
+    <h2 id="zh-section-6">五、外部呼叫與回傳值</h2>
     <p>ERC-20 的實作分歧是長年的坑：有些代幣（如 USDT）<strong>不回傳 bool</strong>，有些失敗時<strong>只回 false 而不 revert</strong>。</p>
 <pre><code><span class="c">// ✗ 對 USDT 這類代幣會因為沒有回傳值而 revert</span>
 require(token.transfer(to, amount), "transfer failed");
@@ -283,7 +271,7 @@ uint256 received = token.balanceOf(address(this)) - balBefore;
 _credit(msg.sender, received);      <span class="c">// 用實收，不要用 amount</span></code></pre>
     <p>低階呼叫也要記得：<code>call</code> 對<strong>不存在的位址會回傳 success = true</strong>。若目標可能不是合約，需額外檢查 <code>code.length</code>。</p>
 
-    <h2>六、精度與四捨五入：ERC-4626 通膨攻擊</h2>
+    <h2 id="zh-section-7">六、精度與四捨五入：ERC-4626 通膨攻擊</h2>
     <p>整數除法一律向下取整，這個看似無害的性質是金庫類合約的經典破口。</p>
 
     <figure>
@@ -315,17 +303,17 @@ _credit(msg.sender, received);      <span class="c">// 用實收，不要用 amo
           <text class="svg-step" x="390" y="282" text-anchor="middle">根本原因：share 計算用整數除法，且「直接轉入」不會鑄造 share</text>
         </svg>
       </div>
-      <figcaption>攻擊成立的兩個條件缺一不可：<strong>金庫是空的</strong>（攻擊者能當首位存款人），以及<strong>直接轉帳能改變每股淨值卻不鑄造 share</strong>。受害者存入的 5 ETH 因為向下取整換到 0 股，等於白送。</figcaption>
+      <figcaption>這個首位存款人的範例假設：<strong>金庫是空的</strong>（攻擊者能當首位存款人），以及<strong>直接轉帳能改變每股淨值卻不鑄造 share</strong>。受害者存入的 5 ETH 因為向下取整換到 0 股，等於白送。</figcaption>
     </figure>
 
     <p>三種修法，建議一起用：</p>
     <ul>
       <li><strong>虛擬股數／資產偏移</strong>：OpenZeppelin 的 ERC-4626 預設加入虛擬 offset，讓首存者無法把每股淨值推到極端。這是最省事且有效的一層。</li>
       <li><strong>部署時預先注入</strong>：部署者自己先存一筆並燒掉那些 share，使金庫永不為空。</li>
-      <li><strong>取整方向要對自己不利</strong>：鑄造 share 時向下取整、贖回時也向下取整，讓誤差永遠留在金庫而非使用者身上。</li>
+      <li><strong>取整方向要對自己不利</strong>：deposit 的 shares 向下、mint 所需 assets 向上、withdraw 所需 shares 向上、redeem 的 assets 向下。取整不是完整的通膨攻擊防禦，還需 virtual offsets 與最小輸出限制。</li>
     </ul>
 
-    <h2>七、delegatecall 與 storage collision</h2>
+    <h2 id="zh-section-8">七、delegatecall 與 storage collision</h2>
     <p><code>delegatecall</code> 用<strong>呼叫方的儲存空間</strong>執行對方的程式碼。代理模式靠它運作，也因此對 slot 排列極度敏感。</p>
 
     <figure>
@@ -367,7 +355,7 @@ _credit(msg.sender, received);      <span class="c">// 用實收，不要用 amo
       <li><strong>絕不 <code>delegatecall</code> 到不可信的位址</strong>——那等於把自己的儲存空間交給對方任意改寫。</li>
     </ul>
 
-    <h2>八、拒絕服務與 griefing</h2>
+    <h2 id="zh-section-9">八、拒絕服務與 griefing</h2>
 <pre><code><span class="c">// ✗ push 付款 + 無界迴圈：一個收款人 revert，全部人都領不到</span>
 for (uint256 i = 0; i &lt; recipients.length; i++) {
     payable(recipients[i]).transfer(amounts[i]);   <span class="c">// 對方是合約且 receive revert → 整批失敗</span>
@@ -384,7 +372,7 @@ function claim() external {
 }</code></pre>
     <p>同理，任何<strong>長度由使用者控制的迴圈</strong>都是風險：攻擊者只要把陣列灌到超過區塊 gas 上限，該函式就永遠無法執行。</p>
 
-    <h2>流程比技巧重要</h2>
+    <h2 id="zh-section-10">流程比技巧重要</h2>
     <p>回到市場背景那個數字——大部分的錢不是被精妙的漏洞拿走的。以下依投報率排序：</p>
     <ol>
       <li><strong>權限盤點</strong>：列出所有特權函式與持有者。關鍵權限交多簽 + 時間鎖，不要單一 EOA。</li>
@@ -394,19 +382,24 @@ function claim() external {
       <li><strong>監控與應變</strong>：異常提領告警、暫停開關、事故劇本。假設它總有一天會發生。</li>
     </ol>
 
-    <h2>使用者風險</h2>
+    <h2 id="zh-section-11">使用者風險</h2>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
       <tbody>
         <tr><td><strong>無限授權</strong></td><td>多數 dApp 預設請求無上限的 <code>approve</code>。合約若被攻破，你的代幣會依該授權被搬走。定期到授權管理工具檢視並撤銷。</td></tr>
-        <tr><td><strong>釣魚簽章</strong></td><td>約 19.5% 的歷史損失來自釣魚。看不懂的簽章一律不簽——尤其 <code>Permit</code> 與 <code>setApprovalForAll</code>。</td></tr>
+        <tr><td><strong>釣魚簽章</strong></td><td>看不懂的簽章一律不簽——尤其 <code>Permit</code> 與 <code>setApprovalForAll</code>。</td></tr>
         <tr><td><strong>新協議風險最高</strong></td><td>事件數集中在新上線、未經審計的協議。高 APY 通常反映的是風險，不是效率。</td></tr>
         <tr><td><strong>升級權限</strong></td><td>可升級合約代表有人能改寫規則。進場前確認誰持有升級權、是否多簽、有無時間鎖。</td></tr>
         <tr><td><strong>審計不等於安全</strong></td><td>「已審計」只代表某時點的某個版本被看過；升級後的程式碼未必在範圍內。</td></tr>
       </tbody>
     </table></div>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-12">把 checklist 變成可測的 invariant</h2>
+<p>寫下「誰能改誰的餘額、誰能升級、用什麼價格、發生外部呼叫時哪些數字必須一致」。至少測資產守恆、負債不重複、簽章 nonce 只能用一次、未授權 caller 永遠不能改管理權。測試要含 malicious callback、fee-on-transfer、不同 decimals、oracle stale、pause 與 upgrade；靜態掃描補充人類 threat model，不能取代。</p>
+<h2 id="zh-section-13">PM：風險登記與事故演練</h2>
+<p>每項風險列 trigger、資金影響、偵測訊號、負責人、pause/exit 權限與復原動作。監控 total assets/liabilities、oracle 延遲、異常 allowance/role/upgrade events；演練 signer 遺失、provider 中斷與 paused withdrawals。多簽與 timelock 本身不保證能退出：需確認資產流動性與實際 pause 權限。</p>
+
+    <h2 id="zh-section-14">官方來源</h2>
     <ul>
       <li><a href="https://docs.soliditylang.org/en/latest/security-considerations.html">Solidity 官方：安全考量</a></li>
       <li><a href="https://docs.openzeppelin.com/contracts/5.x/">OpenZeppelin Contracts 文件</a></li>
@@ -418,9 +411,9 @@ function claim() external {
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Solidity Security: A Field Guide</h1>
-    <p class="meta">2026-09-18 · SOLIDITY · SECURITY · ATTACK FLOWS · DEVELOPER GUIDE</p>
+    <p class="meta">2026-09-18 · SOLIDITY · SECURITY · ATTACK FLOWS · DEVELOPER GUIDE</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background: how the money actually goes</a></li><li><a href="#en-section-2">1. Reentrancy</a></li><li><a href="#en-section-3">2. Access control and administrative authority</a></li><li><a href="#en-section-4">3. Price manipulation: the flash loan's home ground</a></li><li><a href="#en-section-5">4. Signatures: replay and verification</a></li><li><a href="#en-section-6">5. External calls and return values</a></li><li><a href="#en-section-7">6. Rounding: the ERC-4626 inflation attack</a></li><li><a href="#en-section-8">7. delegatecall and storage collision</a></li><li><a href="#en-section-9">8. Denial of service and griefing</a></li><li><a href="#en-section-10">Process beats technique</a></li><li><a href="#en-section-11">User risk</a></li><li><a href="#en-section-12">Turn checklists into invariants</a></li><li><a href="#en-section-13">PM: risk register and incident rehearsal</a></li><li><a href="#en-section-14">Official sources</a></li></ol></nav></details>
 
     <p>Eight classes of bug that actually make money disappear: each with the attack flow, the vulnerable code, and the fixed version. The goal is not memorising names but building an instinct — <strong>seeing a shape of code and flinching</strong>.</p>
 
@@ -428,32 +421,20 @@ function claim() external {
       <span class="tldr-label">In three lines</span>
       <ul>
         <li>Most contract bugs reduce to one sentence: <strong>you handed control to someone else before your state was finished updating</strong> — reentrancy, oracles and signature replay are all that shape.</li>
-        <li>But face a blunt statistic first: <strong>about 76% of funds stolen in H1 2026 came from key and operational compromise, not clever Solidity bugs</strong>. Code bugs drive the incident count, not the money.</li>
+        <li>Security includes code, permissions, keys, and operations. Reports differ in categories and windows; unverified loss percentages are not a risk model.</li>
         <li>So the real defence order is: <strong>get permissions and keys right first, then worry about code technique</strong>. One missing <code>onlyOwner</code> is deadlier than any elegant reentrancy.</li>
       </ul>
       <p class="who"><strong>Where to start:</strong> beginners → read "Reentrancy" and "Access control", which account for most incidents; experienced Solidity engineers → go straight to "Price manipulation", "Rounding" and "Storage collision"; PMs and tech leads → market background and "Process beats technique".</p>
     </div>
 
-    <h2>Market background: how the money actually goes</h2>
+    <h2 id="en-section-1">Market background: how the money actually goes</h2>
     <p>These numbers should change how you allocate a security budget. H1 2026 set a <strong>record for incident count while losses fell sharply</strong> — meaning small, newly launched, unaudited protocols get hit more often, while the large losses come from somewhere else entirely.</p>
-    <div class="scroll"><table class="market">
-      <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
-      <tbody>
-        <tr><td>H1 2026 total stolen</td><td>~$0.97B–1.32B (sources differ)</td></tr>
-        <tr><td>H1 2026 incidents</td><td>~207–224 (record high)</td></tr>
-        <tr><td>For contrast: H1 2025</td><td>~$2.3B</td></tr>
-        <tr><td><strong>Infrastructure / operational share of funds</strong></td><td><strong>~76%</strong> (from only ~15% of incidents)</td></tr>
-        <tr><td>Private-key compromise, historical share</td><td>~24.4%</td></tr>
-        <tr><td>Phishing, historical share</td><td>~19.5%</td></tr>
-        <tr><td>Access-control failures, historical share</td><td>~12.8% (~$994M)</td></tr>
-        <tr><td>Price-manipulation attacks using flash loans</td><td>~62.1%</td></tr>
-      </tbody>
-    </table></div>
-    <p class="asof">Figures are approximate and vary by source and period; current as of 2026-09.</p>
-    <p>Add the first three: <strong>key compromise + phishing + access control ≈ 57% of total losses</strong>. None of them requires the attacker to understand assembly; they test <strong>who can do what, and where the keys live</strong>. The two largest incidents of 2026 (Drift ~$280M, KelpDAO ~$293M) were not classic algorithmic bugs either — Drift's was an <strong>upgrade mechanism</strong>.</p>
+    <div class="scroll"><table class="market"><thead><tr><th>Risk layer</th><th>Evidence to collect</th></tr></thead><tbody><tr><td>Keys and authority</td><td>Signer policy, role inventory, multisig and timelock</td></tr><tr><td>Code</td><td>Versioned audit, negative and invariant tests</td></tr><tr><td>Market and oracle</td><td>Feed configuration, depth, liquidation scenarios</td></tr><tr><td>Operations</td><td>Monitoring, pause/exit paths, incident rehearsals</td></tr></tbody></table></div>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
+    <p>Inventory authority and key handling, then validate contract and market assumptions. Incident proportions, amounts, and causes need a dated primary report with defined categories.</p>
     <blockquote><p>The conclusion is plain: <strong>get permission design, multisig and upgrade process right before studying exotic reentrancy variants.</strong> Reversed, it is three locks on a paper door.</p></blockquote>
 
-    <h2>1. Reentrancy</h2>
+    <h2 id="en-section-2">1. Reentrancy</h2>
     <p>The classic, and the best illustration of the core instinct. The problem is not "transferring" but that <strong>transferring hands control to the recipient while your books are still open</strong>.</p>
 <pre><code><span class="c">// x Vulnerable: send first, zero the balance afterwards</span>
 mapping(address =&gt; uint256) public balances;
@@ -536,17 +517,17 @@ function withdraw() external {
           <text class="svg-mono-a" x="605" y="218" text-anchor="middle">a reentrant call reads the new value</text>
         </svg>
       </div>
-      <figcaption>CEI is an <strong>ordering</strong>, not a tool: Checks → Effects → Interactions. <code>ReentrancyGuard</code> is insurance, not a substitute — it stops same-function reentry but not <em>cross-function</em> reentry (entering <code>transfer</code> from inside <code>withdraw</code>). <strong>Correct ordering is the real fix.</strong></figcaption>
+      <figcaption>CEI orders Checks → Effects → Interactions. OpenZeppelin’s shared <code>ReentrancyGuard</code> blocks cross-function entry when both functions use the same guard. Unguarded entrypoints and intermediate-state views still need review. Preserve accounting invariants across every entrypoint.</figcaption>
     </figure>
 
     <h3>Read-only reentrancy: the overlooked variant</h3>
     <p>Even if your own contract is safe, <strong>someone reading your <code>view</code> function may get mid-update state</strong>. The classic case: during a transfer callback a pool has debited internal balances but not yet updated totals, so <code>getPrice()</code> returns a distorted value — and another protocol reading it at that instant is fooled.</p>
     <ul>
       <li>As a consumer: <strong>never trust a <code>view</code> quote that can be moved within one transaction</strong>; check the source is not mid-operation.</li>
-      <li>As a provider: <strong>apply the reentrancy guard to view functions too</strong>, or expose a way to query the lock state.</li>
+      <li>As a provider: <strong>use a supported view-only lock check (not a state-writing nonReentrant modifier)</strong>, or expose a way to query the lock state.</li>
     </ul>
 
-    <h2>2. Access control (the largest share of losses)</h2>
+    <h2 id="en-section-3">2. Access control and administrative authority</h2>
     <p>The least clever class, and the most costly. Three typical forms:</p>
 <pre><code><span class="c">// x Missing modifier — anyone can take ownership</span>
 function setOwner(address newOwner) external { owner = newOwner; }
@@ -570,8 +551,8 @@ function initialize(address _owner) external initializer { owner = _owner; }</co
       <li><strong>Permissions must be enumerable.</strong> Keep a list of which functions are protected and by whom, and review it — a missing modifier is almost never ignorance, it is a function added later.</li>
     </ul>
 
-    <h2>3. Price manipulation: the flash loan's home ground</h2>
-    <p>About <strong>62%</strong> of price-manipulation attacks use a flash loan, for a simple reason: it gives the attacker enough capital to move a market <strong>without any of their own</strong>, inside one transaction.</p>
+    <h2 id="en-section-4">3. Price manipulation: the flash loan's home ground</h2>
+    <p>Flash loans amplify price manipulation: it gives the attacker enough capital to move a market <strong>without any of their own</strong>, inside one transaction.</p>
 <pre><code><span class="c">// x Reading the live spot price — movable within a single transaction</span>
 (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
 uint256 price = _priceFromSqrt(sqrtPriceX96);
@@ -623,7 +604,7 @@ require(answer &gt; 0, "bad price");
 require(block.timestamp - updatedAt &lt; 3600, "stale price");   <span class="c">// don't skip this</span></code></pre>
     <p>Two common half-defences: <strong>checking <code>answer &gt; 0</code> but not <code>updatedAt</code></strong> (you will happily use a stale price when the feed stops updating), and <strong>a single-source TWAP set too short</strong> (a few blocks is still manipulable in a thin pool).</p>
 
-    <h2>4. Signatures: replay and verification</h2>
+    <h2 id="en-section-5">4. Signatures: replay and verification</h2>
 <pre><code><span class="c">// x No nonce, no chainId, no contract address → replayable, including cross-chain</span>
 bytes32 h = keccak256(abi.encodePacked(to, amount));
 require(ECDSA.recover(h, sig) == owner, "bad sig");
@@ -638,7 +619,7 @@ address signer = ECDSA.recover(digest, sig);     <span class="c">// the OZ versi
 require(signer == owner &amp;&amp; signer != address(0), "bad sig");</code></pre>
     <p>The checklist: <strong>nonce</strong> (same-chain replay), <strong>chainId</strong> (cross-chain replay), <strong>verifyingContract</strong> (cross-contract replay), <strong>deadline</strong> (validity window). Miss one and you have the matching replay surface.</p>
 
-    <h2>5. External calls and return values</h2>
+    <h2 id="en-section-6">5. External calls and return values</h2>
     <p>ERC-20 implementations diverge: some tokens (USDT among them) <strong>return no bool</strong>, and some <strong>return false instead of reverting</strong> on failure.</p>
 <pre><code><span class="c">// x Reverts on USDT-style tokens because there is no return value to decode</span>
 require(token.transfer(to, amount), "transfer failed");
@@ -656,7 +637,7 @@ uint256 received = token.balanceOf(address(this)) - balBefore;
 _credit(msg.sender, received);      <span class="c">// credit what arrived, not `amount`</span></code></pre>
     <p>Low-level calls need care too: <code>call</code> to an <strong>address with no code returns success = true</strong>. If the target might not be a contract, check <code>code.length</code> as well.</p>
 
-    <h2>6. Rounding: the ERC-4626 inflation attack</h2>
+    <h2 id="en-section-7">6. Rounding: the ERC-4626 inflation attack</h2>
     <p>Integer division always rounds down. That innocuous property is the classic break in vault contracts.</p>
 
     <figure>
@@ -688,17 +669,17 @@ _credit(msg.sender, received);      <span class="c">// credit what arrived, not 
           <text class="svg-step" x="390" y="282" text-anchor="middle">root cause: shares use integer division, and a direct transfer mints none</text>
         </svg>
       </div>
-      <figcaption>Two conditions must both hold: <strong>the vault is empty</strong> (so the attacker can be first), and <strong>a direct transfer changes value-per-share without minting shares</strong>. The victim's 5 ETH rounds down to zero shares — a straight donation to the attacker.</figcaption>
+      <figcaption>This first-depositor example assumes: <strong>the vault is empty</strong> (so the attacker can be first), and <strong>a direct transfer changes value-per-share without minting shares</strong>. The victim's 5 ETH rounds down to zero shares — a straight donation to the attacker.</figcaption>
     </figure>
 
     <p>Three fixes, best used together:</p>
     <ul>
       <li><strong>Virtual shares / asset offset</strong>: OpenZeppelin's ERC-4626 adds a virtual offset by default so a first depositor cannot push value-per-share to an extreme. The cheapest effective layer.</li>
       <li><strong>Seed at deployment</strong>: the deployer makes the first deposit and burns those shares, so the vault is never empty.</li>
-      <li><strong>Round against the user</strong>: round down when minting shares and when redeeming, so the residue always stays in the vault rather than leaking out.</li>
+      <li><strong>Round against the user</strong>: round deposit shares down, mint assets up, withdraw shares up, and redeem assets down. Rounding alone is not inflation-attack protection; use virtual offsets and output limits.</li>
     </ul>
 
-    <h2>7. delegatecall and storage collision</h2>
+    <h2 id="en-section-8">7. delegatecall and storage collision</h2>
     <p><code>delegatecall</code> runs someone else's code <strong>against your storage</strong>. Proxies depend on it, which makes them acutely sensitive to slot layout.</p>
 
     <figure>
@@ -735,12 +716,12 @@ _credit(msg.sender, received);      <span class="c">// credit what arrived, not 
     </figure>
 
     <ul>
-      <li><strong>Append only</strong>; never delete or reorder existing variables. Or adopt <strong>ERC-7201 namespaced storage</strong>, which places each module's variables in a hashed, independent region and removes collisions by construction.</li>
+      <li><strong>Append only</strong>; never delete or reorder existing variables. Or adopt <strong>ERC-7201 namespaced storage</strong>, which places each module's variables in a hashed, independent region and isolates modules; compatible field layouts are still required within each namespace.</li>
       <li><strong>The proxy's own variables belong in special slots</strong>: EIP-1967 derives the implementation and admin slots from specific string hashes precisely so they cannot clash with application storage.</li>
       <li><strong>Never <code>delegatecall</code> an untrusted address</strong> — that is handing over your storage to be rewritten at will.</li>
     </ul>
 
-    <h2>8. Denial of service and griefing</h2>
+    <h2 id="en-section-9">8. Denial of service and griefing</h2>
 <pre><code><span class="c">// x Push payments in an unbounded loop: one reverting recipient blocks everyone</span>
 for (uint256 i = 0; i &lt; recipients.length; i++) {
     payable(recipients[i]).transfer(amounts[i]);   <span class="c">// a contract whose receive reverts kills the batch</span>
@@ -757,7 +738,7 @@ function claim() external {
 }</code></pre>
     <p>The same logic applies to <strong>any loop whose length a user controls</strong>: an attacker only has to grow the array past the block gas limit and the function becomes permanently uncallable.</p>
 
-    <h2>Process beats technique</h2>
+    <h2 id="en-section-10">Process beats technique</h2>
     <p>Back to that market figure — most of the money is not taken by elegant bugs. In order of return on effort:</p>
     <ol>
       <li><strong>Audit your permissions</strong>: list every privileged function and its holder. Critical rights go to a multisig with a timelock, never a lone EOA.</li>
@@ -767,19 +748,24 @@ function claim() external {
       <li><strong>Monitoring and response</strong>: withdrawal alerts, a pause switch, an incident runbook. Assume it happens eventually.</li>
     </ol>
 
-    <h2>User risk</h2>
+    <h2 id="en-section-11">User risk</h2>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
       <tbody>
         <tr><td><strong>Unlimited approvals</strong></td><td>Most dApps request an unbounded <code>approve</code> by default. If the contract is compromised, your tokens leave under that approval. Review and revoke periodically.</td></tr>
-        <tr><td><strong>Phishing signatures</strong></td><td>Roughly 19.5% of historical losses. Never sign what you cannot read — especially <code>Permit</code> and <code>setApprovalForAll</code>.</td></tr>
+        <tr><td><strong>Phishing signatures</strong></td><td>Never sign what you cannot read — especially <code>Permit</code> and <code>setApprovalForAll</code>.</td></tr>
         <tr><td><strong>New protocols are riskiest</strong></td><td>Incidents concentrate in newly launched, unaudited protocols. A high APY usually prices risk, not efficiency.</td></tr>
         <tr><td><strong>Upgrade rights</strong></td><td>An upgradeable contract means someone can rewrite the rules. Check who holds the key, whether it is a multisig, and whether there is a timelock.</td></tr>
         <tr><td><strong>Audited is not safe</strong></td><td>"Audited" means one version was reviewed at one point in time; code shipped after may never have been in scope.</td></tr>
       </tbody>
     </table></div>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-12">Turn checklists into invariants</h2>
+<p>State who may change balances or upgrade code, which price is trusted, and which numbers must agree during external calls. Test asset conservation, nonduplicated liabilities, single-use signature nonces, and unchanged administrative authority under unauthorized calls. Include malicious callbacks, fee-on-transfer tokens, decimals, stale oracles, pauses, and upgrades. Static analysis supplements a threat model; it does not replace it.</p>
+<h2 id="en-section-13">PM: risk register and incident rehearsal</h2>
+<p>For each risk record trigger, funds affected, detection signal, owner, pause/exit authority, and recovery action. Monitor assets/liabilities, oracle delays, and allowance/role/upgrade events. Rehearse lost signers, provider outages, and paused withdrawals. A multisig and timelock do not guarantee users can exit: actual liquidity and pause powers matter.</p>
+
+    <h2 id="en-section-14">Official sources</h2>
     <ul>
       <li><a href="https://docs.soliditylang.org/en/latest/security-considerations.html">Solidity docs: security considerations</a></li>
       <li><a href="https://docs.openzeppelin.com/contracts/5.x/">OpenZeppelin Contracts documentation</a></li>
@@ -790,7 +776,7 @@ function claim() external {
     <p class="meta">Content last verified: 2026-09-18</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -802,6 +788,6 @@ function claim() external {
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261008-content"></script>
 </body>
 </html>

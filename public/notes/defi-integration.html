@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeFi 整合：從使用者意圖到確認與復原</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
+</head>
+<body data-title-zh="DeFi 整合：從使用者意圖到確認與復原" data-title-en="DeFi Integration: Intent, Execution, and Recovery">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+<a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
+<div data-l="zh"><h1>DeFi 整合：從使用者意圖到確認與復原</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">先固定整合邊界</a></li><li><a href="#zh-section-2">步驟一至四：讀取與簽署前檢查</a></li><li><a href="#zh-section-3">步驟五至八：授權、送出、確認</a></li><li><a href="#zh-section-4">失敗矩陣：不要因 timeout 就重送</a></li><li><a href="#zh-section-5">驗收與上線</a></li><li><a href="#zh-section-6">參考來源</a></li></ol></nav></details><p>以「USDC 換 ETH」為主線。完整整合不只是一行 writeContract：需要確認身份與單位、讓使用者理解授權、執行受約束的操作，再證明結果與處理失敗。</p>
+<h2 id="zh-section-1">先固定整合邊界</h2>
+<p>建立 deployment manifest：chain ID、RPC、token address/decimals、Router/Factory/Permit2、ABI、code hash、SDK 與 compiler 版本、fork block、官方來源。用 npm --save-exact 安裝已選版、提交 lockfile，CI 用 npm ci；不要把 latest、任意 explorer ABI 或同 symbol token 當成可重現版本。</p>
+<h2 id="zh-section-2">步驟一至四：讀取與簽署前檢查</h2>
+<p>1. Connect 並取得 account/chain；2. 驗證 token 與 destination，將輸入字串 parseUnits 成 bigint；3. 讀 balance/allowance 並 quote 指定 size；4. 建 minOut/deadline，再 simulate 完整呼叫。Quote 與 simulate 是 state snapshot，真正界限仍須在鏈上 enforce。</p>
+<p>若 quotedOut = 2,000 USDC、slippage tolerance 50 bps，minOut = floor(2,000 × 9,950 / 10,000) = 1,990 USDC。這是額外允許的價格變化範圍，不是 fee 或保證成交價；不要把 slippage 設為 100% 解決 revert。</p>
+<h2 id="zh-section-3">步驟五至八：授權、送出、確認</h2>
+<p>5. Allowance 不足時 approve 真正的 spender，等 receipt 後重讀 allowance；Permit/Permit2 則顯示 domain、spender、amount 與 expiry。6. 重新確認 chain/account，再由 wallet 簽署；7. hash 取得後持久化 pending operation，等 receipt；8. 看 status、正確 event 與 balance/position change，再等產品所需 finality。</p>
+<p>Approval 成功後 swap 失敗，approval 仍在；兩筆 EOA transaction 不是原子流程。AA batch 是否全部回滾需讀 account 的 batch mode。Sponsored operation 則追 UserOp hash 與 UserOp receipt，不只追 bundle tx hash。</p>
+<h2 id="zh-section-4">失敗矩陣：不要因 timeout 就重送</h2>
+<div class="scroll"><table><thead><tr><th scope="col">狀態</th><th scope="col">資產／結果</th><th scope="col">復原</th></tr></thead><tbody><tr><td>Wallet rejected</td><td>未送出</td><td>保留輸入，重新審閱</td></tr><tr><td>Simulation failed</td><td>尚未鏈上執行</td><td>修 allowance/balance/route，重取 quote</td></tr><tr><td>Submitted, receipt unknown</td><td>可能仍 pending 或已執行</td><td>追 hash/nonce/replacement，不盲目重送</td></tr><tr><td>Receipt reverted</td><td>本交易 state rollback；gas 消耗</td><td>讀 revert，取得新 state/quote</td></tr><tr><td>Source done, destination pending</td><td>非原子跨鏈 claim</td><td>追原 message ID，按協議 retry/claim</td></tr></tbody></table></div>
+<h2 id="zh-section-5">驗收與上線</h2>
+<p>測錯 chain、帳戶切換、不足 balance/allowance、quote 過期、minOut breach、wallet rejection、RPC timeout、nonce replacement、reorg 與 indexer lag。設定監控 inclusion latency、failure reason、successful cost、approval/role changes；保留 operation ID 與 chain/hash，避免只用使用者地址識別所有動作。</p>
+<p>PM 定義完成條件、可恢復錯誤、support owner 與損失邊界。將 conversion、fees、price impact、slippage、MEV 與 network cost 分開顯示；比較 provider 時用同 chain、size、時間窗口與成功標準。</p>
+<h2 id="zh-section-6">參考來源</h2><ul><li><a href="https://viem.sh/docs/contract/simulateContract">viem contract simulation</a></li><li><a href="https://viem.sh/docs/contract/writeContract">viem contract submission</a></li><li><a href="https://viem.sh/docs/actions/public/waitForTransactionReceipt">viem receipt handling</a></li><li><a href="https://ethereum.org/developers/docs/transactions/">Ethereum transaction lifecycle</a></li><li><a href="https://docs.uniswap.org/contracts/v3/guides/swaps/single-swaps">Uniswap swap integration</a></li></ul></div>
+<div data-l="en"><h1>DeFi Integration: Intent, Execution, and Recovery</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Pin the integration boundary</a></li><li><a href="#en-section-2">Steps one to four: pre-signing checks</a></li><li><a href="#en-section-3">Steps five to eight: authorize, submit, confirm</a></li><li><a href="#en-section-4">Failure matrix: timeout is not permission to resend</a></li><li><a href="#en-section-5">Acceptance and launch</a></li><li><a href="#en-section-6">References</a></li></ol></nav></details><p>Use a USDC→ETH swap as the running example. Integration is more than writeContract: identify assets and units, explain authorization, constrain execution, establish completion, and recover from failures.</p>
+<h2 id="en-section-1">Pin the integration boundary</h2>
+<p>Maintain a deployment manifest with chain ID, RPC, token addresses/decimals, Router/Factory/Permit2, ABI, code hashes, SDK/compiler versions, fork block, and official sources. Install selected versions with npm --save-exact, commit the lockfile, and use npm ci. latest, arbitrary explorer ABIs, and matching symbols are not reproducible identity.</p>
+<h2 id="en-section-2">Steps one to four: pre-signing checks</h2>
+<p>1. Connect and read account/chain. 2. Validate tokens/recipient and parse string amounts into bigint base units. 3. Read balances/allowance and quote the intended size. 4. Set minOut/deadline and simulate the complete call. Quotes and simulations are snapshots; constraints must remain enforced on-chain.</p>
+<p>At a quoted 2,000 USDC and 50 bps tolerance, minOut is floor(2,000 × 9,950 / 10,000) = 1,990 USDC. Tolerance permits additional movement; it is not a fee or guaranteed price. Do not solve reverts with 100% tolerance.</p>
+<h2 id="en-section-3">Steps five to eight: authorize, submit, confirm</h2>
+<p>5. If allowance is insufficient, approve the actual spender, await its receipt, and reread allowance. For permit/Permit2, display domain, spender, amount, and expiry. 6. Recheck chain/account and ask the wallet to sign. 7. Persist the hash and pending operation, then await receipt. 8. Inspect status, expected events, and balance/position changes; wait for required finality.</p>
+<p>An approval survives a later failed swap: two EOA transactions are not atomic. AA batch rollback depends on account execution mode. Sponsored actions need UserOp hash/receipt rather than only the bundle transaction hash.</p>
+<h2 id="en-section-4">Failure matrix: timeout is not permission to resend</h2>
+<div class="scroll"><table><thead><tr><th scope="col">State</th><th scope="col">Assets/result</th><th scope="col">Recovery</th></tr></thead><tbody><tr><td>Wallet rejected</td><td>Not submitted</td><td>Preserve inputs; review again</td></tr><tr><td>Simulation failed</td><td>No on-chain execution yet</td><td>Fix balance/allowance/route; requote</td></tr><tr><td>Submitted, receipt unknown</td><td>May be pending or executed</td><td>Track hash/nonce/replacement; do not blindly resend</td></tr><tr><td>Receipt reverted</td><td>This transaction rolls back state, consumes gas</td><td>Decode failure; refresh state and quote</td></tr><tr><td>Source done, destination pending</td><td>Asynchronous claim</td><td>Track original message ID; protocol retry/claim</td></tr></tbody></table></div>
+<h2 id="en-section-5">Acceptance and launch</h2>
+<p>Test wrong chain, account switching, insufficient funds/allowance, expired quote, minOut breach, wallet rejection, RPC timeout, nonce replacement, reorg, and indexer lag. Monitor inclusion latency, failure causes, successful-action cost, and permission changes. Persist operation IDs and chain/hash; an address alone cannot identify every action.</p>
+<p>PMs define completion, recoverable errors, support ownership, and loss boundaries. Explain conversion, fees, price impact, slippage, MEV, and network cost separately. Compare providers with matching chains, sizes, windows, and success criteria.</p>
+<h2 id="en-section-6">References</h2><ul><li><a href="https://viem.sh/docs/contract/simulateContract">viem contract simulation</a></li><li><a href="https://viem.sh/docs/contract/writeContract">viem contract submission</a></li><li><a href="https://viem.sh/docs/actions/public/waitForTransactionReceipt">viem receipt handling</a></li><li><a href="https://ethereum.org/developers/docs/transactions/">Ethereum transaction lifecycle</a></li><li><a href="https://docs.uniswap.org/contracts/v3/guides/swaps/single-swaps">Uniswap swap integration</a></li></ul></div>
+</main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js?v=20261008-content"></script>
+</body>
+</html>

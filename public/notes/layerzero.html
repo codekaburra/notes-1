@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
 </head>
 <body data-title-zh="LayerZero 跨鏈訊息" data-title-en="Cross-chain messaging with LayerZero">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>LayerZero 跨鏈訊息</h1>
-    <p class="meta">2026-09-11 · LayerZero V2 · OApp · OFT · DVN · 開發者指南</p>
+    <p class="meta">2026-09-11 · LayerZero V2 · OApp · OFT · DVN · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">V2 的元件</a></li><li><a href="#zh-section-3">Security stack：你選的 X of Y</a></li><li><a href="#zh-section-4">OApp：最小跨鏈合約</a></li><li><a href="#zh-section-5">OFT：跨鏈同質代幣</a></li><li><a href="#zh-section-6">什麼時候不該用 LayerZero</a></li><li><a href="#zh-section-7">開發者檢查清單</a></li><li><a href="#zh-section-8">使用者資金風險</a></li><li><a href="#zh-section-9">OFT 的守恆與重試</a></li><li><a href="#zh-section-10">PM：用 pathway 評估供應商</a></li><li><a href="#zh-section-11">官方來源</a></li></ol></nav></details>
 
     <p><strong>LayerZero 不是 rollup，也不是 canonical 橋。</strong>它是一條可配置的跨鏈訊息層：來源鏈的合約把 bytes 交給 Endpoint，一組你選定的驗證者（DVN）在目的鏈證明「這則封包確實存在」，再由 Executor（或任何人）呼叫目的合約。資產怎麼鎖、燒、鑄，是 OApp／OFT 自己的事，不是協議替你保證的 L1 最終性。合約作者要寫對的是 peer 的 bytes32 packing、Endpoint 守衛、enforced options、compose 的重入，以及「Executor 不是權限來源」。</p>
     <blockquote><p>把 OP／ZK 的出入金想成「L2 狀態機的門」；把 LayerZero 想成「任意兩條鏈上兩份合約之間的掛號信」。信件的真實性取決於你選的郵差，不取決於 Ethereum 的挑戰期或 zk verifier。</p></blockquote>
@@ -61,7 +61,7 @@
       <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → V2 的元件與 OApp 概念；Solidity 工程師 → OApp／OFT 實作與 DVN 設定；PM → 市場背景、何時不該用與使用者風險。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>跨鏈訊息是個競爭激烈、且贏家通吃傾向明顯的市場。LayerZero 目前在轉帳量上領先，但幾個對手各自佔住不同的區隔。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字</th></tr></thead>
@@ -74,11 +74,11 @@
         <tr><td>Axelar 累計轉帳額</td><td>約 $13B</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
 
     <p>口徑差異很大（累計額 vs 日均 vs 訊息筆數），所以別用單一數字下結論。實務上的分工大致是：<strong>LayerZero</strong> 強在鏈覆蓋與可設定的安全性、零售轉帳量大；<strong>Wormhole</strong> 強在模組化跨鏈產品與累計規模；<strong>Axelar</strong> 走 PoS 驗證的通用訊息；<strong>CCIP</strong> 主打機構與合規路線（Coinbase 採用）。選型時該問的不是「誰最大」，而是「誰的信任假設你願意承擔」。</p>
 
-    <h2>V2 的元件</h2>
+    <h2 id="zh-section-2">V2 的元件</h2>
     <div class="scroll"><table>
       <thead><tr><th>元件</th><th>職責</th><th>信任</th></tr></thead>
       <tbody>
@@ -132,7 +132,7 @@
       <figcaption>V1 把 Oracle 與 Relayer 綁成一對。V2 把驗證拆成可插拔的 DVN 集合，執行拆成 Executor。安全參數是 OApp 在每條 pathway（srcEid → dstEid）上自己設的，不是全網共用一份。</figcaption>
     </figure>
 
-    <h2>Security stack：你選的 X of Y</h2>
+    <h2 id="zh-section-3">Security stack：你選的 X of Y</h2>
     <p>每條 pathway 設定兩組 DVN：</p>
     <ul>
       <li><strong>Required DVNs：</strong>每一個都必須提交驗證，少一個封包就不能 verified。</li>
@@ -141,7 +141,7 @@
     <p>通過條件是「全部 required <em>且</em> 足夠 optional」。把 LayerZero Labs、Google Cloud、某個 zk DVN、某條鏈的 native bridge adapter 塞進同一 stack，攻擊者必須同時收買或同時騙過這一批。反過來說：若 required 只有你自己的 DVN，那這條通路的安全就等於你自己的伺服器。</p>
     <blockquote><p>讀 OFT 或跨鏈治理時，先打開 <code>getConfig</code>／Scan 上看 Security Stack。APY 文案不會告訴你這條通路是 2-of-2 還是「單一 labs DVN」。</p></blockquote>
 
-    <h2>OApp：最小跨鏈合約</h2>
+    <h2 id="zh-section-4">OApp：最小跨鏈合約</h2>
     <p>OApp 繼承官方 base，做三件事：設定 peer、送訊息、收訊息。Peer 是「目的鏈上那個被允許對我說話的 bytes32 地址」。少了這層檢查，任何人都能從任意鏈偽造 <code>_lzReceive</code> 的業務語意——Endpoint 只保證「這則封包被你的 DVN 驗證過」，不保證「發送者是你想要的合約」。</p>
 <pre><code>struct Origin {
     uint32 srcEid;
@@ -350,7 +350,7 @@ MessagingFee memory fee = _quote(dstEid, message, options, false);
 _lzSend(dstEid, message, options, fee, payable(msg.sender));</code></pre>
     <p>目的鏈 gas 估太低，Executor 會執行失敗，封包停在 verified-but-unexecuted。任何人（含使用者自己）可以補 gas 再執行。這不是丟錢，是「信已驗證、還沒拆」。另外還有 <code>lzCompose</code>：<code>_lzReceive</code> 先入帳，再非同步呼叫同鏈另一個合約，避免在 receive 裡做重型外部呼叫把 gas 上限打爆。</p>
 
-    <h2>OFT：跨鏈同質代幣</h2>
+    <h2 id="zh-section-5">OFT：跨鏈同質代幣</h2>
     <p>OFT 是 OApp 的一種：來源 <code>_debit</code>，目的 <code>_credit</code>。預設是 <strong>burn / mint</strong>——總供給在所有鏈的加總不變。若某條鏈已有官方 canonical token（例如以太坊主網的 USDC），改用 <strong>OFT Adapter</strong>：來源鎖進 adapter，目的鏈 mint OFT；回來時 burn OFT、adapter 解鎖。</p>
 
     <figure>
@@ -405,7 +405,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     <p><code>decimalConversionRate = 10^(localDecimals - sharedDecimals)</code>。18→6 時，少於 1e12 的灰塵留在來源。UI 若顯示「全額到帳」是錯的；合約要用 <code>_removeDust</code> 後的 <code>amountReceivedLD</code> 當準。</p>
     <p>量級控制是 OFT 自己的事，不是 Endpoint 的：官方 <code>RateLimiter</code> 是線性衰減的 in-flight 額度，不是每分鐘歸零的計數器。出站限額在 send 前擋下，失敗乾淨；入站限額在 credit 時擋，來源已 burn／lock，會變成「半邊完成」要能 retry。另設 pause 與每條 pathway 的 mint cap，避免單一 peer 被盜後鑄爆。</p>
 
-    <h2>什麼時候不該用 LayerZero</h2>
+    <h2 id="zh-section-6">什麼時候不該用 LayerZero</h2>
     <div class="scroll"><table>
       <thead><tr><th>需求</th><th>該用</th><th>原因</th></tr></thead>
       <tbody>
@@ -417,7 +417,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     </table></div>
     <p>實務上很多 L2 會<strong>同時</strong>有 canonical ETH、Circle USDC、以及若干 OFT。錢包顯示的 ticker 相同，贖回路徑與對手方完全不同。產品文案寫「跨鏈」時，要寫清走哪一扇門。</p>
 
-    <h2>開發者檢查清單</h2>
+    <h2 id="zh-section-7">開發者檢查清單</h2>
     <ul>
       <li>每條 pathway 顯式 <code>setPeer</code>，bytes32 右對齊；部署腳本把 eid ↔ 地址雙向印出來對。Peer 設錯等於把鑄幣權交給陌生人。</li>
       <li>把 Security Stack 當協議參數一樣審：required DVN 集合、optional threshold、誰有權 <code>setConfig</code>／<code>setDelegate</code>。Owner 或 delegate 熱錢包能改 DVN，等於能改橋的安全模型。</li>
@@ -428,7 +428,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
       <li>用 <code>TestHelperOz5</code> 測雙鏈 round-trip、錯 peer、亂序 nonce、compose 重試。監控 <code>PacketSent</code>／<code>PacketDelivered</code>、verified-but-not-executed 堆積、DVN 延遲。</li>
     </ul>
 
-    <h2>使用者資金風險</h2>
+    <h2 id="zh-section-8">使用者資金風險</h2>
     <p>跨鏈訊息的風險特徵和 DEX 或 L2 都不同：它的安全性<strong>不是固定的，而是被設定出來的</strong>。同樣用 LayerZero，兩個應用的安全等級可以差很多。</p>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
@@ -443,7 +443,13 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     </table></div>
     <blockquote><p>一句話：LayerZero 把安全性的旋鈕交到開發者手上——<strong>對使用者而言，風險取決於你用的那個應用怎麼轉這顆旋鈕</strong>，而不是取決於 LayerZero 本身。</p></blockquote>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-9">OFT 的守恆與重試</h2>
+<p>Burn/mint OFT 的總供給要涵蓋所有 destination 與 in-flight claims；Adapter 是把 underlying 鎖在 source，destination mint representation。message delivered 證明 receive 成功，不證明 token reserves 或策略可償付；compose 成功更是第二個狀態。不要對同一筆 in-flight amount 同時列 circulating supply 與 pending claim。</p>
+<p>retry 應使用既有 guid，而不是再發一筆 mint 指令。測 out-of-order、duplicate、wrong peer、options gas 不足、compose revert 與 peer migration；receive 完成後 compose 失敗，不可再 credit 一次。官方 base 的 message guard 不取代你對 payload amount、recipient 與 mint cap 的驗證。</p>
+<h2 id="zh-section-10">PM：用 pathway 評估供應商</h2>
+<p>比較同一 source→destination 的 finality、delivery cost、延遲、DVN independence、required/optional threshold 與 retry actor。多個 DVN 可能共用雲端或 signer；數量不等於獨立。Owner 與 delegate 的 peer、MessageLib、DVN、option 權限要可觀察，變更需測 in-flight 相容性。</p>
+
+    <h2 id="zh-section-11">官方來源</h2>
     <ul>
       <li><a href="https://docs.layerzero.network/v2">LayerZero V2 docs</a>／<a href="https://docs.layerzero.network/v2/developers/evm/oapp/overview">OApp</a>／<a href="https://docs.layerzero.network/v2/developers/evm/oft/quickstart">OFT</a></li>
       <li><a href="https://docs.layerzero.network/v2/concepts/modular-security/security-stack-dvns">Security stack / DVNs</a>／<a href="https://docs.layerzero.network/v2/concepts/protocol/executors">Executors</a>／<a href="https://docs.layerzero.network/v2/concepts/message-ordering">Message ordering</a></li>
@@ -453,9 +459,9 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Cross-chain messaging with LayerZero</h1>
-    <p class="meta">2026-09-11 · LayerZero V2 · OApp · OFT · DVN · Developer guide</p>
+    <p class="meta">2026-09-11 · LayerZero V2 · OApp · OFT · DVN · Developer guide</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">V2 pieces</a></li><li><a href="#en-section-3">Security stack: the X of Y you choose</a></li><li><a href="#en-section-4">OApp: the smallest cross-chain contract</a></li><li><a href="#en-section-5">OFT: omnichain fungible tokens</a></li><li><a href="#en-section-6">When not to use LayerZero</a></li><li><a href="#en-section-7">Developer checklist</a></li><li><a href="#en-section-8">User funds risk</a></li><li><a href="#en-section-9">OFT conservation and retries</a></li><li><a href="#en-section-10">PM: compare pathways</a></li><li><a href="#en-section-11">Official sources</a></li></ol></nav></details>
 
     <p><strong>LayerZero is not a rollup and not a canonical bridge.</strong> It is a configurable messaging layer: a contract on the source chain hands bytes to an Endpoint, a DVN set you chose attests on the destination that "this packet really exists," and an Executor (or anyone) calls the destination contract. How assets lock, burn, or mint is the OApp / OFT's job — not L1 finality the protocol guarantees for you. Contract authors need peer bytes32 packing, the Endpoint guard, enforced options, compose reentrancy, and the rule that "the Executor is not an authority."</p>
     <blockquote><p>Think of OP / ZK deposits and withdrawals as doors on an L2 state machine. Think of LayerZero as registered mail between two contracts on arbitrary chains. Authenticity of the letter depends on the couriers you picked, not Ethereum's challenge period or a zk verifier.</p></blockquote>
@@ -470,7 +476,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
       <p class="who"><strong>Where to start:</strong> beginners / backend engineers → V2 pieces and the OApp concept; Solidity engineers → OApp/OFT implementation and DVN configuration; PMs → market background, when not to use it, and user risk.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>Cross-chain messaging is fiercely competitive with a strong winner-take-most pull. LayerZero currently leads on transfer volume, while several rivals hold distinct segments.</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
@@ -483,11 +489,11 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
         <tr><td>Axelar cumulative transferred</td><td>~$13B</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
 
     <p>Methodologies differ wildly (cumulative vs daily vs message count), so do not conclude from any single number. The rough division of labour: <strong>LayerZero</strong> leads on chain coverage, configurable security and retail transfer volume; <strong>Wormhole</strong> on modular cross-chain products and cumulative scale; <strong>Axelar</strong> on PoS-verified general messaging; <strong>CCIP</strong> on the institutional and compliance route (Coinbase picked it). The question at selection time is not "who is biggest" but "whose trust assumption are you willing to carry".</p>
 
-    <h2>V2 pieces</h2>
+    <h2 id="en-section-2">V2 pieces</h2>
     <div class="scroll"><table>
       <thead><tr><th>Piece</th><th>Job</th><th>Trust</th></tr></thead>
       <tbody>
@@ -541,7 +547,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
       <figcaption>V1 bound an Oracle and a Relayer as a pair. V2 splits verification into a pluggable DVN set and execution into an Executor. Security parameters are set per pathway (srcEid → dstEid) by the OApp, not shared by the whole network.</figcaption>
     </figure>
 
-    <h2>Security stack: the X of Y you choose</h2>
+    <h2 id="en-section-3">Security stack: the X of Y you choose</h2>
     <p>Each pathway configures two DVN groups:</p>
     <ul>
       <li><strong>Required DVNs:</strong> every one must submit a verification; miss one and the packet never becomes verified.</li>
@@ -550,7 +556,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     <p>The pass condition is "all required <em>and</em> enough optional." Put LayerZero Labs, Google Cloud, a zk DVN, and a native-bridge adapter in the same stack, and an attacker has to bribe or fool that whole set at once. Conversely: if the only required DVN is yours, this pathway's security equals your server.</p>
     <blockquote><p>When you read an OFT or cross-chain governor, open <code>getConfig</code> / LayerZero Scan and look at the Security Stack. The APY copy will not tell you whether the pathway is 2-of-2 or "a single labs DVN."</p></blockquote>
 
-    <h2>OApp: the smallest cross-chain contract</h2>
+    <h2 id="en-section-4">OApp: the smallest cross-chain contract</h2>
     <p>An OApp inherits the official base and does three things: set peers, send, receive. A peer is "the bytes32 address on the destination that is allowed to talk to me." Skip that check and anyone can forge the business meaning of <code>_lzReceive</code> from any chain — the Endpoint only guarantees "this packet was verified by your DVNs," not "the sender is the contract you meant."</p>
 <pre><code>struct Origin {
     uint32 srcEid;
@@ -759,7 +765,7 @@ MessagingFee memory fee = _quote(dstEid, message, options, false);
 _lzSend(dstEid, message, options, fee, payable(msg.sender));</code></pre>
     <p>If destination gas is too low, the Executor's call fails and the packet sits verified-but-unexecuted. Anyone (including the user) can top up gas and retry. That is not lost funds; it is "the letter is authenticated, not yet opened." There is also <code>lzCompose</code>: <code>_lzReceive</code> credits first, then asynchronously calls another contract on the same chain, so a heavy external call does not blow the receive gas cap.</p>
 
-    <h2>OFT: omnichain fungible tokens</h2>
+    <h2 id="en-section-5">OFT: omnichain fungible tokens</h2>
     <p>An OFT is one kind of OApp: <code>_debit</code> on source, <code>_credit</code> on destination. The default is <strong>burn / mint</strong> — total supply across all chains is conserved. If a chain already has the official canonical token (USDC on Ethereum L1, say), use an <strong>OFT Adapter</strong> instead: lock in the adapter on source, mint OFT on destination; coming back, burn OFT and unlock the adapter.</p>
 
     <figure>
@@ -814,7 +820,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     <p><code>decimalConversionRate = 10^(localDecimals - sharedDecimals)</code>. From 18 to 6, dust below 1e12 stays on source. A UI that says "full amount arrives" is wrong; the contract should treat <code>amountReceivedLD</code> after <code>_removeDust</code> as truth.</p>
     <p>Volume controls are the OFT's job, not the Endpoint's. The official <code>RateLimiter</code> is linearly decaying in-flight capacity, not a counter that snaps to zero. An outbound limit fails cleanly before send; an inbound limit fires at credit, after source already burned / locked — that is a half-finished state you must be able to retry. Add a pause and a per-pathway mint cap so a stolen peer cannot mint unbounded supply.</p>
 
-    <h2>When not to use LayerZero</h2>
+    <h2 id="en-section-6">When not to use LayerZero</h2>
     <div class="scroll"><table>
       <thead><tr><th>You need</th><th>Use</th><th>Why</th></tr></thead>
       <tbody>
@@ -826,7 +832,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     </table></div>
     <p>In practice many L2s host <strong>all three</strong>: canonical ETH, Circle USDC, and several OFTs. Tickers match; redemption paths and counterparties do not. When product copy says "cross-chain," name the door.</p>
 
-    <h2>Developer checklist</h2>
+    <h2 id="en-section-7">Developer checklist</h2>
     <ul>
       <li><code>setPeer</code> explicitly on every pathway, bytes32 right-aligned; print eid ↔ address in both directions from the deploy script. A wrong peer is mint authority handed to a stranger.</li>
       <li>Review the Security Stack like protocol parameters: required DVN set, optional threshold, who may <code>setConfig</code> / <code>setDelegate</code>. An owner or delegate hot wallet that can change DVNs can change the bridge's security model.</li>
@@ -837,7 +843,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
       <li>Use <code>TestHelperOz5</code> for a two-chain round-trip, wrong peer, out-of-order nonce, compose retry. Watch <code>PacketSent</code> / <code>PacketDelivered</code>, verified-but-not-executed backlog, DVN latency.</li>
     </ul>
 
-    <h2>User funds risk</h2>
+    <h2 id="en-section-8">User funds risk</h2>
     <p>Cross-chain messaging has a different risk profile from a DEX or an L2: its security is <strong>configured, not fixed</strong>. Two apps on the same LayerZero can sit at very different security levels.</p>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
@@ -852,7 +858,13 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     </table></div>
     <blockquote><p>In short: LayerZero hands the security dial to developers — <strong>as a user, your risk depends on how the app you are using turned that dial</strong>, not on LayerZero itself.</p></blockquote>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-9">OFT conservation and retries</h2>
+<p>For burn/mint OFTs, account for supply across destinations and in-flight claims. An Adapter locks source underlying and mints a destination representation. Delivered means receive succeeded; it does not prove reserves or strategy solvency, and compose is a second completion state. Do not count the same in-flight amount as both circulating supply and a pending claim.</p>
+<p>Retry the existing guid rather than sending another mint instruction. Test out-of-order delivery, duplicates, wrong peers, insufficient gas, compose reverts, and peer migration. Receive success followed by compose failure must not credit again. Base message authentication does not replace payload recipient/amount validation or mint caps.</p>
+<h2 id="en-section-10">PM: compare pathways</h2>
+<p>Compare finality, delivery cost, latency, DVN independence, required/optional thresholds, and recovery actors for the same source→destination pair. Several DVNs may share cloud or signer dependencies; count does not prove independence. Observe owner/delegate powers over peers, MessageLibs, DVNs, and options, and test compatibility with in-flight packets.</p>
+
+    <h2 id="en-section-11">Official sources</h2>
     <ul>
       <li><a href="https://docs.layerzero.network/v2">LayerZero V2 docs</a> / <a href="https://docs.layerzero.network/v2/developers/evm/oapp/overview">OApp</a> / <a href="https://docs.layerzero.network/v2/developers/evm/oft/quickstart">OFT</a></li>
       <li><a href="https://docs.layerzero.network/v2/concepts/modular-security/security-stack-dvns">Security stack / DVNs</a> / <a href="https://docs.layerzero.network/v2/concepts/protocol/executors">Executors</a> / <a href="https://docs.layerzero.network/v2/concepts/message-ordering">Message ordering</a></li>
@@ -861,7 +873,7 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
     <p class="meta">Content last verified: 2026-09-11</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -873,6 +885,6 @@ oft.send{value: fee.nativeFee}(sendParam, fee, refundAddress);</code></pre>
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261008-content"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
 </head>
 <body data-title-zh="Hyperliquid 架構" data-title-en="Hyperliquid Architecture">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Hyperliquid 架構</h1>
-    <p class="meta">2026-09-12 · HyperCore · HyperEVM · 永續 DEX · 開發者指南 · 變動快，落地前請再查證</p>
+    <p class="meta">2026-09-12 · HyperCore · HyperEVM · 永續 DEX · 開發者指南 · 變動快，落地前請再查證</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">設計理念：CLOB + 雙層，同一條 L1</a></li><li><a href="#zh-section-3">Account abstraction modes：不是 ERC-4337</a></li><li><a href="#zh-section-4">資產實際在哪：HyperCore vs HyperEVM</a></li><li><a href="#zh-section-5">Solidity：讀 precompile、寫 CoreWriter</a></li><li><a href="#zh-section-6">時序：同一 L1 block 內誰先誰後</a></li><li><a href="#zh-section-7">Gas：小塊、大塊與 CoreWriter</a></li><li><a href="#zh-section-8">鏈下 API：提交介面，撮合仍在 HyperCore</a></li><li><a href="#zh-section-9">權限：主錢包、agent、子帳戶</a></li><li><a href="#zh-section-10">跨層 vs 跨鏈</a></li><li><a href="#zh-section-11">Proof of reserve：有資產 ≠ 可償付</a></li><li><a href="#zh-section-12">智慧合約安全風險（開發者）</a></li><li><a href="#zh-section-13">使用者投資風險</a></li><li><a href="#zh-section-14">先懂 perpetual：曝險、PnL 與資金費率</a></li><li><a href="#zh-section-15">把非同步交易寫成狀態機</a></li><li><a href="#zh-section-16">官方來源</a></li></ol></nav></details>
 
     <p>Hyperliquid 不是「EVM 鏈外掛一座交易所」，而是一條<strong>為永續合約而生的 L1</strong>：HyperCore 跑訂單簿與清算，HyperEVM 跑 Solidity，兩邊由 precompile 與 CoreWriter 縫在一起。本則給要寫合約或 bot 的人：資產實際在哪、account mode 不是 ERC-4337、讀寫時序、gas、agent 權限、跨層 vs 跨鏈，以及儲備證明能證明什麼。</p>
     <blockquote><p>先記住三件事：相同地址在 Core 與 EVM <em>不是</em>同一份 state；REST／WebSocket 只是提交介面，撮合仍在 HyperCore；CoreWriter 送出 ≠ 已成交。</p></blockquote>
@@ -61,7 +61,7 @@
       <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 設計理念與「資產實際在哪」；Solidity 工程師 → precompile／CoreWriter 與同一區塊內的時序；PM → 市場背景與使用者投資風險。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>Hyperliquid 在鏈上永續市場的地位已接近主導，但要放在正確的尺度上看：它主導的是「鏈上永續」這個子市場，而整個永續交易仍由中心化交易所把持。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字</th></tr></thead>
@@ -74,11 +74,11 @@
         <tr><td>年化協議收入</td><td>接近 $1B</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
 
     <p>未平倉約 95 億美元，超過其他主要永續 DEX 的總和；它也是首個擠進全球永續交易所前十的 DEX。但反過來看，<strong>永續 DEX 整體仍只佔永續市場約一成</strong>——對 PM 而言這既是成長空間，也代表流動性深度與 CEX 仍有落差，大額交易的滑點要實測。</p>
 
-    <h2>設計理念：CLOB + 雙層，同一條 L1</h2>
+    <h2 id="zh-section-2">設計理念：CLOB + 雙層，同一條 L1</h2>
     <p>多數鏈上永續 DEX 用預言機定價（GMX）或把訂單簿放鏈下（早期 dYdX）。Hyperliquid 把<strong>整個中央限價訂單簿（CLOB）放上 HyperCore</strong>，以 HyperBFT 撐低延遲。HyperEVM 是同一條 L1 上的 EVM 執行環境，不是另一條 rollup。</p>
     <div class="scroll"><table>
       <thead><tr><th>層</th><th>職責</th><th>你怎麼碰它</th></tr></thead>
@@ -116,7 +116,7 @@
       <figcaption>讀取（①）像一次 <code>staticcall</code>，當下就能用於合約邏輯。寫入（②）排隊後才在 HyperCore 生效——<strong>不能假設「送出＝已成交」</strong>。</figcaption>
     </figure>
 
-    <h2>Account abstraction modes：不是 ERC-4337</h2>
+    <h2 id="zh-section-3">Account abstraction modes：不是 ERC-4337</h2>
     <p>Hyperliquid 的「Account Abstraction」是 <strong>spot 與 perps 保證金怎麼共用</strong>，跟 ERC-4337 的 Smart Account 無關。切換用 <code>userSetAbstraction</code>／CoreWriter action id 16。</p>
     <div class="scroll"><table>
       <thead><tr><th>模式</th><th>餘額怎麼算</th><th>誰該用</th></tr></thead>
@@ -155,7 +155,7 @@
       <figcaption>新手常把 Unified 理解成「我在 EVM 的 USDC 也能拿去開永續」。不行。Unified 統一的是 Core 上的 spot 與 perps，不是 Core 與 EVM。</figcaption>
     </figure>
 
-    <h2>資產實際在哪：HyperCore vs HyperEVM</h2>
+    <h2 id="zh-section-4">資產實際在哪：HyperCore vs HyperEVM</h2>
     <p>同一個 20-byte 地址在兩邊各有一份帳本。合約裡的 <code>token.balanceOf(addr)</code> 只讀 HyperEVM；perp 保證金、Core spot、未成交單，都在 HyperCore。</p>
     <div class="scroll"><table>
       <thead><tr><th>你看到的</th><th>實際位置</th></tr></thead>
@@ -197,7 +197,7 @@
       <figcaption>把 Core 與 EVM 想成同一門牌的兩間倉庫。鑰匙相同，庫存獨立；要搬家必須經過 system address 這扇門。</figcaption>
     </figure>
 
-    <h2>Solidity：讀 precompile、寫 CoreWriter</h2>
+    <h2 id="zh-section-5">Solidity：讀 precompile、寫 CoreWriter</h2>
     <p><strong>讀取</strong>——<code>staticcall</code> 打讀取類 precompile（從 <code>0x…0800</code> 的 position 起；mark／oracle／spot 價格為 <code>0x0806</code>–<code>0x0808</code>，<strong>沒有 4-byte selector</strong>，參數直接 ABI encode）。回傳的價格是 raw <code>uint64</code>：永續除以 <code>10^(6 - szDecimals)</code>，現貨除以 <code>10^(8 - base szDecimals)</code>。無效資產或 vault 會讓該 call frame <strong>吃光傳入的 gas</strong>。費用約 <code>2000 + 65 * (input_len + output_len)</code>。</p>
 <pre><code><span class="c">// 示意；完整介面見 L1Read.sol / hyper-evm-lib</span>
 address constant MARK_PX   = 0x0000000000000000000000000000000000000806;
@@ -222,7 +222,7 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
 }</code></pre>
     <p>動作以<strong>合約自己的 HyperCore 地址</strong>執行，不是 <code>tx.origin</code>。訂單與 vault transfer 會再延遲數秒，避免用 EVM 繞過 L1 mempool。新 Core 帳戶第一次當收款人要付 <strong>1 顆 quote token</strong>（如 1 USDC）啟動費；未啟動的地址<strong>不能</strong>送 CoreWriter。合約部署者應先對合約地址做一筆 Core 啟動轉帳。</p>
 
-    <h2>時序：同一 L1 block 內誰先誰後</h2>
+    <h2 id="zh-section-6">時序：同一 L1 block 內誰先誰後</h2>
     <p>Core → EVM 轉帳排到<strong>下一顆</strong> EVM block。EVM → Core 轉帳發生在「有產出 EVM 的那顆 L1 block」裡、EVM block 建完之後。該 L1 block 的順序是：</p>
     <ol>
       <li>建 L1 block</li>
@@ -280,7 +280,7 @@ function confirm() external {
 }</code></pre>
     <p>重點不只是「要等」，而是<strong>你必須為「送出了但沒成交」設計一條分支</strong>。CoreWriter 不會回傳成交結果，合約端只能事後從 precompile 讀狀態自行比對。</p>
 
-    <h2>Gas：小塊、大塊與 CoreWriter</h2>
+    <h2 id="zh-section-7">Gas：小塊、大塊與 CoreWriter</h2>
     <p>HyperEVM 把吞吐量拆成兩種 block、兩份 mempool，block number 仍單調遞增：</p>
     <div class="scroll"><table>
       <thead><tr><th></th><th>小塊</th><th>大塊</th></tr></thead>
@@ -293,7 +293,7 @@ function confirm() external {
     <p>每個地址 mempool 只收<strong>接下來 8 個 nonce</strong>；超過一天的交易會被修剪。切到大塊用 Core action <code>evmUserModify.usingBigBlocks: true</code>（這是 HyperCore 使用者旗標，要先成為 Core user）。估大塊 base fee 用 RPC <code>bigBlockGasPrice</code>，不要用普通 <code>gasPrice</code>。</p>
     <p>Precompile 失敗會燒光該 frame 的 gas：呼叫時不要把剩餘 gas 全傳進去。CoreWriter 本身先燒 ~25k；合約還要為後續 HyperCore 執行與 20 萬 gas 的 Core→EVM 轉帳留預算。</p>
 
-    <h2>鏈下 API：提交介面，撮合仍在 HyperCore</h2>
+    <h2 id="zh-section-8">鏈下 API：提交介面，撮合仍在 HyperCore</h2>
     <p>高頻下單、撤單、改槓桿走 REST／WebSocket，<strong>不經過 HyperEVM</strong>。這不是鏈下訂單簿：簽名動作送到交換端點後，撮合、優先順序與成交仍在 HyperCore 上發生。</p>
     <figure>
       <div class="figbox">
@@ -339,7 +339,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
 });</code></pre>
     <p>注意 <code>nonce</code> 是毫秒時間戳而非遞增計數，且 agent 金鑰有自己獨立的 nonce 空間。高頻下單時 nonce 管理是最容易出錯的地方，這也是建議走官方 SDK 的原因。</p>
 
-    <h2>權限：主錢包、agent、子帳戶</h2>
+    <h2 id="zh-section-9">權限：主錢包、agent、子帳戶</h2>
     <p>API wallet（文件裡的 agent）<strong>只能簽名</strong>：能下單、改槓桿、把你送進清算，<strong>不能提款</strong>，本身也不持有資金。查餘額要傳主帳戶或子帳戶地址；傳 agent 地址會得到空結果。</p>
     <ul>
       <li>Nonce 跟<strong>簽署者</strong>（agent 位址）走，不是跟被代理的使用者走。每個 signer 保留最高 100 個 nonce；新 nonce 必須大於集合裡最小的、且未用過；時間窗是區塊時間 <code>(T-2 天, T+1 天)</code>。</li>
@@ -369,7 +369,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <figcaption>把 agent 想成櫃檯印章：可以蓋單，不能開金庫。印章丟了要作廢並換新的，舊印章號碼作廢後可能被拿去重蓋舊單。</figcaption>
     </figure>
 
-    <h2>跨層 vs 跨鏈</h2>
+    <h2 id="zh-section-10">跨層 vs 跨鏈</h2>
     <p>HyperCore 與 HyperEVM 是<strong>同一條 HyperBFT L1 的兩層</strong>，不是兩條鏈，也沒有七日挑戰期。跨出去才是另一回事：</p>
     <ul>
       <li><strong>USDC：</strong>優先走 Circle <strong>CCTP</strong> 在 Hyperliquid 上原生鑄造。舊的 Arbitrum 橋已棄用。</li>
@@ -377,7 +377,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
     </ul>
     <p>合約不要假設「EVM 上一筆 transfer 等於 Core 已有保證金」；也不要假設 CCTP mint 與 Core 入帳是同一筆原子交易。</p>
 
-    <h2>Proof of reserve：有資產 ≠ 可償付</h2>
+    <h2 id="zh-section-11">Proof of reserve：有資產 ≠ 可償付</h2>
     <p>三件不同的事：</p>
     <ol>
       <li><strong>原生 USDC／CCTP：</strong> Circles 鑄造模型；贖回走 CCTP，不是 Hyperliquid 自建的 lock-mint。</li>
@@ -404,7 +404,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <figcaption>產品若顯示「USDC」，先問是 CCTP 原生、舊橋、還是某個 OFT／linked 包裝。贖回路徑與對手方完全不同。</figcaption>
     </figure>
 
-    <h2>智慧合約安全風險（開發者）</h2>
+    <h2 id="zh-section-12">智慧合約安全風險（開發者）</h2>
     <ul>
       <li><strong>寫入非同步是頭號陷阱。</strong>同一筆 EVM 交易內「先下單、再讀部位確認」行不通。同一 block 先啟動帳戶再 CoreWriter 會被拒。</li>
       <li><strong>precompile 位址不要抄錯。</strong><code>0x0806</code> markPx、<code>0x0807</code> oraclePx、<code>0x0808</code> spotPx。無效輸入耗盡 gas；raw 價格要自己做 decimals scaling。</li>
@@ -413,7 +413,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <li><strong>雙區塊與 8 nonce。</strong>大合約部署要切 big blocks；mempool 只收接下來 8 個 nonce。</li>
     </ul>
 
-    <h2>使用者投資風險</h2>
+    <h2 id="zh-section-13">使用者投資風險</h2>
     <p>永續的風險遠高於現貨：</p>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
@@ -429,7 +429,13 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
     </table></div>
     <blockquote><p>現貨的敵人是「幣價跌」；永續多了清算、資金費、ADL。時間與槓桿都會咬人。</p></blockquote>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-14">先懂 perpetual：曝險、PnL 與資金費率</h2>
+<p>簡化例：$1,000 margin 開 $5,000 long，價格跌 10% 時，未計費用的 PnL 約 −$500，margin equity 約 $500，而不是只虧保證金的 10%。是否清算依 maintenance margin、mark price、模式、其他部位與 funding；不能用「1／槓桿」當精確清算距離。若 funding 示例為每個期間 0.01%，$5,000 notional 的該期間付款為 $0.50，方向與頻率須讀實際市場。</p>
+<h2 id="zh-section-15">把非同步交易寫成狀態機</h2>
+<p>Submitted → accepted/rejected → resting/partial/filled/cancelled → reconciled。later block 只是必要等待，不是 fill 證據；相同 position size 也可能來自舊部位。以 client order ID、實際成交與未成交量關聯操作，pending 應有 timeout、cancel 與重試規則。任意使用者可呼叫 CoreWriter 的 wrapper 時，動的是合約的 Core 帳戶：交易權限需在 wrapper 驗證。</p>
+<p>PM 以目標 size 的 spread/depth、fill latency、funding、ADL 條件、API rate limits 與出口測試做選擇。讀 API 和讀鏈上 precompile 分別有時間點；資產總覽須分 Core、EVM、open-order holds、subaccounts，不能直接相加重複列帳。</p>
+
+    <h2 id="zh-section-16">官方來源</h2>
     <ul>
       <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interacting-with-hypercore">Interacting with HyperCore</a>／<a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers">Core ↔ EVM transfers</a></li>
       <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/dual-block-architecture">Dual-block architecture</a>／<a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interaction-timings">Interaction timings</a></li>
@@ -441,9 +447,9 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Hyperliquid Architecture</h1>
-    <p class="meta">2026-09-12 · HyperCore · HyperEVM · Perp DEX · Developer guide · Moves fast; re-verify before shipping</p>
+    <p class="meta">2026-09-12 · HyperCore · HyperEVM · Perp DEX · Developer guide · Moves fast; re-verify before shipping</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">Design idea: CLOB + two layers, one L1</a></li><li><a href="#en-section-3">Account abstraction modes: not ERC-4337</a></li><li><a href="#en-section-4">Where assets actually live: HyperCore vs HyperEVM</a></li><li><a href="#en-section-5">Solidity: read precompiles, write CoreWriter</a></li><li><a href="#en-section-6">Timing: who runs first inside one L1 block</a></li><li><a href="#en-section-7">Gas: small blocks, big blocks, and CoreWriter</a></li><li><a href="#en-section-8">Off-chain API: submission only; matching stays on HyperCore</a></li><li><a href="#en-section-9">Authority: master wallet, agent, sub-account</a></li><li><a href="#en-section-10">Cross-layer vs cross-chain</a></li><li><a href="#en-section-11">Proof of reserve: assets are not solvency</a></li><li><a href="#en-section-12">Smart-contract security (for developers)</a></li><li><a href="#en-section-13">User investment risk</a></li><li><a href="#en-section-14">Perpetuals before architecture</a></li><li><a href="#en-section-15">Model asynchronous execution as states</a></li><li><a href="#en-section-16">Official sources</a></li></ol></nav></details>
 
     <p>Hyperliquid is not "an EVM chain with an exchange bolted on." It is an <strong>L1 purpose-built for perpetuals</strong>: HyperCore runs the book and liquidations, HyperEVM runs Solidity, and precompiles plus CoreWriter stitch the two together. This note is for people writing contracts or bots: where assets actually live, why "account abstraction" here is not ERC-4337, read/write timing, gas, agent authority, cross-layer vs cross-chain, and what a proof of reserve can actually prove.</p>
     <blockquote><p>Three facts first: the same address on Core and EVM is <em>not</em> the same state; REST / WebSocket is a submission interface, matching stays on HyperCore; a CoreWriter send is not a fill.</p></blockquote>
@@ -458,7 +464,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <p class="who"><strong>Where to start:</strong> beginners / backend engineers → the design idea and where assets actually live; Solidity engineers → precompiles, CoreWriter and intra-block ordering; PMs → market background and user investment risk.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>Hyperliquid is close to dominant in on-chain perps, but keep the scale straight: it dominates the on-chain perp sub-market, while perpetual trading overall is still held by centralised exchanges.</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
@@ -471,11 +477,11 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
         <tr><td>Annualised protocol revenue</td><td>~$1B</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
 
     <p>Open interest near $9.5B exceeds all other major perp DEXs combined, and it is the first DEX to reach the global top ten of perpetual exchanges. Seen the other way, <strong>perp DEXs as a whole are still only about a tenth of the perp market</strong> — for a PM that is both headroom and a warning that depth still trails CEXs; measure slippage on large size yourself.</p>
 
-    <h2>Design idea: CLOB + two layers, one L1</h2>
+    <h2 id="en-section-2">Design idea: CLOB + two layers, one L1</h2>
     <p>Most on-chain perp DEXs price via an oracle (GMX) or keep the book off-chain (early dYdX). Hyperliquid puts the <strong>whole central limit order book (CLOB) on HyperCore</strong>, with HyperBFT for low latency. HyperEVM is an EVM environment on that same L1, not a separate rollup.</p>
     <div class="scroll"><table>
       <thead><tr><th>Layer</th><th>Responsibility</th><th>How you touch it</th></tr></thead>
@@ -513,7 +519,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <figcaption>Reads (①) behave like a <code>staticcall</code> and are usable in contract logic. Writes (②) run later on HyperCore — <strong>never assume "sent == filled"</strong>.</figcaption>
     </figure>
 
-    <h2>Account abstraction modes: not ERC-4337</h2>
+    <h2 id="en-section-3">Account abstraction modes: not ERC-4337</h2>
     <p>Hyperliquid "Account Abstraction" is <strong>how spot and perp margin share balances</strong>. It has nothing to do with ERC-4337 Smart Accounts. Switch with <code>userSetAbstraction</code> / CoreWriter action id 16.</p>
     <div class="scroll"><table>
       <thead><tr><th>Mode</th><th>How balances work</th><th>Who it's for</th></tr></thead>
@@ -552,7 +558,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <figcaption>Beginners often read Unified as "my EVM USDC can margin perps." It cannot. Unified unifies Core spot and perps, not Core and EVM.</figcaption>
     </figure>
 
-    <h2>Where assets actually live: HyperCore vs HyperEVM</h2>
+    <h2 id="en-section-4">Where assets actually live: HyperCore vs HyperEVM</h2>
     <p>The same 20-byte address has two ledgers. <code>token.balanceOf(addr)</code> in a contract reads HyperEVM only. Perp margin, Core spot, and open-order holds live on HyperCore.</p>
     <div class="scroll"><table>
       <thead><tr><th>What you see</th><th>Where it sits</th></tr></thead>
@@ -594,7 +600,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <figcaption>Think of Core and EVM as two warehouses behind one house number. Same key, separate inventory; moving stock requires the system-address door.</figcaption>
     </figure>
 
-    <h2>Solidity: read precompiles, write CoreWriter</h2>
+    <h2 id="en-section-5">Solidity: read precompiles, write CoreWriter</h2>
     <p><strong>Reading</strong> — <code>staticcall</code> a read precompile (from <code>0x…0800</code> for position; mark/oracle/spot prices are <code>0x0806</code>–<code>0x0808</code>; <strong>no 4-byte selector</strong>; ABI-encode the args directly). Returned prices are raw <code>uint64</code>: divide perps by <code>10^(6 - szDecimals)</code> and spot by <code>10^(8 - base szDecimals)</code>. An invalid asset or vault <strong>consumes all gas</strong> passed into that call frame. Cost is about <code>2000 + 65 * (input_len + output_len)</code>.</p>
 <pre><code><span class="c">// schematic; full interface in L1Read.sol / hyper-evm-lib</span>
 address constant MARK_PX   = 0x0000000000000000000000000000000000000806;
@@ -619,7 +625,7 @@ function usdClassTransfer(uint64 ntl, bool toPerp) external {
 }</code></pre>
     <p>The action runs as the <strong>contract's own HyperCore address</strong>, not <code>tx.origin</code>. Order and vault-transfer actions are delayed a few seconds so HyperEVM cannot skip the L1 mempool. A new Core account pays a <strong>1 quote-token</strong> activation fee (e.g. 1 USDC) on first receipt; an unactivated address <strong>cannot</strong> send CoreWriter actions. Contract deployers should activate the contract address on Core first.</p>
 
-    <h2>Timing: who runs first inside one L1 block</h2>
+    <h2 id="en-section-6">Timing: who runs first inside one L1 block</h2>
     <p>Core → EVM transfers queue until the <strong>next</strong> EVM block. EVM → Core transfers run in the same L1 block that produced the EVM block, immediately after it is built. On an L1 block that produces EVM:</p>
     <ol>
       <li>Build the L1 block</li>
@@ -677,7 +683,7 @@ function confirm() external {
 }</code></pre>
     <p>The point is not merely "you must wait" but that <strong>you must design a branch for "submitted but never filled"</strong>. CoreWriter returns no fill result; the contract can only read state back from a precompile afterwards and reconcile it itself.</p>
 
-    <h2>Gas: small blocks, big blocks, and CoreWriter</h2>
+    <h2 id="en-section-7">Gas: small blocks, big blocks, and CoreWriter</h2>
     <p>HyperEVM splits throughput into two block types and two mempools. EVM block numbers still increase monotonically:</p>
     <div class="scroll"><table>
       <thead><tr><th></th><th>Small</th><th>Big</th></tr></thead>
@@ -690,7 +696,7 @@ function confirm() external {
     <p>Each address's mempool accepts only the <strong>next 8 nonces</strong>; txs older than a day are pruned. Opt into big blocks with Core action <code>evmUserModify.usingBigBlocks: true</code> (a HyperCore user flag — you must already be a Core user). Estimate the next big-block base fee with RPC <code>bigBlockGasPrice</code>, not ordinary <code>gasPrice</code>.</p>
     <p>A failed precompile burns that frame's gas: do not forward all remaining gas. CoreWriter itself burns ~25k; still budget for later HyperCore execution and the 200k-gas Core→EVM transfer.</p>
 
-    <h2>Off-chain API: submission only; matching stays on HyperCore</h2>
+    <h2 id="en-section-8">Off-chain API: submission only; matching stays on HyperCore</h2>
     <p>High-frequency orders, cancels, and leverage changes go over REST / WebSocket, <strong>not HyperEVM</strong>. That is not an off-chain order book: after the signed action hits the exchange endpoint, matching, priority, and fills still happen on HyperCore.</p>
     <figure>
       <div class="figbox">
@@ -736,7 +742,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
 });</code></pre>
     <p>Note that <code>nonce</code> is a millisecond timestamp rather than an incrementing counter, and agent keys carry their own nonce space. Nonce handling is the easiest thing to get wrong at high order rates — another reason to use the official SDK.</p>
 
-    <h2>Authority: master wallet, agent, sub-account</h2>
+    <h2 id="en-section-9">Authority: master wallet, agent, sub-account</h2>
     <p>An API wallet (an "agent" in the docs) <strong>only signs</strong>: it can trade, change leverage, and walk you into liquidation. It <strong>cannot withdraw</strong> and holds no funds. Query balances with the master or sub-account address; the agent address returns empty.</p>
     <ul>
       <li>Nonces follow the <strong>signer</strong> (the agent address), not the user being proxied. Each signer keeps the 100 highest nonces; a new nonce must be larger than the smallest in that set and unused; the window is <code>(T-2 days, T+1 day)</code> around the block timestamp.</li>
@@ -766,7 +772,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <figcaption>Treat the agent as a desk stamp: it can mark tickets, not open the vault. If the stamp is lost, retire it and cut a new one — after retirement, old stamps may restamp old tickets.</figcaption>
     </figure>
 
-    <h2>Cross-layer vs cross-chain</h2>
+    <h2 id="en-section-10">Cross-layer vs cross-chain</h2>
     <p>HyperCore and HyperEVM are <strong>two layers of one HyperBFT L1</strong>, not two chains, and there is no seven-day challenge window. Leaving the L1 is a different story:</p>
     <ul>
       <li><strong>USDC:</strong> prefer Circle <strong>CCTP</strong> to mint natively on Hyperliquid. The legacy Arbitrum bridge is deprecated.</li>
@@ -774,7 +780,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
     </ul>
     <p>Do not assume an EVM <code>transfer</code> is Core margin, or that a CCTP mint and a Core credit are one atomic transaction.</p>
 
-    <h2>Proof of reserve: assets are not solvency</h2>
+    <h2 id="en-section-11">Proof of reserve: assets are not solvency</h2>
     <p>Three different things:</p>
     <ol>
       <li><strong>Native USDC / CCTP:</strong> Circle's mint/burn model; redemption is CCTP, not a Hyperliquid lock-mint.</li>
@@ -801,7 +807,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <figcaption>If a product shows "USDC," ask whether it is CCTP-native, legacy-bridge, or some OFT / linked wrapper. Redemption paths and counterparties differ.</figcaption>
     </figure>
 
-    <h2>Smart-contract security (for developers)</h2>
+    <h2 id="en-section-12">Smart-contract security (for developers)</h2>
     <ul>
       <li><strong>Async writes are the number-one trap.</strong> "Place then read the position" inside one EVM tx does not work. Same-block activate-then-CoreWriter is rejected.</li>
       <li><strong>Do not mix up precompile addresses.</strong> <code>0x0806</code> markPx, <code>0x0807</code> oraclePx, <code>0x0808</code> spotPx. Invalid input burns gas; raw prices need decimal scaling.</li>
@@ -810,7 +816,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
       <li><strong>Dual blocks and 8 nonces.</strong> Large deploys need big blocks; the mempool only takes the next 8 nonces.</li>
     </ul>
 
-    <h2>User investment risk</h2>
+    <h2 id="en-section-13">User investment risk</h2>
     <p>Perpetuals carry far more risk than spot:</p>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
@@ -826,7 +832,13 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
     </table></div>
     <blockquote><p>Spot's enemy is "price falls." Perps add liquidation, funding, and ADL. Time and leverage both bite.</p></blockquote>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-14">Perpetuals before architecture</h2>
+<p>Simplified example: $1,000 margin supports a $5,000 long. A 10% price decline gives approximately −$500 PnL before fees, leaving $500 equity, not a 10% loss on margin. Liquidation depends on maintenance margin, mark price, account mode, other positions, and funding; 1/leverage is not an exact liquidation distance. At an illustrative 0.01% funding per period, $5,000 notional pays $0.50 for that period; read actual direction and frequency.</p>
+<h2 id="en-section-15">Model asynchronous execution as states</h2>
+<p>Submitted → accepted/rejected → resting/partial/filled/cancelled → reconciled. A later block is a waiting condition, not proof of a fill; an existing position can also explain its size. Correlate client order IDs with fills and outstanding quantity, and define timeout, cancellation, and retries. A CoreWriter wrapper acts for the contract’s Core account, so authenticate callers at the wrapper.</p>
+<p>Choose by spread/depth at target size, fill latency, funding, ADL conditions, API limits, and tested exits. API and precompile reads may represent different moments. Separate Core, EVM, order holds, and subaccounts to avoid counting the same assets twice.</p>
+
+    <h2 id="en-section-16">Official sources</h2>
     <ul>
       <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interacting-with-hypercore">Interacting with HyperCore</a> / <a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers">Core ↔ EVM transfers</a></li>
       <li><a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/dual-block-architecture">Dual-block architecture</a> / <a href="https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/interaction-timings">Interaction timings</a></li>
@@ -837,7 +849,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
     <p class="meta">Content last verified: 2026-09-12</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -849,6 +861,6 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261008-content"></script>
 </body>
 </html>

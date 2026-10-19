@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
 </head>
 <body data-title-zh="ZK Rollup：有效性證明與出入金" data-title-en="ZK Rollups: Validity Proofs and Bridging">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>ZK Rollup：有效性證明與出入金</h1>
-    <p class="meta">2026-09-11 · zkEVM · Validity Proof · Canonical Bridge · 開發者指南</p>
+    <p class="meta">2026-09-11 · zkEVM · Validity Proof · Canonical Bridge · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">有效性證明在保證什麼</a></li><li><a href="#zh-section-3">資料放什麼：交易 vs state diff</a></li><li><a href="#zh-section-4">zkEVM 的四型（你實際在跑哪一種）</a></li><li><a href="#zh-section-5">入金：L1 優先佇列，L2 執行</a></li><li><a href="#zh-section-6">出金：證明之後，兩種領法</a></li><li><a href="#zh-section-7">證明系統與升級</a></li><li><a href="#zh-section-8">開發者檢查清單</a></li><li><a href="#zh-section-9">使用者資金風險</a></li><li><a href="#zh-section-10">失敗路徑：UI 顯示哪個狀態？</a></li><li><a href="#zh-section-11">PM 與開發驗收</a></li><li><a href="#zh-section-12">官方來源</a></li></ol></nav></details>
 
     <p><strong>ZK rollup 用有效性證明取代「先相信、再挑戰」。</strong>Sequencer 仍然排序交易、把資料發到 L1，但狀態轉換要附上一份 SNARK／STARK：L1 上的 verifier 合約驗過，這個批次在密碼學上就是合法的。出金因此不必等七天挑戰期——瓶頸改成「證明何時做出來、何時被 L1 收進」。對象同樣是合約作者：L1→L2 的 <code>msg.sender</code> 規則、refund 位址、L2→L1 訊息怎麼跟 finalize 配對、以及 zkEVM 跟 Ethereum 哪些 opcode 不一樣。</p>
     <blockquote><p>先對照上一則：optimistic 的安全是經濟與活性（至少一個誠實驗證者）；ZK 的安全是電路與證明系統。入金兩種 rollup 都很像（L1 鎖定 + 強制收件）；出金的等待理由完全不同。</p></blockquote>
@@ -61,7 +61,7 @@
       <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 有效性證明在保證什麼、出入金流程；Solidity 工程師 → zkEVM 分型與證明系統差異；PM → 市場背景與使用者風險。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>ZK rollup 在技術上被廣泛認為是終局，但在資金與生態規模上目前仍明顯落後 optimistic 陣營——這個落差是選型時最該誠實面對的事實。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字</th></tr></thead>
@@ -74,11 +74,11 @@
         <tr><td>Linea prover 吞吐（2026 Q1）</td><td>逾 70 TPS</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
 
     <p>把 zkSync Era 的約 $404M 跟 Base 的約 $115 億並排，差距是<strong>一個數量級以上</strong>。ZK 的優勢在最終性時間與證明經濟性，且 prover 吞吐正在快速改善（Linea 已破 70 TPS）。目前選 L2 已經<strong>不是「安全 vs 成本」的取捨，而是生態規模與最終性速度的取捨</strong>——要快速最終性與更強的密碼學保證就選 ZK，要流動性與成熟工具鏈就選 optimistic。</p>
 
-    <h2>有效性證明在保證什麼</h2>
+    <h2 id="zh-section-2">有效性證明在保證什麼</h2>
     <p>一份 validity proof 回答的問題是：給定舊狀態根、這批交易（或 state diff）、新狀態根，是否存在一條合法的執行軌跡把它們連起來。L1 不必重放每一筆 L2 交易，只驗證明——<strong>verifier gas 大致固定</strong>。整筆 L1 成本仍隨 DA 成長（blob／calldata／state diff 的 bytes），不要把「證明便宜」當成「批次上 L1 也便宜」。</p>
     <div class="scroll"><table>
       <thead><tr><th></th><th>Optimistic</th><th>ZK</th></tr></thead>
@@ -137,7 +137,7 @@
       <figcaption>新手口訣：Optimistic 是「先相信、有人可以喊停」所以要等；ZK 是「先交考卷、L1 當場批改」所以等的是批改時間，不是挑戰期。</figcaption>
     </figure>
 
-    <h2>資料放什麼：交易 vs state diff</h2>
+    <h2 id="zh-section-3">資料放什麼：交易 vs state diff</h2>
     <p>Validity 保證執行正確，<strong>不自動保證你能自己重建狀態</strong>。還要把資料放到 L1（或被協議承認的 DA 層），節點才能同步、使用者才能自己構造出金證明。</p>
     <ul>
       <li><strong>重放型（Scroll、多數 zkEVM）：</strong>發布足夠的交易資料，完整節點可重放得出狀態。</li>
@@ -145,7 +145,7 @@
     </ul>
     <p>DA 走 EIP-4844 blob 後，資料在 L1 上會過期；協議要嘛承認「blob 視窗內有人存下來就夠」，要嘛另接長期 DA。這與 optimistic rollup 相同，不是 ZK 獨有。Validium／外部 DA 則是「有證明、資料不在以太坊」——你能相信執行正確，卻可能無法自己重建狀態、也無法獨立構造出金證明。</p>
 
-    <h2>zkEVM 的四型（你實際在跑哪一種）</h2>
+    <h2 id="zh-section-4">zkEVM 的四型（你實際在跑哪一種）</h2>
     <p>Vitalik 的分類問的是：電路承諾的執行環境，離 Ethereum 有多近。越近，L1 工具與客戶端越能複用；越遠，電路越好寫、證明越快，但相容性要自己補。</p>
     <div class="scroll"><table>
       <thead><tr><th>型</th><th>等價程度</th><th>實務含義</th></tr></thead>
@@ -169,7 +169,7 @@
     </table></div>
     <p>zkSync 現在兩條執行棧並存：原生 <strong>EraVM</strong>（zksolc、<code>hardhat-zksync</code>）與 <strong>EVM Emulator</strong>（標準 solc／Foundry）。<code>delegatecall</code> 不能跨這兩種 bytecode。合約要先問自己跑在哪一側，再談 CREATE2 與 gas。</p>
 
-    <h2>入金：L1 優先佇列，L2 執行</h2>
+    <h2 id="zh-section-5">入金：L1 優先佇列，L2 執行</h2>
     <p>與 optimistic 相同精神：把請求寫進 L1，L2 必須收。ZK 系統通常有一條 <strong>priority queue／mailbox</strong>，但「超時後任何人強制推進下一批」<strong>不是每條鏈都一樣</strong>：Scroll 靠 L1 訊息必須按 QueueIndex 排進區塊（Euclid 另有 permissionless batch）；zkSync 是優先佇列，強制模式依鏈配置而變；Starknet 是訊息佇列而非 EVM deposit tx。寫合約前先讀這條鏈的 forced-inclusion 文件。</p>
 
     <figure>
@@ -317,9 +317,9 @@ starknet.sendMessageToL2{value: fee}(l2Contract, selector, payload);
 <span class="c">// L1 出金：對同一 payload 呼叫 consumeMessageFromL2 後才能解鎖</span>
 starknet.consumeMessageFromL2(l2Contract, payload);</code></pre>
     <p>Starknet 的 L1↔L2 訊息是顯式的、可重放檢查的雜湊佇列，不是 EVM 式的 deposit transaction。合約必須把「訊息已消費」當成狀態機的一環，不能假設 handler 會自動再入。</p>
-    <p>Cairo 的 <code>l1_handler</code> selector、payload 裡每個 <code>felt252</code>、uint256 拆成 low／high，都必須與 L1 <code>sendMessageToL2</code> 的陣列<strong>逐元素一致</strong>。L1 <code>consumeMessageFromL2</code> 同樣比對整份 payload 的 hash；多一個 padding、uint256 端序錯，證明過了也 consume 不了。L1 解鎖前要 <code>require(msg.sender == starknetCore)</code> 且自行檢查 payload 欄位——Core 只保證「這則 L2 訊息存在且未被消費」，不保證語意是你的協議。</p>
+    <p>Cairo 的 <code>l1_handler</code> selector、felt payload 與 uint256 low/high limb 必須逐元素一致。L2→L1 時由使用者或 relayer 呼叫你的 L1 應用，再由應用呼叫 <code>StarknetCore.consumeMessageFromL2(expectedL2Sender, payload)</code>；Core 將應用的地址綁為 consumer，並不回呼應用。檢查 payload 的收款人、金額與協議語意，成功 consume 後再以 CEI 與重入保護放款；不要要求外層 <code>msg.sender == starknetCore</code>。</p>
 
-    <h2>出金：證明之後，兩種領法</h2>
+    <h2 id="zh-section-6">出金：證明之後，兩種領法</h2>
     <p>使用者在 L2 燒毀或鎖定資產，並 enqueue 一則 L2→L1 訊息。等包含該訊息的批次被 L1 接受，才能在 L1 領。這裡有兩種領法，不要混用：</p>
     <ul>
       <li><strong>Merkle 日誌（zkSync、Scroll）：</strong>對已 <em>execute</em> 的批次根做 inclusion proof，再 <code>finalizeWithdrawal</code>。</li>
@@ -386,7 +386,7 @@ l1Nullifier.finalizeWithdrawal(
       <figcaption>把 L2→L1 訊息想成支票：金額跟簽名都要對。只驗證「這張紙在樹上」卻不看簽名，等於認任何一張支票。</figcaption>
     </figure>
 
-    <h2>證明系統與升級</h2>
+    <h2 id="zh-section-7">證明系統與升級</h2>
     <ul>
       <li><strong>SNARK（Groth16、PLONK、Honk／Boojum 一類）：</strong>L1 驗證極便宜；部分系統需要 trusted setup 或 universal SRS。</li>
       <li><strong>STARK（Starknet）：</strong>無需 trusted setup，證明較大，L1 驗證較貴，常再包一層 SNARK recursive。</li>
@@ -394,7 +394,7 @@ l1Nullifier.finalizeWithdrawal(
     </ul>
     <p>電路升級等於換掉「什麼叫合法執行」。嚴肅的 ZK L2 會把 verifier 放在時鎖後面，有的還保留 Security Council 緊急路徑。讀出金延遲時，要把<strong>證明時間</strong>和<strong>治理時鎖</strong>分開算。</p>
 
-    <h2>開發者檢查清單</h2>
+    <h2 id="zh-section-8">開發者檢查清單</h2>
     <ul>
       <li>先確認這條鏈的 L1→L2 模型：zkSync 合約發送者是「msg.sender = 別名後的 L1 合約」，EOA 不別名；Scroll／多數 OP 風格 zkEVM 是 messenger + <code>xDomainMessageSender</code>。抄錯守衛會主網直接死。</li>
       <li>入金參數（L2 gas、pubdata、refund recipient、factory deps）當成會失敗的路徑來測。refund 填 L2 已有的 EOA，不要填還沒部署的 L1 合約位址，也不要賭 CREATE2 救援。</li>
@@ -405,7 +405,7 @@ l1Nullifier.finalizeWithdrawal(
       <li>電路／verifier 升級時，舊的 withdrawal proof 可能對不上新的 tree；升級視窗要凍結出金或提供遷移路徑。</li>
     </ul>
 
-    <h2>使用者資金風險</h2>
+    <h2 id="zh-section-9">使用者資金風險</h2>
     <p>ZK rollup 免除了挑戰期，但並非沒有信任假設。它把風險從「有沒有人來挑戰」換成「<strong>證明系統與掌握升級權的人可不可靠</strong>」。</p>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
@@ -421,7 +421,14 @@ l1Nullifier.finalizeWithdrawal(
     </table></div>
     <blockquote><p>一句話：optimistic 要你相信「<strong>有人會來挑戰</strong>」；ZK 要你相信「<strong>電路寫對了、而且 prover 還活著</strong>」。兩者都不是無信任。</p></blockquote>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-10">失敗路徑：UI 顯示哪個狀態？</h2>
+<p>入金至少區分 L1 submitted、L1 confirmed、L2 derived/queued、L2 executed/failed；出金則區分 initiated、等待 output/proof、prove/consume ready、finalizable、released。ZK 鏈還須分 commit、prove、execute；proof accepted 不一律等於可領。</p>
+<p>每個狀態存 source/destination chain、tx hash、message/withdrawal ID、收款人、amount 與 retry actor。跨鏈 A 成功 B 失敗是正常狀態，不是「整筆 revert」。避免因 indexer 延遲重送同一動作；在鏈上讀消費／完成標記，再決定是否可 retry。</p>
+<h2 id="zh-section-11">PM 與開發驗收</h2>
+<p>固定部署版本與官方 mapping，完成最小金額 round-trip；測 destination revert、gas 不足、proof 無效、重複 claim、receiver 無權與 provider 中斷。為每個失敗列出資產在哪、誰能操作、是否需再付 gas、出口是否有 timelock。</p>
+<p>選 chain 時把 p50/p95 到帳與退出時間、總費用、DA、升級管理者、逃生路徑與目標資產深度放在同一張表。Validity proof、permissionless fault proof 與 liquidity provider 各解決不同問題；具體 deployment 才決定實際安全與可用性。</p>
+
+    <h2 id="zh-section-12">官方來源</h2>
     <ul>
       <li><a href="https://vitalik.eth.limo/general/2022/08/04/zkevm.html">Vitalik：zkEVM 類型</a>／<a href="https://ethereum.org/developers/docs/scaling/zk-rollups/">Ethereum.org ZK rollups</a></li>
       <li><a href="https://docs.zksync.io/zksync-protocol/contracts/l1-contracts/l1-ecosystem-contracts">zkSync Bridgehub / L1 生態合約</a>／<a href="https://docs.zksync.io/zksync-protocol/era-vm/transactions/l1_l2_communication">L1/L2 communication</a></li>
@@ -431,9 +438,9 @@ l1Nullifier.finalizeWithdrawal(
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>ZK Rollups: Validity Proofs and Bridging</h1>
-    <p class="meta">2026-09-11 · zkEVM · Validity proof · Canonical bridge · Developer guide</p>
+    <p class="meta">2026-09-11 · zkEVM · Validity proof · Canonical bridge · Developer guide</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">What a validity proof actually guarantees</a></li><li><a href="#en-section-3">What gets published: transactions vs state diffs</a></li><li><a href="#en-section-4">Four zkEVM types (which one you are actually running)</a></li><li><a href="#en-section-5">Deposits: L1 priority queue, L2 execution</a></li><li><a href="#en-section-6">Withdrawals: two ways to claim after the proof</a></li><li><a href="#en-section-7">Proof systems and upgrades</a></li><li><a href="#en-section-8">Developer checklist</a></li><li><a href="#en-section-9">User funds risk</a></li><li><a href="#en-section-10">Failure states the UI should expose</a></li><li><a href="#en-section-11">PM and developer acceptance</a></li><li><a href="#en-section-12">Official sources</a></li></ol></nav></details>
 
     <p><strong>A ZK rollup replaces "believe then challenge" with a validity proof.</strong> The sequencer still orders transactions and publishes data to L1, but every state transition carries a SNARK or STARK. Once the L1 verifier contract accepts it, that batch is cryptographically legal. Canonical withdrawals therefore skip a seven-day challenge window — the bottleneck becomes "when is the proof produced and included on L1." This is still a contract-author note: L1→L2 <code>msg.sender</code> rules, refund addresses, pairing L2→L1 bytes with finalize, and which opcodes are not Ethereum.</p>
     <blockquote><p>Contrast with the previous note: optimistic safety is economic and live (one honest verifier); ZK safety is circuits and the proof system. Deposits look alike (lock on L1 + forced inclusion); the reason you wait to withdraw is completely different.</p></blockquote>
@@ -448,7 +455,7 @@ l1Nullifier.finalizeWithdrawal(
       <p class="who"><strong>Where to start:</strong> beginners / backend engineers → what a validity proof guarantees and the bridge flows; Solidity engineers → the zkEVM types and proof-system differences; PMs → market background and user risk.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>ZK rollups are widely seen as the technical endgame, yet they still trail the optimistic camp badly on capital and ecosystem scale — the gap deserves an honest look at selection time.</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
@@ -461,11 +468,11 @@ l1Nullifier.finalizeWithdrawal(
         <tr><td>Linea prover throughput (Q1 2026)</td><td>70+ TPS</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
 
     <p>Put zkSync Era's ~$404M next to Base's ~$11.5B and the gap is <strong>more than an order of magnitude</strong>. ZK's edge is finality time and proof economics, and prover throughput is improving fast (Linea past 70 TPS). Choosing an L2 today is <strong>no longer a security-versus-cost trade but an ecosystem-scale versus finality-speed one</strong> — take ZK for fast finality and stronger cryptographic guarantees, optimistic for liquidity and mature tooling.</p>
 
-    <h2>What a validity proof actually guarantees</h2>
+    <h2 id="en-section-2">What a validity proof actually guarantees</h2>
     <p>A validity proof answers: given the old state root, this batch of transactions (or a state diff), and a new state root, does there exist a legal execution trace connecting them? L1 does not replay every L2 transaction; it checks the proof — <strong>verifier gas is roughly constant</strong>. Total L1 cost still scales with DA (blob / calldata / state-diff bytes). Cheap proofs are not cheap batches.</p>
     <div class="scroll"><table>
       <thead><tr><th></th><th>Optimistic</th><th>ZK</th></tr></thead>
@@ -524,7 +531,7 @@ l1Nullifier.finalizeWithdrawal(
       <figcaption>Beginner mnemonic: Optimistic is "trust first, anyone can yell stop," so you wait. ZK is "hand in the exam, L1 grades it now," so you wait for grading, not a challenge window.</figcaption>
     </figure>
 
-    <h2>What gets published: transactions vs state diffs</h2>
+    <h2 id="en-section-3">What gets published: transactions vs state diffs</h2>
     <p>Validity says execution was correct; <strong>it does not automatically mean you can reconstruct state yourself</strong>. Data still has to land on L1 (or a DA layer the protocol accepts) so nodes can sync and users can build withdrawal proofs.</p>
     <ul>
       <li><strong>Replay style (Scroll, most zkEVMs):</strong> publish enough transaction data that a full node can replay to the state.</li>
@@ -532,7 +539,7 @@ l1Nullifier.finalizeWithdrawal(
     </ul>
     <p>After EIP-4844, blob data expires on L1. The protocol either treats "someone stored it during the blob window" as enough, or plugs in longer-term DA. Optimistic rollups share this problem; it is not ZK-specific. Validium / external DA is "a proof, data not on Ethereum" — you can trust execution and still be unable to reconstruct state or build a withdrawal proof yourself.</p>
 
-    <h2>Four zkEVM types (which one you are actually running)</h2>
+    <h2 id="en-section-4">Four zkEVM types (which one you are actually running)</h2>
     <p>Vitalik's taxonomy asks how close the circuit's execution environment is to Ethereum. Closer means L1 tools and clients reuse; farther means easier circuits and faster proving, with a custom toolchain.</p>
     <div class="scroll"><table>
       <thead><tr><th>Type</th><th>Equivalence</th><th>In practice</th></tr></thead>
@@ -556,7 +563,7 @@ l1Nullifier.finalizeWithdrawal(
     </table></div>
     <p>zkSync now runs two stacks side by side: native <strong>EraVM</strong> (zksolc, <code>hardhat-zksync</code>) and the <strong>EVM Emulator</strong> (stock solc / Foundry). <code>delegatecall</code> does not cross those bytecodes. Ask which side you are on before talking CREATE2 or gas.</p>
 
-    <h2>Deposits: L1 priority queue, L2 execution</h2>
+    <h2 id="en-section-5">Deposits: L1 priority queue, L2 execution</h2>
     <p>Same spirit as optimistic rollups: write the request on L1, L2 must take it. ZK systems usually expose a <strong>priority queue / mailbox</strong>, but "after a timeout anyone force-advances the next batch" is <strong>not universal</strong>: Scroll requires L1 messages in QueueIndex order (Euclid also has permissionless batches); zkSync has a priority queue whose force mode depends on chain config; Starknet is a message queue, not an EVM deposit tx. Read that chain's forced-inclusion docs before you write the contract.</p>
 
     <figure>
@@ -704,9 +711,9 @@ starknet.sendMessageToL2{value: fee}(l2Contract, selector, payload);
 <span class="c">// L1 exit: consumeMessageFromL2 on the same payload, then unlock</span>
 starknet.consumeMessageFromL2(l2Contract, payload);</code></pre>
     <p>Starknet L1↔L2 messages are an explicit, replay-checked hash queue, not an EVM-style deposit transaction. Contracts must treat "message consumed" as part of the state machine; the handler will not re-enter for you.</p>
-    <p>The Cairo <code>l1_handler</code> selector, each <code>felt252</code> in the payload, and uint256 split into low/high must match the L1 <code>sendMessageToL2</code> array <strong>element for element</strong>. <code>consumeMessageFromL2</code> hashes that whole payload; extra padding or the wrong uint256 limb order and you cannot consume even after the proof. Before unlocking on L1, <code>require(msg.sender == starknetCore)</code> and check the payload fields yourself — Core only guarantees "this L2 message exists and has not been consumed," not that it is your protocol.</p>
+    <p>Match the Cairo selector, felt payload, and uint256 low/high limbs exactly. For L2→L1, a user or relayer calls your L1 application, which calls <code>StarknetCore.consumeMessageFromL2(expectedL2Sender, payload)</code>. Core binds the application address as consumer; it does not call back into the app. Validate recipient, amount, and application semantics, consume successfully, then release funds with CEI and reentrancy protection. Do not require the outer caller to be StarknetCore.</p>
 
-    <h2>Withdrawals: two ways to claim after the proof</h2>
+    <h2 id="en-section-6">Withdrawals: two ways to claim after the proof</h2>
     <p>The user burns or locks on L2 and enqueues an L2→L1 message. Only after L1 accepts the batch that contains it can they claim. There are two claim models — do not mix them:</p>
     <ul>
       <li><strong>Merkle logs (zkSync, Scroll):</strong> inclusion-proof against an <em>executed</em> batch root, then <code>finalizeWithdrawal</code>.</li>
@@ -773,7 +780,7 @@ l1Nullifier.finalizeWithdrawal(
       <figcaption>Treat the L2→L1 message as a cheque: amount and signature both have to match. Proving "this paper is in the tree" without the signature means you honoured any cheque.</figcaption>
     </figure>
 
-    <h2>Proof systems and upgrades</h2>
+    <h2 id="en-section-7">Proof systems and upgrades</h2>
     <ul>
       <li><strong>SNARKs (Groth16, PLONK, Honk / Boojum-class):</strong> verification on L1 is cheap; some need a trusted setup or a universal SRS.</li>
       <li><strong>STARKs (Starknet):</strong> no trusted setup, larger proofs, more expensive L1 verification, often wrapped in a recursive SNARK.</li>
@@ -781,7 +788,7 @@ l1Nullifier.finalizeWithdrawal(
     </ul>
     <p>A circuit upgrade changes the definition of legal execution. Serious ZK L2s put the verifier behind a timelock; some keep a Security Council emergency path. When you read withdrawal delay, split <strong>proving time</strong> from <strong>governance timelock</strong>.</p>
 
-    <h2>Developer checklist</h2>
+    <h2 id="en-section-8">Developer checklist</h2>
     <ul>
       <li>Confirm the L1→L2 model: on zkSync a contract sender is "msg.sender = aliased L1 contract" (EOAs are not aliased); Scroll / most OP-style zkEVMs are messenger + <code>xDomainMessageSender</code>. The wrong guard is dead on day one.</li>
       <li>Treat deposit parameters (L2 gas, pubdata, refund recipient, factory deps) as failing paths. Refund an EOA that exists on L2; do not pass an undeployed L1 contract, and do not bet on CREATE2 recovery.</li>
@@ -792,7 +799,7 @@ l1Nullifier.finalizeWithdrawal(
       <li>After a circuit / verifier upgrade, old withdrawal proofs may not match the new tree; freeze exits during the window or ship a migration path.</li>
     </ul>
 
-    <h2>User funds risk</h2>
+    <h2 id="en-section-9">User funds risk</h2>
     <p>A ZK rollup removes the challenge window but not every trust assumption. It swaps "will someone challenge" for "<strong>can you trust the proof system and whoever holds upgrade rights</strong>".</p>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
@@ -808,7 +815,14 @@ l1Nullifier.finalizeWithdrawal(
     </table></div>
     <blockquote><p>In short: optimistic asks you to believe <strong>someone will challenge</strong>; ZK asks you to believe <strong>the circuit is correct and the prover is alive</strong>. Neither is trustless.</p></blockquote>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-10">Failure states the UI should expose</h2>
+<p>For deposits distinguish L1 submitted, L1 confirmed, L2 derived/queued, and L2 executed/failed. For withdrawals distinguish initiated, waiting for output/proof, prove/consume ready, finalizable, and released. On ZK chains, separate commit, prove, and execute: proof acceptance does not universally make funds claimable.</p>
+<p>Persist both chains, transaction hashes, message/withdrawal ID, recipient, amount, and retry actor. Source success with destination failure is a normal asynchronous state, not an atomic revert. An indexer timeout is not grounds to resend; inspect on-chain consumed/finalized markers first.</p>
+<h2 id="en-section-11">PM and developer acceptance</h2>
+<p>Pin deployment version and official token mappings; complete a small round-trip. Test destination revert, insufficient gas, invalid proof, duplicate claim, unauthorized receiver, and provider outage. For each failure, identify asset location, recovery actor, additional gas, and exit timelocks.</p>
+<p>Compare p50/p95 arrival and exit times, total fees, DA, upgrade authority, escape paths, and target-asset depth. Validity proofs, permissionless fault proofs, and liquidity providers solve different problems; concrete deployments determine actual safety and availability.</p>
+
+    <h2 id="en-section-12">Official sources</h2>
     <ul>
       <li><a href="https://vitalik.eth.limo/general/2022/08/04/zkevm.html">Vitalik: zkEVM types</a> / <a href="https://ethereum.org/developers/docs/scaling/zk-rollups/">Ethereum.org ZK rollups</a></li>
       <li><a href="https://docs.zksync.io/zksync-protocol/contracts/l1-contracts/l1-ecosystem-contracts">zkSync Bridgehub / L1 ecosystem contracts</a> / <a href="https://docs.zksync.io/zksync-protocol/era-vm/transactions/l1_l2_communication">L1/L2 communication</a></li>
@@ -817,7 +831,7 @@ l1Nullifier.finalizeWithdrawal(
     <p class="meta">Content last verified: 2026-09-11</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -829,6 +843,6 @@ l1Nullifier.finalizeWithdrawal(
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261008-content"></script>
 </body>
 </html>

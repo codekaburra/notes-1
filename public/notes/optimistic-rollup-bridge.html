@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
 </head>
 <body data-title-zh="Optimistic Rollup：Derivation、Fault Proof 與出入金" data-title-en="Optimistic Rollups: Derivation, Fault Proofs &amp; Bridging">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Optimistic Rollup：Derivation、Fault Proof 與出入金</h1>
-    <p class="meta">2026-09-12 · OP Stack · Derivation · Fault Proof · Canonical Bridge · 開發者指南</p>
+    <p class="meta">2026-09-12 · OP Stack · Derivation · Fault Proof · Canonical Bridge · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">先記住安全模型</a></li><li><a href="#zh-section-3">一筆 L2 交易如何變成 Ethereum 可重建的狀態</a></li><li><a href="#zh-section-4">資料可用性與費用：便宜的是分攤，不是資料消失</a></li><li><a href="#zh-section-5">Fault proof 到底證明什麼</a></li><li><a href="#zh-section-6">入金：L1 鎖定，L2 推導出一筆 deposit tx</a></li><li><a href="#zh-section-7">你的合約：跨域訊息的正確守衛</a></li><li><a href="#zh-section-8">出金：L2 承諾，L1 等挑戰期</a></li><li><a href="#zh-section-9">Arbitrum 對照</a></li><li><a href="#zh-section-10">Canonical 橋 vs 快速橋</a></li><li><a href="#zh-section-11">開發者檢查清單</a></li><li><a href="#zh-section-12">使用者資金風險</a></li><li><a href="#zh-section-13">失敗路徑：UI 顯示哪個狀態？</a></li><li><a href="#zh-section-14">PM 與開發驗收</a></li><li><a href="#zh-section-15">官方來源</a></li></ol></nav></details>
 
     <p><strong>Optimistic rollup 的跨鏈不是另一座任意橋，而是 L2 狀態如何從 L1 推導出來的一部分。</strong>入金會寫進 L1，再被 L2 的 derivation pipeline 收成一筆特殊交易；出金則是 L2 先承諾「這筆訊息存在」，等輸出根經過挑戰期、無人成功挑戰後，L1 才放行資產。本則以 OP Stack 為主線、對照 Arbitrum，對象是要在 L1／L2 <em>寫合約</em>的人：你真正要寫對的是 <code>msg.sender</code>、<code>xDomainMessageSender</code>、gas、失敗 replay，而不是「呼叫哪個 bridge UI」。</p>
 
@@ -60,7 +60,7 @@
       <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 安全模型與入金／出金流程；Solidity 工程師 → derivation、fault proof、跨域訊息守衛；PM → 市場背景、快速橋取捨與使用者風險。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>L2 市場已高度集中，而且是 optimistic 陣營壓倒性領先——這對「該支援哪條鏈」的產品決策影響很直接。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字</th></tr></thead>
@@ -74,11 +74,11 @@
         <tr><td>Base 佔 L2 交易筆數</td><td>逾 37%</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
 
     <p>重點不是「有 73 條 rollup」，而是<strong>前兩條就吃掉約八成價值</strong>，第三名的 OP Mainnet 只有約 $1.4–1.9B。對 PM 而言，支援 Base 與 Arbitrum 大致就覆蓋了多數資金；其餘鏈要看具體生態而非通用覆蓋。另外 Arbitrum 已於 2025 年底上線 BOLD 無需許可驗證——fault proof 的去中心化程度正在改善，選型時值得重新評估。</p>
 
-    <h2>先記住安全模型</h2>
+    <h2 id="zh-section-2">先記住安全模型</h2>
     <p>Optimistic 的意思是：proposer 先把 L2 輸出根貼上 L1，<em>假設它是對的</em>。任何人都可以在挑戰期內用欺詐證明／fault proof 反駁。因此 canonical 出金必須等這個視窗結束——OP Mainnet 與 Arbitrum One 都約是七天量級，不是因為轉帳慢，而是因為安全依賴「有人看、有人挑戰」。</p>
     <div class="scroll"><table>
       <thead><tr><th>角色</th><th>做什麼</th><th>信任邊界</th></tr></thead>
@@ -135,7 +135,7 @@
       <figcaption>L2 不是「另一條獨立鏈再外掛一座橋」。入金交易由 L1 資料推導而來，出金憑據綁在 output root 上。橋合約只是這套狀態機的出入門口。</figcaption>
     </figure>
 
-    <h2>一筆 L2 交易如何變成 Ethereum 可重建的狀態</h2>
+    <h2 id="zh-section-3">一筆 L2 交易如何變成 Ethereum 可重建的狀態</h2>
     <p>OP Stack 把「快速執行」和「可驗證地重建」拆成兩條路。Sequencer 先把使用者交易交給 execution client 執行，立即產生 <strong>unsafe block</strong>；batcher 稍後把這些區塊的交易編成 batch，壓進 channel、切成 frames，再以 blob 或 calldata 發到 L1。每個 <code>op-node</code> 從同一條 L1 鏈讀取 frames、還原 batch、插入同一批 L1 deposits，最後驅動 execution client 重做出相同的 L2 區塊。</p>
     <ol>
       <li><strong>Unsafe：</strong>只從 sequencer 收到，速度最快；若 sequencer 沒把相同資料交到 L1，這些區塊可以被重組掉。</li>
@@ -148,7 +148,7 @@
     <p>每個 L1 origin 都有一段 <code>sequencerWindowSize</code>（常見設定約 12 小時，但屬鏈參數），讓 sequencer 延後發布 batch、提高壓縮率。期限內的 unsafe 區塊只是暫定；若窗口結束仍找不到合法 batch，derivation 會丟掉對不上的 unsafe 區塊，生成<strong>只含必要 system/deposit transactions 的預設區塊</strong>繼續前進。</p>
     <blockquote><p>所以「sequencer 不能永久審查」不等於普通 L2 交易會自動被收錄。使用者要繞過 sequencer，必須在 L1 呼叫 Portal 建立 deposit transaction；這可以是一筆帶 calldata 的任意 L2 call，但要支付 L1 gas，且要等 derivation 收件。</p></blockquote>
 
-    <h2>資料可用性與費用：便宜的是分攤，不是資料消失</h2>
+    <h2 id="zh-section-4">資料可用性與費用：便宜的是分攤，不是資料消失</h2>
     <p>Optimistic rollup 的 verifier 要能重放交易，挑戰者才能判斷輸出根是否錯誤。因此安全所需的 batch data 必須發布到協議承認的 DA 層。OP Mainnet 通常使用 EIP-4844 blobs；遇到設定或升級差異時也可能使用 calldata。Blob 比 calldata 便宜，卻不是永久檔案：共識節點只保證在 blob retention window 內提供資料，歷史服務仍要靠 archive node、indexer 或其他保存者。</p>
     <div class="scroll"><table>
       <thead><tr><th>費用</th><th>支付什麼</th><th>開發者要注意</th></tr></thead>
@@ -160,7 +160,7 @@
     </table></div>
     <p>L1→L2 deposit 比較特殊：發起者在 L1 提供 gas limit，Portal 透過 L1 resource metering 收取成本，等價於用 L1 gas 預付 L2 執行，避免攻擊者用便宜事件逼所有 L2 節點做無限工作。這也是 <code>minGasLimit</code> 太低會執行失敗、太高則增加 L1 成本的原因。</p>
 
-    <h2>Fault proof 到底證明什麼</h2>
+    <h2 id="zh-section-5">Fault proof 到底證明什麼</h2>
     <p>State proposal 不是只有一個 state root。典型 output root 會承諾 L2 state root、<code>L2ToL1MessagePasser</code> storage root 與 L2 block hash 等欄位；提款 proof 先證明 withdrawal hash 在 MessagePasser storage，再證明這份 storage root 屬於該 output。若 output 本身是假的，第二層保障就是 dispute game。</p>
     <ol>
       <li>Proposer 在 <code>DisputeGameFactory</code> 建立 game，提交「從已知起點執行到某 L2 block，結果是這個 claim」並鎖 bond。</li>
@@ -171,7 +171,7 @@
     <p>「至少一個誠實 challenger」是 permissionless fault proof 的核心安全假設，但目前的 Stage 1 系統仍有治理 backstop：Guardian 可以 pause withdrawals、blacklist 有問題的 game，或切換 respected game type；SystemOwner 也管理部分恢復能力。這能在 proof system 有 bug 時止血，同時代表使用者仍信任治理不會惡意阻止提款。</p>
     <p>安全與活性要分開：錯誤 output 要偷走 L1 資產，必須穿過 dispute 與 Portal 的成熟度檢查；sequencer、batcher 或 proposer 停機主要先傷害速度。使用者仍可從 L1 強制送 deposit call，並可在 permissionless 系統自行提出 output，但成本與操作複雜度遠高於平常路徑。</p>
 
-    <h2>入金：L1 鎖定，L2 推導出一筆 deposit tx</h2>
+    <h2 id="zh-section-6">入金：L1 鎖定，L2 推導出一筆 deposit tx</h2>
     <p>使用者在 L1 把 ETH 或 ERC-20 交給 canonical bridge。OP Stack 裡這會走到 <code>OptimismPortal.depositTransaction</code>，發出 <code>TransactionDeposited</code>。每個 L2 節點（含 sequencer）依 derivation 規則，把這筆事件收成 <strong>deposit transaction</strong>（交易型別 <code>0x7e</code>）：先把 <code>mint</code> 的 ETH 記入 L2 帳戶，再執行 <code>data</code> 呼叫。</p>
     <p>常見兩條路徑：</p>
     <ul>
@@ -300,7 +300,7 @@ L1_BRIDGE.bridgeERC20To(usdc, l2Usdc, alice, amount, 200_000, "");</code></pre>
       <figcaption>把 mint 想成「先發薪水」，value 想成「這通電話附帶多少現金」。StandardBridge 把薪水發給 messenger，再讓 messenger 把現金交給 L2 bridge。</figcaption>
     </figure>
 
-    <h2>你的合約：跨域訊息的正確守衛</h2>
+    <h2 id="zh-section-7">你的合約：跨域訊息的正確守衛</h2>
     <p>Token 橋只是 messenger 的一個客戶。自己的協議（鎖倉、治理、NFT 遷移）也走同一條管線。L2 預部署地址在每條 OP Stack 鏈都一樣：</p>
     <div class="scroll"><table>
       <thead><tr><th>預部署</th><th>地址</th></tr></thead>
@@ -407,7 +407,7 @@ IL1Block constant L1_BLOCK = IL1Block(0x4200000000000000000000000000000000000015
       <figcaption>新手把錢包綠勾當成「已經跟以太坊一樣安全」。綠勾只是 sequencer 的承諾；資料上 L1 之後才進 safe，L1 最終化才是 finalized。</figcaption>
     </figure>
 
-    <h2>出金：L2 承諾，L1 等挑戰期</h2>
+    <h2 id="zh-section-8">出金：L2 承諾，L1 等挑戰期</h2>
     <p>出金是三步，不能合併成一筆 L1 交易：</p>
     <ol>
       <li><strong>Initiate（L2）：</strong><code>L2StandardBridge.bridgeETHTo</code>／<code>bridgeERC20To</code> → messenger → <code>L2ToL1MessagePasser.initiateWithdrawal</code>。ETH 從 L2 流通量移除，訊息雜湊寫入 MessagePasser storage。</li>
@@ -467,7 +467,7 @@ portal.finalizeWithdrawalTransaction(withdrawalTx);</code></pre>
     <p>finalize 時目標 revert，Portal <strong>仍把這筆標成已 finalize</strong>（<code>WithdrawalFinalized(..., false)</code>），ETH 不會再走同一條 withdrawal hash 重放。這跟入金失敗不一樣：L1→L2 走 messenger 的訊息進 <code>failedMessages</code>，可以再 <code>relayMessage</code>；直接打 Portal 的任意 <code>target</code> 沒有這層。自己的 L1 合約被 messenger 呼叫時，要把「先記帳再轉 ETH」寫成可重試，不要假設 Portal 會幫你 replay。</p>
     <p><code>OptimismMintableERC20</code> 只有 L2StandardBridge 能 <code>mint</code>／<code>burn</code>。自己發「橋接代幣」卻把 mint 權交給 EOA 或任意 adapter，就不是 canonical 了。讀 <code>l1Token()</code> 對一下官方清單，不要只看 symbol。</p>
 
-    <h2>Arbitrum 對照</h2>
+    <h2 id="zh-section-9">Arbitrum 對照</h2>
     <div class="scroll"><table>
       <thead><tr><th></th><th>OP Stack</th><th>Arbitrum Nitro</th></tr></thead>
       <tbody>
@@ -518,11 +518,11 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     </figure>
     <p>Arbitrum 的 L1→L2 別名與 OP 同一常數。Retryable 的 <code>excessFeeRefundAddress</code>／<code>callValueRefundAddress</code> 若填 L1 合約，L2 入帳的是<strong>別名後</strong>的地址。那個門牌若沒有合約，ETH 會停在那——<strong>不要假設之後 CREATE2 部署就能救回</strong>。實務：refund 填 L2 上已存在的 EOA 或合約。這跟 zkSync 的 <code>refundRecipient</code> 是同一類 bug。</p>
 
-    <h2>Canonical 橋 vs 快速橋</h2>
+    <h2 id="zh-section-10">Canonical 橋 vs 快速橋</h2>
     <p>Across、Hop、官方 Fast Withdrawal 產品用的是<strong>流動性提供者先在目標鏈墊款</strong>，再自己去走 canonical 出金回收。使用者幾分鐘拿到資金，但對手方變成 LP 與那個協議的合約，不再是「只信任 L1 + 至少一個誠實 verifier」。</p>
     <blockquote><p>產品若顯示「L2 ETH」，要分清楚：是 canonical 鑄造／記帳的 ETH，還是 OFT、lock-mint 橋接代幣。後者的出金路徑與挑戰期無關，風險模型也完全不同——見 LayerZero 那則筆記。</p></blockquote>
 
-    <h2>開發者檢查清單</h2>
+    <h2 id="zh-section-11">開發者檢查清單</h2>
     <ul>
       <li>所有跨域入口：<code>msg.sender == messenger</code> <em>且</em> <code>xDomainMessageSender() == counterpart</code>。Foundry 要測「假 messenger」「真 messenger + 假 sender」兩種攻擊。</li>
       <li>入金 ERC-20 只允許官方 token 對映；L2 側用 <code>OptimismMintableERC20Factory</code> 或官方清單，不要自己 <code>mapping[l1] = l2</code> 寫死未驗證地址。</li>
@@ -534,7 +534,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
       <li>Sequencer 停機時，入金仍應能從 L1 推導；出金則仍受挑戰期約束。把這兩件事分開寫進 runbook。</li>
     </ul>
 
-    <h2>使用者資金風險</h2>
+    <h2 id="zh-section-12">使用者資金風險</h2>
     <p>L2 便宜快速，但使用者承擔的風險與 L1 不同。以下每一項都直接關係到「你的錢什麼時候、能不能拿回來」。</p>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
@@ -549,7 +549,14 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     </table></div>
     <blockquote><p>一句話：L1 的風險是「協議本身」；L2 多了<strong>sequencer、升級權限與橋</strong>三層人為風險，而它們都不是密碼學保證的。</p></blockquote>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-13">失敗路徑：UI 顯示哪個狀態？</h2>
+<p>入金至少區分 L1 submitted、L1 confirmed、L2 derived/queued、L2 executed/failed；出金則區分 initiated、等待 output/proof、prove/consume ready、finalizable、released。OP 的 proof age 與 dispute game validity 是不同門檻，不能將兩段延遲一律串接。</p>
+<p>每個狀態存 source/destination chain、tx hash、message/withdrawal ID、收款人、amount 與 retry actor。跨鏈 A 成功 B 失敗是正常狀態，不是「整筆 revert」。避免因 indexer 延遲重送同一動作；在鏈上讀消費／完成標記，再決定是否可 retry。</p>
+<h2 id="zh-section-14">PM 與開發驗收</h2>
+<p>固定部署版本與官方 mapping，完成最小金額 round-trip；測 destination revert、gas 不足、proof 無效、重複 claim、receiver 無權與 provider 中斷。為每個失敗列出資產在哪、誰能操作、是否需再付 gas、出口是否有 timelock。</p>
+<p>選 chain 時把 p50/p95 到帳與退出時間、總費用、DA、升級管理者、逃生路徑與目標資產深度放在同一張表。Validity proof、permissionless fault proof 與 liquidity provider 各解決不同問題；具體 deployment 才決定實際安全與可用性。</p>
+
+    <h2 id="zh-section-15">官方來源</h2>
     <ul>
       <li><a href="https://docs.optimism.io/op-stack/protocol/derivation-pipeline">Derivation pipeline</a>／<a href="https://docs.optimism.io/stack/protocol/deposit-flow">Deposit flow</a>／<a href="https://docs.optimism.io/op-stack/bridging/withdrawal-flow">Withdrawal flow</a></li>
       <li><a href="https://docs.optimism.io/op-stack/fault-proofs/">Fault proofs</a>／<a href="https://specs.optimism.io/">OP Stack specs</a>／<a href="https://github.com/ethereum-optimism/optimism/tree/develop/packages/contracts-bedrock">contracts-bedrock</a></li>
@@ -559,9 +566,9 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Optimistic Rollups: Derivation, Fault Proofs &amp; Bridging</h1>
-    <p class="meta">2026-09-12 · OP Stack · Derivation · Fault proof · Canonical bridge · Developer guide</p>
+    <p class="meta">2026-09-12 · OP Stack · Derivation · Fault proof · Canonical bridge · Developer guide</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">The security model first</a></li><li><a href="#en-section-3">How an L2 transaction becomes Ethereum-reconstructable state</a></li><li><a href="#en-section-4">Data availability and fees: data is shared, not erased</a></li><li><a href="#en-section-5">What a fault proof actually proves</a></li><li><a href="#en-section-6">Deposits: lock on L1, derive a deposit tx on L2</a></li><li><a href="#en-section-7">Your contracts: the cross-domain guard</a></li><li><a href="#en-section-8">Withdrawals: commit on L2, wait on L1</a></li><li><a href="#en-section-9">Arbitrum, by contrast</a></li><li><a href="#en-section-10">Canonical vs fast bridges</a></li><li><a href="#en-section-11">Developer checklist</a></li><li><a href="#en-section-12">User funds risk</a></li><li><a href="#en-section-13">Failure states the UI should expose</a></li><li><a href="#en-section-14">PM and developer acceptance</a></li><li><a href="#en-section-15">Official sources</a></li></ol></nav></details>
 
     <p><strong>Cross-chain movement on an optimistic rollup is not a bolt-on bridge. It is part of how L2 state is derived from L1.</strong> A deposit is written on L1 and turned into a special transaction by the L2 derivation pipeline. A withdrawal is an L2 commitment that a message exists; L1 releases funds only after the output root survives its challenge window. This note follows the OP Stack, contrasts Arbitrum, and is written for people <em>shipping contracts</em> on L1/L2: the parts you must get right are <code>msg.sender</code>, <code>xDomainMessageSender</code>, gas, and replay — not which bridge UI to click.</p>
 
@@ -575,7 +582,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
       <p class="who"><strong>Where to start:</strong> beginners / backend engineers → the security model and deposit/withdrawal flows; Solidity engineers → derivation, fault proofs, cross-domain message guards; PMs → market background, the fast-bridge trade-off and user risk.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>The L2 market is already highly concentrated, and the optimistic camp leads overwhelmingly — which bears directly on "which chains should we support".</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
@@ -589,11 +596,11 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
         <tr><td>Base share of L2 transactions</td><td>37%+</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
 
     <p>The point is not that there are 73 rollups but that <strong>the top two hold roughly 80% of the value</strong>, with third-placed OP Mainnet at only ~$1.4–1.9B. For a PM, supporting Base and Arbitrum covers most of the money; other chains are an ecosystem-specific call, not general coverage. Arbitrum also shipped BOLD permissionless validation in late 2025 — fault-proof decentralisation is improving, and worth re-evaluating at selection time.</p>
 
-    <h2>The security model first</h2>
+    <h2 id="en-section-2">The security model first</h2>
     <p>Optimistic means a proposer posts an L2 output root to L1 and everyone <em>assumes it is correct</em>. Anyone may contradict it during the challenge period with a fraud / fault proof. Canonical withdrawals wait for that window — on the order of seven days on OP Mainnet and Arbitrum One — not because the transfer is slow, but because safety depends on someone watching and being able to challenge.</p>
     <div class="scroll"><table>
       <thead><tr><th>Role</th><th>What they do</th><th>Trust boundary</th></tr></thead>
@@ -650,7 +657,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
       <figcaption>L2 is not "another chain plus a bridge." Deposits are derived from L1 data; withdrawal credentials are bound to an output root. Bridge contracts are the doors on that state machine.</figcaption>
     </figure>
 
-    <h2>How an L2 transaction becomes Ethereum-reconstructable state</h2>
+    <h2 id="en-section-3">How an L2 transaction becomes Ethereum-reconstructable state</h2>
     <p>The OP Stack separates fast execution from verifiable reconstruction. The sequencer first sends user transactions to the execution client and immediately produces an <strong>unsafe block</strong>. The batcher later encodes those blocks as batches, compresses them into a channel, splits the channel into frames, and publishes them to L1 as blobs or calldata. Every <code>op-node</code> reads those frames from the same L1, rebuilds the batches, inserts the same L1 deposits, and drives its execution client to reproduce the same L2 blocks.</p>
     <ol>
       <li><strong>Unsafe:</strong> learned only from the sequencer and therefore fastest. If matching data never lands on L1, these blocks may be reorganized away.</li>
@@ -663,7 +670,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     <p>Each L1 origin has a <code>sequencerWindowSize</code> (commonly around 12 hours, but chain-configurable) during which the sequencer may delay publication to improve compression. Unsafe blocks remain tentative during the window. If no valid batch appears by expiry, derivation discards incompatible unsafe blocks and advances with <strong>default blocks containing only required system/deposit transactions</strong>.</p>
     <blockquote><p>“The sequencer cannot censor forever” does not mean an ordinary L2 transaction is automatically included. To bypass it, a user submits a deposit transaction through the Portal on L1. That deposit may carry calldata for an arbitrary L2 call, but it costs L1 gas and waits for derivation.</p></blockquote>
 
-    <h2>Data availability and fees: data is shared, not erased</h2>
+    <h2 id="en-section-4">Data availability and fees: data is shared, not erased</h2>
     <p>An optimistic verifier must be able to replay transactions before a challenger can identify a bad output. The batch data required for safety must therefore be published to protocol-recognized DA. OP Mainnet normally uses EIP-4844 blobs, with calldata available for configurations or transition paths. Blobs are cheaper than calldata but are not permanent archives: consensus nodes only guarantee availability during the blob retention window, so historical access still relies on archive nodes, indexers, or other data preservers.</p>
     <div class="scroll"><table>
       <thead><tr><th>Fee</th><th>What it pays for</th><th>Developer implication</th></tr></thead>
@@ -675,7 +682,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     </table></div>
     <p>L1→L2 deposits are special. The originator supplies an L2 gas limit on L1, and Portal resource metering charges the work through L1 gas—effectively prepaying L2 execution—to prevent cheap events from forcing every L2 node into unbounded computation. This is why a low <code>minGasLimit</code> may fail execution while a higher one increases the L1 cost.</p>
 
-    <h2>What a fault proof actually proves</h2>
+    <h2 id="en-section-5">What a fault proof actually proves</h2>
     <p>A state proposal is more than one state root. A typical output root commits to fields including the L2 state root, the <code>L2ToL1MessagePasser</code> storage root, and the L2 block hash. A withdrawal proof first establishes that its hash is in MessagePasser storage, then that this storage root belongs to the output. If the output itself is false, the dispute game is the second layer of defense.</p>
     <ol>
       <li>A proposer creates a game through <code>DisputeGameFactory</code>, claiming “execution from the agreed starting point to this L2 block ends in this claim,” and locks a bond.</li>
@@ -686,7 +693,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     <p>“At least one honest challenger” is the core safety assumption of permissionless fault proofs, but today's Stage 1 system still has a governance backstop. The Guardian may pause withdrawals, blacklist a broken game, or change the respected game type; the SystemOwner also retains recovery powers. These controls can stop damage when the proof system has a bug, while requiring users to trust governance not to maliciously block exits.</p>
     <p>Separate safety from liveness: stealing L1 assets through a false output requires passing the dispute and Portal maturity checks. Sequencer, batcher, or proposer downtime first affects speed. A user can still force a deposit call from L1 and, in the permissionless system, propose an output themselves—but at much higher cost and operational complexity than the normal path.</p>
 
-    <h2>Deposits: lock on L1, derive a deposit tx on L2</h2>
+    <h2 id="en-section-6">Deposits: lock on L1, derive a deposit tx on L2</h2>
     <p>The user gives ETH or ERC-20 to the canonical bridge on L1. On the OP Stack this reaches <code>OptimismPortal.depositTransaction</code> and emits <code>TransactionDeposited</code>. Every L2 node (including the sequencer) turns that event into a <strong>deposit transaction</strong> (type <code>0x7e</code>): credit <code>mint</code> ETH to the L2 account, then execute <code>data</code>.</p>
     <p>Two common paths:</p>
     <ul>
@@ -815,7 +822,7 @@ L1_BRIDGE.bridgeERC20To(usdc, l2Usdc, alice, amount, 200_000, "");</code></pre>
       <figcaption>Think of mint as "pay salary first" and value as "how much cash this call carries." StandardBridge pays salary to the messenger, then the messenger hands cash to the L2 bridge.</figcaption>
     </figure>
 
-    <h2>Your contracts: the cross-domain guard</h2>
+    <h2 id="en-section-7">Your contracts: the cross-domain guard</h2>
     <p>The token bridge is just one client of the messenger. Your own protocol (locks, governors, NFT moves) uses the same pipe. L2 predeploys are identical on every OP Stack chain:</p>
     <div class="scroll"><table>
       <thead><tr><th>Predeploy</th><th>Address</th></tr></thead>
@@ -922,7 +929,7 @@ IL1Block constant L1_BLOCK = IL1Block(0x4200000000000000000000000000000000000015
       <figcaption>Beginners treat the wallet green tick as "as safe as Ethereum." That tick is the sequencer's promise; safe starts when data is on L1; finalized follows L1 finality.</figcaption>
     </figure>
 
-    <h2>Withdrawals: commit on L2, wait on L1</h2>
+    <h2 id="en-section-8">Withdrawals: commit on L2, wait on L1</h2>
     <p>Withdrawal is three steps and cannot collapse into one L1 transaction:</p>
     <ol>
       <li><strong>Initiate (L2):</strong> <code>L2StandardBridge.bridgeETHTo</code> / <code>bridgeERC20To</code> → messenger → <code>L2ToL1MessagePasser.initiateWithdrawal</code>. ETH leaves L2 circulation; the message hash is written to MessagePasser storage.</li>
@@ -982,7 +989,7 @@ portal.finalizeWithdrawalTransaction(withdrawalTx);</code></pre>
     <p>If the target reverts at finalize, the Portal <strong>still marks the withdrawal finalized</strong> (<code>WithdrawalFinalized(..., false)</code>). That hash will not pay again. This is not the deposit path: L1→L2 messenger failures land in <code>failedMessages</code> and can be <code>relayMessage</code>d; a raw Portal <code>target</code> has no such retry. When the messenger calls your L1 contract, make "book then transfer" retryable yourself — the Portal will not replay it for you.</p>
     <p>Only L2StandardBridge may <code>mint</code> / <code>burn</code> an <code>OptimismMintableERC20</code>. A homegrown "bridged token" whose mint key is an EOA or a random adapter is not canonical. Read <code>l1Token()</code> against the official list; do not trust the symbol.</p>
 
-    <h2>Arbitrum, by contrast</h2>
+    <h2 id="en-section-9">Arbitrum, by contrast</h2>
     <div class="scroll"><table>
       <thead><tr><th></th><th>OP Stack</th><th>Arbitrum Nitro</th></tr></thead>
       <tbody>
@@ -1033,11 +1040,11 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     </figure>
     <p>Arbitrum's L1→L2 alias uses the same constant as OP. If <code>excessFeeRefundAddress</code> / <code>callValueRefundAddress</code> is an L1 contract, the L2 credit goes to the <strong>aliased</strong> address. If nothing is deployed there, ETH sits — <strong>do not assume a later CREATE2 deploy will recover it</strong>. In practice: refund an EOA or contract that already exists on L2. Same class of bug as zkSync <code>refundRecipient</code>.</p>
 
-    <h2>Canonical vs fast bridges</h2>
+    <h2 id="en-section-10">Canonical vs fast bridges</h2>
     <p>Across, Hop, and official fast-withdrawal products work by having a <strong>liquidity provider pay you on the destination first</strong>, then recovering via the canonical withdrawal. Users get funds in minutes; the counterparty becomes the LP and that protocol, not "L1 plus one honest verifier."</p>
     <blockquote><p>If a product shows "L2 ETH," ask whether it is canonical credited ETH or an OFT / lock-mint wrapped token. The latter's exit path has nothing to do with the challenge period — see the LayerZero note.</p></blockquote>
 
-    <h2>Developer checklist</h2>
+    <h2 id="en-section-11">Developer checklist</h2>
     <ul>
       <li>Every cross-domain entrypoint: <code>msg.sender == messenger</code> <em>and</em> <code>xDomainMessageSender() == counterpart</code>. Foundry should hit both "fake messenger" and "real messenger + fake sender."</li>
       <li>Only allow official ERC-20 mappings; on L2 use <code>OptimismMintableERC20Factory</code> or the official list, never a hard-coded unverified <code>mapping[l1] = l2</code>.</li>
@@ -1049,7 +1056,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
       <li>If the sequencer is down, deposits should still derive from L1; withdrawals still wait out the challenge period. Split those two facts in the runbook.</li>
     </ul>
 
-    <h2>User funds risk</h2>
+    <h2 id="en-section-12">User funds risk</h2>
     <p>L2s are cheap and fast, but users carry different risks than on L1. Every item below bears directly on when — and whether — you get your money back.</p>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
@@ -1064,7 +1071,14 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     </table></div>
     <blockquote><p>In short: L1's risk is "the protocol itself"; an L2 adds three human layers — <strong>sequencer, upgrade rights and bridges</strong> — none of which is a cryptographic guarantee.</p></blockquote>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-13">Failure states the UI should expose</h2>
+<p>For deposits distinguish L1 submitted, L1 confirmed, L2 derived/queued, and L2 executed/failed. For withdrawals distinguish initiated, waiting for output/proof, prove/consume ready, finalizable, and released. For OP, proof age and dispute-game validity are separate gates; do not always add their delays sequentially.</p>
+<p>Persist both chains, transaction hashes, message/withdrawal ID, recipient, amount, and retry actor. Source success with destination failure is a normal asynchronous state, not an atomic revert. An indexer timeout is not grounds to resend; inspect on-chain consumed/finalized markers first.</p>
+<h2 id="en-section-14">PM and developer acceptance</h2>
+<p>Pin deployment version and official token mappings; complete a small round-trip. Test destination revert, insufficient gas, invalid proof, duplicate claim, unauthorized receiver, and provider outage. For each failure, identify asset location, recovery actor, additional gas, and exit timelocks.</p>
+<p>Compare p50/p95 arrival and exit times, total fees, DA, upgrade authority, escape paths, and target-asset depth. Validity proofs, permissionless fault proofs, and liquidity providers solve different problems; concrete deployments determine actual safety and availability.</p>
+
+    <h2 id="en-section-15">Official sources</h2>
     <ul>
       <li><a href="https://docs.optimism.io/op-stack/protocol/derivation-pipeline">Derivation pipeline</a> / <a href="https://docs.optimism.io/stack/protocol/deposit-flow">Deposit flow</a> / <a href="https://docs.optimism.io/op-stack/bridging/withdrawal-flow">Withdrawal flow</a></li>
       <li><a href="https://docs.optimism.io/op-stack/fault-proofs/">Fault proofs</a> / <a href="https://specs.optimism.io/">OP Stack specs</a> / <a href="https://github.com/ethereum-optimism/optimism/tree/develop/packages/contracts-bedrock">contracts-bedrock</a></li>
@@ -1073,7 +1087,7 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
     <p class="meta">Content last verified: 2026-09-12</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -1085,6 +1099,6 @@ require(IOutbox(bridge.activeOutbox()).l2ToL1Sender() == l2Counterpart, "bad L2 
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261008-content"></script>
 </body>
 </html>

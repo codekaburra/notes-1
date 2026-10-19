@@ -13,7 +13,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="./assets/style.css">
+<link rel="stylesheet" href="./assets/style.css?v=20261008-content">
 </head>
 <body class="home" data-title-zh="筆記" data-title-en="Notes">
 <div class="wrap">
@@ -57,6 +57,13 @@
       </div>
     </section>
 
+<section class="reader-paths" aria-labelledby="start-title">
+<h2 id="start-title"><span data-l="zh">從這裡開始</span><span data-l="en">Start here</span></h2>
+<div class="reader-grid">
+<div><h3><span data-l="zh">Web3 初學者</span><span data-l="en">Web3 beginners</span></h3><p data-l="zh"><a href="./notes/web3-foundations.html">帳戶與交易</a> → <a href="./notes/evm-gas.html">Gas</a> → <a href="./notes/uniswap-v3-v4.html">AMM</a> → <a href="./notes/aave.html">借貸</a> → <a href="./notes/makerdao-sky.html">穩定幣</a></p><p data-l="en"><a href="./notes/web3-foundations.html">Accounts and transactions</a> → <a href="./notes/evm-gas.html">Gas</a> → <a href="./notes/uniswap-v3-v4.html">AMMs</a> → <a href="./notes/aave.html">Lending</a> → <a href="./notes/makerdao-sky.html">Stablecoins</a></p></div>
+<div><h3><span data-l="zh">DeFi PM</span><span data-l="en">DeFi PMs</span></h3><p data-l="zh"><a href="./notes/web3-foundations.html">信任與資產</a> → <a href="./notes/erc-4626-vaults.html">收益與退出</a> → <a href="./notes/oracles.html">市場完整性</a> → <a href="./notes/defi-integration.html">產品流程與復原</a></p><p data-l="en"><a href="./notes/web3-foundations.html">Trust and assets</a> → <a href="./notes/erc-4626-vaults.html">Yield and exits</a> → <a href="./notes/oracles.html">Market integrity</a> → <a href="./notes/defi-integration.html">Product flow and recovery</a></p></div>
+<div><h3><span data-l="zh">智慧合約開發者</span><span data-l="en">Contract developers</span></h3><p data-l="zh"><a href="./notes/solidity-security.html">安全與 invariant</a> → <a href="./notes/defi-integration.html">整合驗收</a> → <a href="./notes/proxy-upgradeable.html">升級</a> → <a href="./notes/erc-4337.html">Smart accounts</a> → <a href="./notes/layerzero.html">跨鏈訊息</a></p><p data-l="en"><a href="./notes/solidity-security.html">Security and invariants</a> → <a href="./notes/defi-integration.html">Integration acceptance</a> → <a href="./notes/proxy-upgradeable.html">Upgrades</a> → <a href="./notes/erc-4337.html">Smart accounts</a> → <a href="./notes/layerzero.html">Cross-chain messaging</a></p></div>
+</div></section>
     <section class="journal" id="notes">
       <div class="section-head">
         <h2><span data-l="zh">精選文章</span><span data-l="en">Selected notes</span></h2>
@@ -114,8 +121,8 @@
         <span class="n-topic">ROLLUP · ZK</span>
         <span class="n-title" data-l="zh">ZK Rollup：有效性證明與出入金</span>
         <span class="n-title" data-l="en">ZK Rollups: Validity Proofs and Bridging</span>
-        <span class="n-desc" data-l="zh">Validity proof、zkEVM 四型、Bridgehub 入金，以及證明上鏈後即可 finalize 的出金。</span>
-        <span class="n-desc" data-l="en">Validity proofs, four zkEVM types, Bridgehub deposits, and withdrawals that finalize once the proof lands.</span>
+        <span class="n-desc" data-l="zh">Validity proof、zkEVM 四型、Bridgehub 入金，以及依鏈別通過 prove／execute 等門檻的出金。</span>
+        <span class="n-desc" data-l="en">Validity proofs, four zkEVM types, Bridgehub deposits, and chain-specific proof and execution gates for withdrawals.</span>
         <span class="n-date">2026-09-11</span>
       </a>
     </li>
@@ -218,6 +225,10 @@
         <span class="n-date">2026-10-08</span>
       </a>
     </li>
+<li><a href="./notes/web3-foundations.html"><span class="n-index">15</span><span class="n-topic">FOUNDATIONS</span><span class="n-title" data-l="zh">Web3 入門：帳戶、資產與交易</span><span class="n-title" data-l="en">Web3 Foundations: Accounts, Assets, and Transactions</span><span class="n-desc" data-l="zh">從資產在哪、誰能動，到簽署、授權、receipt 與 finality。</span><span class="n-desc" data-l="en">Accounts, asset location, signatures, approvals, receipts, and finality.</span><span class="n-date">2026-10-08</span></a></li>
+<li><a href="./notes/oracles.html"><span class="n-index">16</span><span class="n-topic">DEFI · ORACLES</span><span class="n-title" data-l="zh">預言機：價格、清算與市場完整性</span><span class="n-title" data-l="en">Oracles: Prices, Liquidation, and Market Integrity</span><span class="n-desc" data-l="zh">Spot、TWAP、外部 feed，以及 stale、decimals 與 sequencer 風險。</span><span class="n-desc" data-l="en">Spot, TWAP, external feeds, freshness, decimals, and sequencer risk.</span><span class="n-date">2026-10-08</span></a></li>
+<li><a href="./notes/erc-4626-vaults.html"><span class="n-index">17</span><span class="n-topic">DEFI · VAULTS</span><span class="n-title" data-l="zh">ERC-4626 金庫：Shares、收益與退出</span><span class="n-title" data-l="en">ERC-4626 Vaults: Shares, Yield, and Exits</span><span class="n-desc" data-l="zh">股價、取整、donation 攻擊、收益來源與提款流動性。</span><span class="n-desc" data-l="en">Share prices, rounding, donations, yield sources, and exit liquidity.</span><span class="n-date">2026-10-08</span></a></li>
+<li><a href="./notes/defi-integration.html"><span class="n-index">18</span><span class="n-topic">DEVELOPMENT · OPERATIONS</span><span class="n-title" data-l="zh">DeFi 整合：從使用者意圖到確認與復原</span><span class="n-title" data-l="en">DeFi Integration: Intent, Execution, and Recovery</span><span class="n-desc" data-l="zh">一個完整交易流程，以及 timeout、revert 與跨鏈 pending 的修復。</span><span class="n-desc" data-l="en">A complete transaction flow with timeout, revert, and cross-chain recovery.</span><span class="n-date">2026-10-08</span></a></li>
   </ul>
     </section>
 
@@ -246,6 +257,6 @@
   </footer>
 
 </div>
-<script src="./assets/app.js"></script>
+<script src="./assets/app.js?v=20261008-content"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
 </head>
 <body data-title-zh="Account Abstraction 與 Smart Accounts" data-title-en="Account Abstraction & Smart Accounts">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Account Abstraction 與 Smart Accounts</h1>
-    <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · 開發者指南</p>
+    <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">先從一個使用情境開始</a></li><li><a href="#zh-section-3">三種帳戶模型</a></li><li><a href="#zh-section-4">ERC-4337 的參與者與信任邊界</a></li><li><a href="#zh-section-5">PackedUserOperation：鏈上真正驗證的資料</a></li><li><a href="#zh-section-6">handleOps：驗證、執行與 gas 資金流</a></li><li><a href="#zh-section-7">Gas：誰先付、預留多少、最後扣多少</a></li><li><a href="#zh-section-8">四條必須分清楚的 call path</a></li><li><a href="#zh-section-9">Smart Account 合約：validation 不等於 execution</a></li><li><a href="#zh-section-10">Smart Account lifecycle：誰初始化，誰能修改</a></li><li><a href="#zh-section-11">ERC-20 到底放在哪個地址？</a></li><li><a href="#zh-section-12">L1、L2、L3：相同地址不等於相同帳戶狀態</a></li><li><a href="#zh-section-13">Cross-chain：不是一筆原子 transaction</a></li><li><a href="#zh-section-14">Proof of reserve：證明有資產，不等於證明可償付</a></li><li><a href="#zh-section-15">如何撤銷、取消、移除或「銷毀」？</a></li><li><a href="#zh-section-16">如果 Hacker 搶先初始化或騙到 delegation</a></li><li><a href="#zh-section-17">Factory + CREATE2：先有地址，後有 code</a></li><li><a href="#zh-section-18">ERC-1271：UserOp 以外的簽章相容面</a></li><li><a href="#zh-section-19">EIP-7702：委派 code，不是搬移資產</a></li><li><a href="#zh-section-20">Paymaster 與 Aggregator</a></li><li><a href="#zh-section-21">ERC-7579：模組化帳戶</a></li><li><a href="#zh-section-22">Web3 client：viem 與 Bundler RPC</a></li><li><a href="#zh-section-23">ERC-7562：為什麼本機成功，Bundler 卻拒收</a></li><li><a href="#zh-section-24">EntryPoint 版本與地址</a></li><li><a href="#zh-section-25">測試、上線與監控清單</a></li><li><a href="#zh-section-26">協議層安全清單</a></li><li><a href="#zh-section-27">使用者風險（資產安全）</a></li><li><a href="#zh-section-28">PM：gasless 的成本與可用性</a></li><li><a href="#zh-section-29">一次可重現的驗收任務</a></li><li><a href="#zh-section-30">官方來源</a></li></ol></nav></details>
 
     <p><strong>Smart Account 是帳戶合約；Account Abstraction 是讓帳戶自訂驗證、執行與 gas 支付規則的整套系統。</strong>本篇從協議一路走到工程實作：UserOperation、Bundler、EntryPoint、7702 delegation、Account／Factory、Paymaster、ERC-7579、viem、除錯與上線檢查。</p>
 
@@ -60,7 +60,7 @@
       <p class="who"><strong>誰讀哪裡：</strong>初學／後端工程師 → 使用情境與三種帳戶模型；Solidity 工程師 → UserOperation、validation／execution 分界、ERC-7579；PM → 市場背景與使用者風險。本篇很長，建議按此挑段落讀，不必從頭到尾。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>ERC-4337 已從實驗變成生產基礎設施。但它的市場有一個對架構決策極關鍵的特徵：<strong>底層基礎設施高度集中</strong>。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字</th></tr></thead>
@@ -72,11 +72,11 @@
         <tr><td>並存的 EntryPoint 版本</td><td>v0.6 / v0.7 / v0.8 / v0.9</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，各來源統計口徑不一；以 2026-09 查得為準，決策前請自行複核。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
 
     <p>UserOperation 多半經少數 hosted bundler（Alchemy、Pimlico、Coinbase 等）送上鏈；名單與佔比隨來源與鏈而變，不必背特定百分比。重點是「去中心化帳戶」的<strong>實際送出路徑相當集中</strong>——做產品時應把 bundler 視為有停機風險的外部依賴，預留備援節點或自建 fallback。另外四個 EntryPoint 版本同時在線，整合前務必先確認你的 bundler 與帳戶實作對齊的是哪一版。</p>
 
-    <h2>先從一個使用情境開始</h2>
+    <h2 id="zh-section-2">先從一個使用情境開始</h2>
     <p>假設 Alice 想用 USDC 買 token，但手機裡沒有 ETH。傳統 EOA 不能送交易，因為 Ethereum protocol 要求發送者先付 gas。Account Abstraction 把「使用者授權」與「誰送鏈上交易、誰付 gas」拆開：</p>
     <ol>
       <li>Alice 的 wallet 建立一份「我要執行哪些 calls」的 <code>UserOperation</code> 並簽名。</li>
@@ -125,7 +125,7 @@
       <figcaption>4337 沒有取消驗證：它把驗證搬到 Smart Account contract。Bundler 只負責提交，EntryPoint 只按規則協調，真正的授權仍由帳戶程式碼決定。</figcaption>
     </figure>
 
-    <h2>三種帳戶模型</h2>
+    <h2 id="zh-section-3">三種帳戶模型</h2>
     <div class="scroll"><table>
       <thead><tr><th>模型</th><th>驗證／執行</th><th>地址與部署</th><th>適合情境</th></tr></thead>
       <tbody>
@@ -136,7 +136,7 @@
     </table></div>
     <p>4337 與 7702 可以獨立使用，也可以組合：7702 解決「哪個地址執行 smart-account code」，4337 提供 UserOperation、Bundler、EntryPoint、Paymaster 與共享 mempool 的交易管線。</p>
 
-    <h2>ERC-4337 的參與者與信任邊界</h2>
+    <h2 id="zh-section-4">ERC-4337 的參與者與信任邊界</h2>
     <ul>
       <li><strong>Wallet／Client：</strong>建立、估 gas、簽署並送出 UserOperation。</li>
       <li><strong>Bundler：</strong>模擬驗證、套用 ERC-7562 規則、挑選 UserOps，並用自己的 EOA 支付 <code>handleOps()</code> 交易 gas。</li>
@@ -191,7 +191,7 @@
       <figcaption>Bundler、EntryPoint 與 Paymaster 都不是帳戶 owner。它們能決定是否提交、是否接受或是否贊助，但不能繞過 Smart Account 的 validation policy 任意取走資產。</figcaption>
     </figure>
 
-    <h2>PackedUserOperation：鏈上真正驗證的資料</h2>
+    <h2 id="zh-section-5">PackedUserOperation：鏈上真正驗證的資料</h2>
     <p>v0.7 之後，RPC 傳輸時可用較易讀的 unpacked 欄位，但進入 EntryPoint 時會壓成 9 欄的 <code>PackedUserOperation</code>：</p>
 <pre><code>struct PackedUserOperation {
     address sender;
@@ -213,7 +213,7 @@
       <li><code>signature</code>：由 account 解讀，可以是 ECDSA、P-256、multisig、session key 或聚合方案。</li>
     </ul>
 
-    <h2>handleOps：驗證、執行與 gas 資金流</h2>
+    <h2 id="zh-section-6">handleOps：驗證、執行與 gas 資金流</h2>
     <p>Bundler 送出一筆 <code>handleOps(ops, beneficiary)</code>。EntryPoint 對整批先完成驗證，再逐筆執行；其中任何一層的「成功」都不代表 target call 一定成功。</p>
     <ol>
       <li><strong>Sender 建立：</strong>sender 沒有 code 時，EntryPoint 經 <code>SenderCreator</code> 呼叫 factory，並確認回傳地址等於 <code>sender</code>。</li>
@@ -225,7 +225,7 @@
     </ol>
     <p><code>validationData</code> 同時編碼 signature aggregator、<code>validAfter</code> 與 <code>validUntil</code>。v0.9 也可用最高 bit 表示 block-number validity。Account 與 Paymaster 的有效區間會取交集。</p>
 
-    <h2>Gas：誰先付、預留多少、最後扣多少</h2>
+    <h2 id="zh-section-7">Gas：誰先付、預留多少、最後扣多少</h2>
     <p><strong>Bundler 先用自己的 ETH 支付整筆 bundle transaction；EntryPoint 執行後，再從 Account 或 Paymaster 的 EntryPoint deposit 扣款並補償 beneficiary。</strong>「Paymaster 贊助」只是把最終 payer 換成 Paymaster，不代表 gas 消失；使用者即使付 ERC-20，鏈上網路費最後仍由某個 deposit 以原生幣結算。</p>
     <div class="scroll"><table>
       <thead><tr><th>欄位</th><th>涵蓋階段</th><th>常見低估原因</th></tr></thead>
@@ -296,7 +296,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
 
     <p><strong>估算順序：</strong>先建立接近最終形狀的 UserOp，取得 Paymaster stub data，再呼叫 <code>eth_estimateUserOperationGas</code>，填入最終 paymaster data／signature 後若長度或邏輯改變就重新估算。不要把 gas limits 設成無限大：除了 prefund 過高，v0.7 起的 unused-gas penalty 也會讓過度 padding 真正花錢。L2 還要確認 Bundler 如何把 calldata／data-availability fee 納入 <code>preVerificationGas</code>。</p>
 
-    <h2>四條必須分清楚的 call path</h2>
+    <h2 id="zh-section-8">四條必須分清楚的 call path</h2>
     <ol>
       <li><strong>已部署帳戶、自付 gas：</strong><code>validateUserOp → account deposit/prefund → account.execute → target</code>。</li>
       <li><strong>Counterfactual deployment：</strong><code>SenderCreator → factory → account</code>，同一個 UserOp 再完成 validation 與首次執行。</li>
@@ -304,7 +304,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <li><strong>7702 + 4337：</strong>Bundler 把 <code>eip7702Auth</code> 放入 type-4 bundle transaction 的 authorization list；EntryPoint 驗證 delegation 後，讓該 EOA 以 account code 驗證與執行 UserOp。</li>
     </ol>
 
-    <h2>Smart Account 合約：validation 不等於 execution</h2>
+    <h2 id="zh-section-9">Smart Account 合約：validation 不等於 execution</h2>
     <p><code>IAccount</code> 的最小協議介面只有 <code>validateUserOp</code>，但一個可用帳戶還需要執行入口、初始化、nonce 策略、ERC-1271、升級與恢復控制。validation 只回答「這筆 UserOp 是否獲授權」；真正的外部 call 由 account 的 execution surface 定義。</p>
 <pre><code>modifier onlyEntryPointOrSelf() {
     if (msg.sender != address(entryPoint) &amp;&amp; msg.sender != address(this)) {
@@ -336,7 +336,7 @@ function execute(address target, uint256 value, bytes calldata data)
 }</code></pre>
     <p>高流量帳戶通常以 <code>entryPoint.depositTo(account)</code> 預存，而不是每次 validation 傳 ETH。若 account 使用多個 EntryPoint、validator 或 session，簽章 domain 必須明確綁定版本與入口。</p>
 
-    <h2>Smart Account lifecycle：誰初始化，誰能修改</h2>
+    <h2 id="zh-section-10">Smart Account lifecycle：誰初始化，誰能修改</h2>
     <p><strong>控制權不是由「誰部署」自動決定，而是由初始化後的 validation、recovery、module 與 upgrade policy 決定。</strong>常見 proxy account 由 Factory 部署，並在同一筆交易內設定 owner／validator、EntryPoint、guardian、modules 與 upgrade admin。</p>
 <pre><code>function initialize(address owner, address guardian) external initializer {
     if (owner == address(0)) revert InvalidOwner();
@@ -403,7 +403,7 @@ constructor() {
       <figcaption>每個角色只能擁有產品明確授予的能力。若同一第三方同時掌握 validator、guardian 與 upgrade admin，使用者表面上是 owner，實際上仍可能失去控制。</figcaption>
     </figure>
 
-    <h2>ERC-20 到底放在哪個地址？</h2>
+    <h2 id="zh-section-11">ERC-20 到底放在哪個地址？</h2>
     <p>ERC-20 contract 只保存一份 <code>balances[address]</code> mapping。建立 Smart Account 不會自動搬動 EOA 的 token，也不會因為兩個地址由同一個人控制就合併餘額。</p>
 <pre><code>address eoa = 0x...A11CE;
 address smartAccount = 0x...5AFE;
@@ -442,7 +442,7 @@ token.balanceOf(smartAccount); <span class="c">// 獨立 4337 account 的餘額�
       <figcaption>EntryPoint、Bundler 與 Paymaster 都不持有使用者的 ERC-20。它們參與驗證、提交與 gas 結算；token balance 永遠跟著 ERC-20 mapping 裡的 holder address。</figcaption>
     </figure>
 
-    <h2>L1、L2、L3：相同地址不等於相同帳戶狀態</h2>
+    <h2 id="zh-section-12">L1、L2、L3：相同地址不等於相同帳戶狀態</h2>
     <p>EOA 通常在各 EVM chain 有相同地址；CREATE2 Smart Account 也可能刻意部署到相同地址。但每條 chain 仍有獨立的 code、storage、nonce、balance、modules、owner policy、EntryPoint deposit 與 7702 delegation。某鏈上的 owner rotation 或 session-key revocation，不會自動同步到另一條鏈。</p>
     <div class="scroll"><table>
       <thead><tr><th>環境</th><th>Smart Account 特別要檢查</th><th>失效／退出假設</th></tr></thead>
@@ -459,7 +459,7 @@ token.balanceOf(smartAccount); <span class="c">// 獨立 4337 account 的餘額�
       <li><strong>Recovery：</strong>要明確決定 owner、guardian、module registry 與 upgrade 是否逐鏈管理，或透過可信 cross-chain governance 同步；同步延遲期間必須定義哪條鏈是 authority source。</li>
     </ul>
 
-    <h2>Cross-chain：不是一筆原子 transaction</h2>
+    <h2 id="zh-section-13">Cross-chain：不是一筆原子 transaction</h2>
     <p>ERC-4337 UserOperation 的 hash 綁定 <code>chainId</code> 與 EntryPoint，所以 Chain A 的 UserOp 不能直接拿到 Chain B 執行。跨鏈操作通常是兩筆以上的 transaction，加上一段 bridge／messaging／intent settlement：</p>
     <ol>
       <li>Source chain 的 Smart Account 授權並鎖定／燃燒資產或送出 message。</li>
@@ -505,7 +505,7 @@ token.balanceOf(smartAccount); <span class="c">// 獨立 4337 account 的餘額�
       <figcaption>地址一致只改善 UX，不會帶來共享 storage 或原子性。真正的跨鏈安全來自 message authentication、finality、DA、bridge upgrade keys、replay protection 與可用的退出路徑。</figcaption>
     </figure>
 
-    <h2>Proof of reserve：證明有資產，不等於證明可償付</h2>
+    <h2 id="zh-section-14">Proof of reserve：證明有資產，不等於證明可償付</h2>
     <p><strong>原生 ERC-20：</strong>如果 token 直接持有在 Smart Account，該鏈的 <code>balanceOf(account)</code> 已能證明帳戶持有多少 token units，不需要額外 PoR 來證明 ownership。但若 token 本身代表法幣、黃金或其他 off-chain claim，發行方的 backing 仍要另行驗證。Wallet 顯示的「多鏈總資產」只是 indexer 把各鏈 balance 加總的 view，不是一份共享鏈上 balance。</p>
     <p><strong>Bridged／wrapped asset：</strong>destination token 是負債憑證，應檢查 source escrow 的可贖回 reserve 是否覆蓋所有 destination liabilities：</p>
 <pre><code>usableReserve =
@@ -515,8 +515,8 @@ token.balanceOf(smartAccount); <span class="c">// 獨立 4337 account 的餘額�
 
 totalLiability =
     Σ destinationRedeemableSupply
-  + pendingOutboundClaims
-  - provablyBurnedPendingRedemptions;
+  + lockedPendingMints
+  + burnedButUnpaidRedemptions; // disjoint obligations, count each exactly once
 
 usableReserve &gt;= totalLiability;</code></pre>
     <ul>
@@ -527,7 +527,7 @@ usableReserve &gt;= totalLiability;</code></pre>
       <li>Rollup 的 state root／fraud proof／validity proof 證明 state transition；DA 保證你能重建／退出。它們與「bridge escrow 是否 1:1 backed」是不同問題。</li>
     </ul>
 
-    <h2>如何撤銷、取消、移除或「銷毀」？</h2>
+    <h2 id="zh-section-15">如何撤銷、取消、移除或「銷毀」？</h2>
     <p>這四個動作不是同一件事，也沒有一個適用所有 Smart Accounts 的全域 cancel API：</p>
     <ul>
       <li><strong>尚未上鏈的 UserOperation：</strong>可要求特定 Bundler 從 mempool 移除，但不是協議保證；也可依 Bundler policy 用相同 nonce／較高 fee replacement，或先執行 account 提供的 nonce invalidation。</li>
@@ -539,7 +539,7 @@ usableReserve &gt;= totalLiability;</code></pre>
     </ul>
     <p>清除 delegation 或 module 只影響未來，不會取回已被轉走的 token，也不會自動撤銷惡意 code 已建立的 ERC-20 allowance、position 或簽章。</p>
 
-    <h2>如果 Hacker 搶先初始化或騙到 delegation</h2>
+    <h2 id="zh-section-16">如果 Hacker 搶先初始化或騙到 delegation</h2>
     <p><strong>未初始化 4337 proxy：</strong>如果部署與初始化分成兩筆交易，hacker 可搶先成為 owner／validator、安裝 executor、取得 upgrade authority。即使 account 尚未有 code，使用者先送到預測地址的 token 也會在惡意 account 部署後暴露。</p>
     <p><strong>惡意 7702 delegation：</strong>hacker 一般不能只靠知道地址設定 delegation；他需要 EOA 私鑰，或誘導使用者簽 authorization。成功後，惡意 code 在 EOA 的 address、balance、storage context 執行，可轉走 ETH／token、建立無限 allowance、開倉或加入持續性後門。</p>
     <figure>
@@ -575,7 +575,7 @@ usableReserve &gt;= totalLiability;</code></pre>
     </figure>
     <p>事故後應先把剩餘資產轉到安全地址，再撤銷 token allowances、session keys／modules 與 delegation；只做「clear delegation」並不足以修復已留下的鏈上權限。</p>
 
-    <h2>Factory + CREATE2：先有地址，後有 code</h2>
+    <h2 id="zh-section-17">Factory + CREATE2：先有地址，後有 code</h2>
     <p>Counterfactual account 可在部署前收款與簽 UserOp。第一次操作帶 factory／factoryData，SenderCreator 呼叫 factory 後，實際地址必須等於 <code>sender</code>。salt、implementation、proxy init code、初始化參數或 compiler 設定任一改變，都可能改變地址。</p>
 <pre><code>function accountSalt(address owner, uint256 userSalt) public pure returns (bytes32) {
     return keccak256(abi.encode(owner, userSalt));
@@ -593,7 +593,7 @@ function createAccount(address owner, uint256 userSalt) external returns (Accoun
       <li>正式產品多使用 proxy；地址計算必須 hash 真正的 proxy creation code，不可套用 implementation 的公式。</li>
     </ul>
 
-    <h2>ERC-1271：UserOp 以外的簽章相容面</h2>
+    <h2 id="zh-section-18">ERC-1271：UserOp 以外的簽章相容面</h2>
     <p><code>validateUserOp</code> 服務 EntryPoint；ERC-1271 的 <code>isValidSignature</code> 則讓 dApp、permit 與訂單協議驗證 contract signature。兩者可以共用 validator，但必須保留各自的 domain separation、有效期與撤銷語義。</p>
 <pre><code>bytes4 constant MAGIC = 0x1626ba7e;
 
@@ -601,7 +601,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
     return _check1271Signature(hash, sig) ? MAGIC : bytes4(0xffffffff);
 }</code></pre>
 
-    <h2>EIP-7702：委派 code，不是搬移資產</h2>
+    <h2 id="zh-section-19">EIP-7702：委派 code，不是搬移資產</h2>
     <p>Pectra 引入 type <code>0x04</code> set-code transaction；每個 authorization tuple 是 <code>[chain_id, address, nonce, y_parity, r, s]</code>。協議將 delegation indicator 寫入 authority EOA：</p>
 <pre><code>0xef0100 ‖ delegate implementation address</code></pre>
     <p>之後 CALL 該 EOA 時，會載入 delegate 的 code，但在 EOA 自己的 address、balance 與 storage context 執行，類似固定於帳戶地址的 delegation。它不是單筆交易後自動消失的暫時授權；要更換 delegate 必須再授權另一地址，授權 <code>address(0)</code> 則清除 delegation。</p>
@@ -613,11 +613,11 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
     </ul>
     <p>EntryPoint v0.8+ 的 7702 UserOp 使用 <code>initCode = 0x7702 || optional initialization payload</code>，RPC 額外帶 <code>eip7702Auth</code>。authorization 只在更換 delegation 時需要；已設定後的後續 UserOps 不必重送相同 tuple。</p>
 
-    <h2>Paymaster 與 Aggregator</h2>
+    <h2 id="zh-section-20">Paymaster 與 Aggregator</h2>
     <p>Paymaster 不是「免費 gas API」，而是一個必須 deposit、可能需要 stake、會被惡意使用者消耗資金的鏈上風險引擎。簽章式 sponsor 至少應綁定 <code>sender</code>、chain、EntryPoint、nonce／UserOp hash、gas 上限、有效期與 sponsorship policy；<code>postOp</code> 必須能處理 target revert，且不可假設外部 token 報價永遠可用。</p>
     <p>Aggregator 讓多個 UserOps 共用聚合簽章驗證，但增加獨立的 reputation／stake 與 bundle 驗證路徑。除非確實需要 BLS 或大量聚合收益，普通 account 不必引入。</p>
 
-    <h2>ERC-7579：模組化帳戶</h2>
+    <h2 id="zh-section-21">ERC-7579：模組化帳戶</h2>
     <p>ERC-7579 定義四種基礎模組：validator 決定授權、executor 可代表帳戶執行、fallback handler 擴張外部介面、hook 在執行前後攔截。<code>onInstall</code>／<code>onUninstall</code> 只是 module callbacks，不是權限邊界；帳戶必須限制誰能安裝、卸載以及使用哪些初始化資料。</p>
 <pre><code>function installModule(uint256 moduleType, address module, bytes calldata initData)
     external onlyEntryPointOrSelf
@@ -634,7 +634,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
       <li>Delegatecall module 還耦合 storage layout 與 upgrade authority；優先使用成熟、經審計且有 registry／attestation 策略的實作。</li>
     </ul>
 
-    <h2>Web3 client：viem 與 Bundler RPC</h2>
+    <h2 id="zh-section-22">Web3 client：viem 與 Bundler RPC</h2>
     <p>SDK 會幫忙 pack、estimate 和簽 UserOperation，但 RPC 邊界仍應被明確監控。啟動時先確認 Bundler 支援 account 使用的 EntryPoint：</p>
 <pre><code>import { createBundlerClient } from "viem/account-abstraction";
 import { http } from "viem";
@@ -671,7 +671,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       </tbody>
     </table></div>
 
-    <h2>ERC-7562：為什麼本機成功，Bundler 卻拒收</h2>
+    <h2 id="zh-section-23">ERC-7562：為什麼本機成功，Bundler 卻拒收</h2>
     <p>Bundler 必須確保 validation 在模擬與上鏈時可重現，且不會讓未質押實體任意依賴外部狀態。因此 ERC-7562 對 account、factory、paymaster、aggregator 的 opcode、storage access、code creation 與 unstaked entity 行為設限。這不是一句「所有 validation 都不能用 TIMESTAMP／BALANCE」可以概括；規則會依實體、stake 與存取槽位分類。</p>
     <p>典型除錯順序：</p>
     <ol>
@@ -682,7 +682,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>對實際 <code>handleOps</code> transaction 做 trace，並解析 <code>UserOperationEvent</code>；UserOp hash 不是 transaction hash。</li>
     </ol>
 
-    <h2>EntryPoint 版本與地址</h2>
+    <h2 id="zh-section-24">EntryPoint 版本與地址</h2>
     <p>版本不能只看 ABI：Bundler 必須加入對應 EntryPoint 的 mempool，Account／Paymaster 也必須按該版本的 hash、packing 與 gas 規則實作。部署前應再向官方 release 與 audit 核對 chain、address 和 code hash。</p>
     <div class="scroll"><table>
       <thead><tr><th>版本</th><th>EntryPoint</th><th>重點</th></tr></thead>
@@ -695,7 +695,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     </table></div>
     <blockquote><p>v0.9 起，非空 initCode 不再可靠地表示「這是帳戶第一次 UserOp」：若 account 已存在，EntryPoint 可忽略 initCode 並發出 <code>IgnoredInitCode</code>。帳戶安全邏輯不可依賴舊假設。</p></blockquote>
 
-    <h2>測試、上線與監控清單</h2>
+    <h2 id="zh-section-25">測試、上線與監控清單</h2>
     <p><strong>Contract tests</strong></p>
     <ul>
       <li>Direct call、錯 EntryPoint、錯簽、過期簽章、跨鏈／跨帳戶 replay 都失敗；ERC-1271 回傳精確 magic value。</li>
@@ -712,7 +712,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>準備 upgrade delay、暫停 sponsorship、撤銷 session／module、owner recovery 與事件索引重建 runbook。</li>
     </ul>
 
-    <h2>協議層安全清單</h2>
+    <h2 id="zh-section-26">協議層安全清單</h2>
     <ul>
       <li>UserOp signature 必須綁定 chain ID、EntryPoint、account 與完整操作語義；session key 另外限制 target、selector、value、期限與額度。</li>
       <li>只允許 EntryPoint 呼叫 validation，只允許 EntryPoint／self 或明確 executor 進入執行入口。</li>
@@ -721,7 +721,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>不要把 AAxx 字串當永久 API；v0.9 release 已明確說明未來可能改良錯誤格式。</li>
     </ul>
 
-    <h2>使用者風險（資產安全）</h2>
+    <h2 id="zh-section-27">使用者風險（資產安全）</h2>
     <p>智慧帳戶不是投資商品，所以這裡談的不是賠錢，而是<strong>資產被拿走</strong>的途徑。多數風險來自「帳戶可程式化」這件事本身——彈性有多大，攻擊面就有多大。</p>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
@@ -738,7 +738,13 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     </table></div>
     <blockquote><p>一句話：EOA 的風險是「私鑰丟了」；智慧帳戶多了「<strong>你授權了什麼</strong>」——模組、簽章、恢復設定，每一項都是一把鑰匙。</p></blockquote>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-28">PM：gasless 的成本與可用性</h2>
+<p>用「成功啟用且留存的 funded account」衡量 onboarding，部署數不是使用者數。每次成功動作的 sponsor 成本 = 全部相關 gas（含失敗）／成功動作數；再加 provider、recovery/support 成本。列出每使用者、每 session、每天的 sponsor 上限與濫用防護，paymaster 停止時提供 self-funded 路徑。</p>
+<h2 id="zh-section-29">一次可重現的驗收任務</h2>
+<p>固定 chain、account implementation、EntryPoint、SDK lockfile 與 bundler；用 testnet/fork 建 account、資金入帳、approve+swap batch、查 UserOp receipt 與資產餘額。再測 wrong chain/domain、已用 nonce、過期 session、超 spend limit、target revert、paymaster deposit 不足與 bundler timeout。Provider 收到 UserOp 不代表它 included；bundle receipt 成功也不代表每個 UserOp 成功。</p>
+<p>儲備範例的 pending mint、destination supply、burned-but-unpaid redemption 必須互斥計帳。燒 token 只是把供給負債換成尚未付款的 redemption claim，不能當成負債已消失。</p>
+
+    <h2 id="zh-section-30">官方來源</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a>／<a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a>／<a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a>／<a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a>／<a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a>／<a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a>／<a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
@@ -750,9 +756,9 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Account Abstraction &amp; Smart Accounts</h1>
-    <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · Developer guide</p>
+    <p class="meta">2026-09-11 · ERC-4337 · EIP-7702 · ERC-7579 · Developer guide</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">Start with one user story</a></li><li><a href="#en-section-3">Three account models</a></li><li><a href="#en-section-4">ERC-4337 actors and trust boundaries</a></li><li><a href="#en-section-5">PackedUserOperation: what EntryPoint verifies on-chain</a></li><li><a href="#en-section-6">handleOps: validation, execution, and gas flow</a></li><li><a href="#en-section-7">Gas: who fronts it, how much is reserved, and what is charged</a></li><li><a href="#en-section-8">Four call paths to distinguish</a></li><li><a href="#en-section-9">Smart Account contracts: validation is not execution</a></li><li><a href="#en-section-10">Smart Account lifecycle: who initializes and who can change it</a></li><li><a href="#en-section-11">Which address owns the ERC-20 balance?</a></li><li><a href="#en-section-12">L1, L2, and L3: the same address is not the same account state</a></li><li><a href="#en-section-13">Cross-chain execution is not one atomic transaction</a></li><li><a href="#en-section-14">Proof of reserve: assets are not the same as solvency</a></li><li><a href="#en-section-15">How do removal, revocation, cancellation, and “destruction” differ?</a></li><li><a href="#en-section-16">If an attacker initializes the account or obtains delegation</a></li><li><a href="#en-section-17">Factory + CREATE2: address before code</a></li><li><a href="#en-section-18">ERC-1271: signature compatibility beyond UserOps</a></li><li><a href="#en-section-19">EIP-7702: delegate code, not assets</a></li><li><a href="#en-section-20">Paymasters and aggregators</a></li><li><a href="#en-section-21">ERC-7579: modular accounts</a></li><li><a href="#en-section-22">Web3 clients: viem and Bundler RPC</a></li><li><a href="#en-section-23">ERC-7562: why Bundlers reject locally valid code</a></li><li><a href="#en-section-24">EntryPoint versions and addresses</a></li><li><a href="#en-section-25">Testing, launch, and monitoring checklist</a></li><li><a href="#en-section-26">Protocol security checklist</a></li><li><a href="#en-section-27">User risk (asset safety)</a></li><li><a href="#en-section-28">PM: gasless cost and availability</a></li><li><a href="#en-section-29">A reproducible acceptance task</a></li><li><a href="#en-section-30">Official sources</a></li></ol></nav></details>
 
     <p><strong>A Smart Account is the account contract; Account Abstraction is the system that lets accounts define validation, execution, and gas-payment rules.</strong> This guide runs from protocol to production engineering: UserOperations, Bundlers, EntryPoint, 7702 delegation, account/factory contracts, paymasters, ERC-7579, viem, debugging, and launch checks.</p>
 
@@ -766,7 +772,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <p class="who"><strong>Where to start:</strong> beginners / backend engineers → the user story and three account models; Solidity engineers → UserOperation, the validation/execution split, ERC-7579; PMs → market background and user risk. This note is long — pick your sections rather than reading straight through.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>ERC-4337 has moved from experiment to production infrastructure. But its market has one feature that matters enormously for architecture decisions: <strong>the underlying infrastructure is highly concentrated</strong>.</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
@@ -778,11 +784,11 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
         <tr><td>EntryPoint versions in production</td><td>v0.6 / v0.7 / v0.8 / v0.9</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate and vary by source and methodology; current as of 2026-09 — re-verify before acting on them.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
 
     <p>Most UserOperations reach the chain through a handful of hosted bundlers (Alchemy, Pimlico, Coinbase, and others). Names and shares move with the source and the chain — do not treat any percentage as durable. The point is that the delivery path for "decentralised accounts" is in practice <strong>quite concentrated</strong> — treat your bundler as an external dependency that can go down, and keep a backup endpoint or self-hosted fallback. Four EntryPoint versions are also live at once, so confirm which one your bundler and account implementation agree on before integrating.</p>
 
-    <h2>Start with one user story</h2>
+    <h2 id="en-section-2">Start with one user story</h2>
     <p>Alice wants to swap USDC but has no ETH on her phone. A traditional EOA cannot submit the transaction because Ethereum requires the sender to pay gas first. Account Abstraction separates user authorization from who submits the on-chain transaction and who pays gas:</p>
     <ol>
       <li>Alice's wallet builds a <code>UserOperation</code> describing the calls and asks her to sign it.</li>
@@ -830,7 +836,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <figcaption>4337 does not remove validation; it moves validation into the Smart Account contract. The Bundler submits, EntryPoint coordinates, and the account code decides authorization.</figcaption>
     </figure>
 
-    <h2>Three account models</h2>
+    <h2 id="en-section-3">Three account models</h2>
     <div class="scroll"><table>
       <thead><tr><th>Model</th><th>Validation / execution</th><th>Address and deployment</th><th>Best fit</th></tr></thead>
       <tbody>
@@ -841,7 +847,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     </table></div>
     <p>4337 and 7702 can work independently or together. 7702 answers which address executes smart-account code; 4337 supplies the UserOperation, Bundler, EntryPoint, Paymaster, and shared-mempool transaction pipeline.</p>
 
-    <h2>ERC-4337 actors and trust boundaries</h2>
+    <h2 id="en-section-4">ERC-4337 actors and trust boundaries</h2>
     <ul>
       <li><strong>Wallet/client:</strong> builds, estimates, signs, and submits a UserOperation.</li>
       <li><strong>Bundler:</strong> simulates validation, enforces ERC-7562, selects UserOps, and pays for the <code>handleOps()</code> transaction from its own EOA.</li>
@@ -896,7 +902,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <figcaption>Bundler, EntryPoint, and Paymaster are not the account owner. They may submit, accept, or sponsor an operation, but cannot bypass the Smart Account validation policy to take assets.</figcaption>
     </figure>
 
-    <h2>PackedUserOperation: what EntryPoint verifies on-chain</h2>
+    <h2 id="en-section-5">PackedUserOperation: what EntryPoint verifies on-chain</h2>
     <p>Since v0.7, RPC transport may use readable unpacked fields, but EntryPoint receives the nine-field <code>PackedUserOperation</code>:</p>
 <pre><code>struct PackedUserOperation {
     address sender;
@@ -918,7 +924,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li><code>signature</code>: account-defined ECDSA, P-256, multisig, session-key, or aggregate data.</li>
     </ul>
 
-    <h2>handleOps: validation, execution, and gas flow</h2>
+    <h2 id="en-section-6">handleOps: validation, execution, and gas flow</h2>
     <p>A Bundler submits <code>handleOps(ops, beneficiary)</code>. EntryPoint validates the batch before executing each operation; success at one layer does not imply the target call succeeds.</p>
     <ol>
       <li><strong>Sender creation:</strong> for an undeployed sender, EntryPoint calls the factory through <code>SenderCreator</code> and requires the deployed address to equal <code>sender</code>.</li>
@@ -930,7 +936,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     </ol>
     <p><code>validationData</code> combines a signature aggregator with <code>validAfter</code> and <code>validUntil</code>. v0.9 may use the top bit to express block-number validity. Account and paymaster validity windows are intersected.</p>
 
-    <h2>Gas: who fronts it, how much is reserved, and what is charged</h2>
+    <h2 id="en-section-7">Gas: who fronts it, how much is reserved, and what is charged</h2>
     <p><strong>The Bundler fronts ETH for the whole bundle transaction. After execution, EntryPoint charges the Account or Paymaster deposit and compensates the beneficiary.</strong> Sponsorship changes the final payer; it does not make gas free. Even when a user pays in ERC-20, some EntryPoint deposit ultimately settles the network fee in native currency.</p>
     <div class="scroll"><table>
       <thead><tr><th>Field</th><th>Phase covered</th><th>Common underestimation cause</th></tr></thead>
@@ -1001,7 +1007,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
 
     <p><strong>Estimation sequence:</strong> build a near-final UserOp, fetch Paymaster stub data, call <code>eth_estimateUserOperationGas</code>, then re-estimate if final paymaster data/signature changes size or behavior. Do not set unlimited gas budgets: besides excessive prefund, unused-gas penalties (v0.7+) make extreme padding cost real money. On L2, verify how the Bundler includes calldata/data-availability fees in <code>preVerificationGas</code>.</p>
 
-    <h2>Four call paths to distinguish</h2>
+    <h2 id="en-section-8">Four call paths to distinguish</h2>
     <ol>
       <li><strong>Deployed account, self-funded:</strong> <code>validateUserOp → account deposit/prefund → account.execute → target</code>.</li>
       <li><strong>Counterfactual deployment:</strong> <code>SenderCreator → factory → account</code>, followed by validation and first execution in the same UserOp.</li>
@@ -1009,7 +1015,7 @@ actualGasCost = chargedGasUsed * actualUserOpFeePerGas;</code></pre>
       <li><strong>7702 + 4337:</strong> Bundler includes <code>eip7702Auth</code> in the type-4 bundle transaction authorization list; EntryPoint verifies delegation and the EOA validates and executes as an account.</li>
     </ol>
 
-    <h2>Smart Account contracts: validation is not execution</h2>
+    <h2 id="en-section-9">Smart Account contracts: validation is not execution</h2>
     <p><code>IAccount</code> has one minimal protocol method, <code>validateUserOp</code>, but a usable account also needs execution, initialization, nonce strategy, ERC-1271, upgrades, and recovery controls. Validation answers whether a UserOp is authorized; the account's execution surface defines the actual external calls.</p>
 <pre><code>modifier onlyEntryPointOrSelf() {
     if (msg.sender != address(entryPoint) &amp;&amp; msg.sender != address(this)) {
@@ -1041,7 +1047,7 @@ function execute(address target, uint256 value, bytes calldata data)
 }</code></pre>
     <p>High-volume accounts often pre-deposit with <code>entryPoint.depositTo(account)</code> instead of sending ETH during each validation. Accounts supporting multiple EntryPoints, validators, or sessions must bind version and entry point in the signature domain.</p>
 
-    <h2>Smart Account lifecycle: who initializes and who can change it</h2>
+    <h2 id="en-section-10">Smart Account lifecycle: who initializes and who can change it</h2>
     <p><strong>Control is not automatically determined by who deploys the account. It follows the initialized validation, recovery, module, and upgrade policies.</strong> A common proxy account is deployed by a Factory and atomically configured with an owner/validator, EntryPoint, guardian, modules, and upgrade admin.</p>
 <pre><code>function initialize(address owner, address guardian) external initializer {
     if (owner == address(0)) revert InvalidOwner();
@@ -1108,7 +1114,7 @@ constructor() {
       <figcaption>Each role should receive only the capability the product intends. If one third party controls validator, guardian, and upgrade admin, the user may appear to be owner while still lacking ultimate control.</figcaption>
     </figure>
 
-    <h2>Which address owns the ERC-20 balance?</h2>
+    <h2 id="en-section-11">Which address owns the ERC-20 balance?</h2>
     <p>An ERC-20 contract stores one <code>balances[address]</code> mapping. Creating a Smart Account does not move an EOA's tokens, and two addresses controlled by the same person do not share a balance.</p>
 <pre><code>address eoa = 0x...A11CE;
 address smartAccount = 0x...5AFE;
@@ -1147,7 +1153,7 @@ token.balanceOf(smartAccount); <span class="c">// separate 4337 account balance,
       <figcaption>EntryPoint, Bundler, and Paymaster do not hold the user's ERC-20s. They validate, submit, and settle gas; token balances remain keyed by the holder address in the token contract.</figcaption>
     </figure>
 
-    <h2>L1, L2, and L3: the same address is not the same account state</h2>
+    <h2 id="en-section-12">L1, L2, and L3: the same address is not the same account state</h2>
     <p>An EOA usually has the same address across EVM chains, and a CREATE2 Smart Account may deliberately be deployed to the same address. Each chain still has independent code, storage, nonce, balance, modules, owner policy, EntryPoint deposit, and 7702 delegation. Rotating an owner or revoking a session key on one chain does not automatically update another.</p>
     <div class="scroll"><table>
       <thead><tr><th>Environment</th><th>Smart Account checks</th><th>Failure/exit assumptions</th></tr></thead>
@@ -1164,7 +1170,7 @@ token.balanceOf(smartAccount); <span class="c">// separate 4337 account balance,
       <li><strong>Recovery:</strong> explicitly decide whether owner, guardians, module registry, and upgrades are managed per chain or synchronized through trusted cross-chain governance. During synchronization delay, define which chain is the authority source.</li>
     </ul>
 
-    <h2>Cross-chain execution is not one atomic transaction</h2>
+    <h2 id="en-section-13">Cross-chain execution is not one atomic transaction</h2>
     <p>An ERC-4337 UserOperation hash binds <code>chainId</code> and EntryPoint, so a UserOp for Chain A cannot be submitted directly on Chain B. A cross-chain action normally consists of two or more transactions plus bridge, messaging, or intent settlement:</p>
     <ol>
       <li>The source-chain Smart Account authorizes and locks/burns assets or emits a message.</li>
@@ -1210,7 +1216,7 @@ token.balanceOf(smartAccount); <span class="c">// separate 4337 account balance,
       <figcaption>Address equality improves UX but gives neither shared storage nor atomicity. Cross-chain security comes from message authentication, finality, DA, bridge upgrade keys, replay protection, and a usable exit path.</figcaption>
     </figure>
 
-    <h2>Proof of reserve: assets are not the same as solvency</h2>
+    <h2 id="en-section-14">Proof of reserve: assets are not the same as solvency</h2>
     <p><strong>Native ERC-20:</strong> if a Smart Account directly holds a token, <code>balanceOf(account)</code> proves how many token units it owns on that chain; no extra PoR is needed to prove ownership. If the token itself represents fiat, gold, or another off-chain claim, issuer backing still requires separate verification. A wallet's “total across chains” is an indexer view summing separate balances, not one shared on-chain balance.</p>
     <p><strong>Bridged/wrapped asset:</strong> a destination token is a liability claim. Redeemable reserves in source escrow should cover liabilities across every destination:</p>
 <pre><code>usableReserve =
@@ -1220,8 +1226,8 @@ token.balanceOf(smartAccount); <span class="c">// separate 4337 account balance,
 
 totalLiability =
     Σ destinationRedeemableSupply
-  + pendingOutboundClaims
-  - provablyBurnedPendingRedemptions;
+  + lockedPendingMints
+  + burnedButUnpaidRedemptions; // disjoint obligations, count each exactly once
 
 usableReserve &gt;= totalLiability;</code></pre>
     <ul>
@@ -1232,7 +1238,7 @@ usableReserve &gt;= totalLiability;</code></pre>
       <li>A rollup state root plus fraud/validity proof proves state transitions; DA lets users reconstruct state and exit. Those are different from whether bridge escrow is 1:1 backed.</li>
     </ul>
 
-    <h2>How do removal, revocation, cancellation, and “destruction” differ?</h2>
+    <h2 id="en-section-15">How do removal, revocation, cancellation, and “destruction” differ?</h2>
     <p>These are separate operations, and no universal cancel API applies to every Smart Account:</p>
     <ul>
       <li><strong>UserOperation not yet included:</strong> ask a particular Bundler to drop it, but this is not a protocol guarantee. Depending on Bundler policy, replace it with the same nonce and a higher fee, or execute an account-defined nonce invalidation first.</li>
@@ -1244,7 +1250,7 @@ usableReserve &gt;= totalLiability;</code></pre>
     </ul>
     <p>Clearing a delegation or module affects future execution only. It does not recover stolen tokens or automatically revoke ERC-20 allowances, positions, or signatures created by malicious code.</p>
 
-    <h2>If an attacker initializes the account or obtains delegation</h2>
+    <h2 id="en-section-16">If an attacker initializes the account or obtains delegation</h2>
     <p><strong>Uninitialized 4337 proxy:</strong> if deployment and initialization are separate transactions, an attacker may initialize first as owner/validator, install an executor, or seize upgrade authority. Tokens pre-sent to a predicted address become exposed once the malicious account is deployed.</p>
     <p><strong>Malicious 7702 delegation:</strong> knowing the EOA address is not enough; the attacker needs its key or must trick the user into signing an authorization. Malicious code then executes in the EOA's address, balance, and storage context and may transfer assets, create unlimited allowances, open positions, or install persistent backdoors.</p>
     <figure>
@@ -1280,7 +1286,7 @@ usableReserve &gt;= totalLiability;</code></pre>
     </figure>
     <p>During incident response, move remaining assets first, then revoke token allowances, sessions/modules, and delegation. Clearing delegation alone does not repair permissions the malicious code already left on-chain.</p>
 
-    <h2>Factory + CREATE2: address before code</h2>
+    <h2 id="en-section-17">Factory + CREATE2: address before code</h2>
     <p>A counterfactual account can receive assets and sign a UserOp before deployment. Its first operation carries factory/factoryData; after SenderCreator invokes the factory, the deployed address must equal <code>sender</code>. Changing salt, implementation, proxy init code, initialization parameters, or compiler settings may change the address.</p>
 <pre><code>function accountSalt(address owner, uint256 userSalt) public pure returns (bytes32) {
     return keccak256(abi.encode(owner, userSalt));
@@ -1298,7 +1304,7 @@ function createAccount(address owner, uint256 userSalt) external returns (Accoun
       <li>Production accounts commonly use proxies; address calculation must hash the real proxy creation code, not the implementation formula.</li>
     </ul>
 
-    <h2>ERC-1271: signature compatibility beyond UserOps</h2>
+    <h2 id="en-section-18">ERC-1271: signature compatibility beyond UserOps</h2>
     <p><code>validateUserOp</code> serves EntryPoint. ERC-1271 <code>isValidSignature</code> lets dApps, permits, and order protocols verify contract signatures. They may share a validator but need separate domain separation, validity, and revocation semantics.</p>
 <pre><code>bytes4 constant MAGIC = 0x1626ba7e;
 
@@ -1306,7 +1312,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
     return _check1271Signature(hash, sig) ? MAGIC : bytes4(0xffffffff);
 }</code></pre>
 
-    <h2>EIP-7702: delegate code, not assets</h2>
+    <h2 id="en-section-19">EIP-7702: delegate code, not assets</h2>
     <p>Pectra introduced type <code>0x04</code> set-code transactions. Each authorization tuple is <code>[chain_id, address, nonce, y_parity, r, s]</code>; the protocol writes a delegation indicator to the authority EOA:</p>
 <pre><code>0xef0100 ‖ delegate implementation address</code></pre>
     <p>A CALL to that EOA loads delegate code but executes in the EOA's own address, balance, and storage context. This is not a temporary one-transaction authorization: it persists until another delegate is authorized or <code>address(0)</code> clears the delegation.</p>
@@ -1318,11 +1324,11 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
     </ul>
     <p>For EntryPoint v0.8+, a 7702 UserOp uses <code>initCode = 0x7702 || optional initialization payload</code> and the RPC carries <code>eip7702Auth</code>. That tuple is only needed when changing delegation, not on every later UserOp.</p>
 
-    <h2>Paymasters and aggregators</h2>
+    <h2 id="en-section-20">Paymasters and aggregators</h2>
     <p>A Paymaster is not a "free gas API"; it is an on-chain risk engine with deposits, possible stake requirements, and capital exposed to adversarial users. A signed sponsorship should bind sender, chain, EntryPoint, nonce/UserOp hash, gas limits, validity, and policy. <code>postOp</code> must handle target reverts and avoid assuming an external token price remains valid.</p>
     <p>An Aggregator shares signature validation across multiple UserOps but adds reputation, stake, and bundle-validation paths. Ordinary accounts should not add one unless BLS or aggregation savings justify it.</p>
 
-    <h2>ERC-7579: modular accounts</h2>
+    <h2 id="en-section-21">ERC-7579: modular accounts</h2>
     <p>ERC-7579 defines four base module types: validators authorize, executors act for the account, fallback handlers expand the external surface, and hooks intercept execution. <code>onInstall</code>/<code>onUninstall</code> are module callbacks, not authorization boundaries; the account must restrict who can install/remove modules and validate initialization data.</p>
 <pre><code>function installModule(uint256 moduleType, address module, bytes calldata initData)
     external onlyEntryPointOrSelf
@@ -1339,7 +1345,7 @@ function isValidSignature(bytes32 hash, bytes calldata sig) external view return
       <li>Delegatecall modules also couple storage layout and upgrade authority. Prefer audited implementations with a registry or attestation policy.</li>
     </ul>
 
-    <h2>Web3 clients: viem and Bundler RPC</h2>
+    <h2 id="en-section-22">Web3 clients: viem and Bundler RPC</h2>
     <p>An SDK can pack, estimate, and sign UserOperations, but the RPC boundary still needs explicit monitoring. Check that the Bundler supports the account's EntryPoint at startup:</p>
 <pre><code>import { createBundlerClient } from "viem/account-abstraction";
 import { http } from "viem";
@@ -1376,7 +1382,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       </tbody>
     </table></div>
 
-    <h2>ERC-7562: why Bundlers reject locally valid code</h2>
+    <h2 id="en-section-23">ERC-7562: why Bundlers reject locally valid code</h2>
     <p>Bundlers need validation to be reproducible between simulation and inclusion. ERC-7562 therefore constrains opcode, storage, code-creation, and unstaked-entity behavior for accounts, factories, paymasters, and aggregators. It is more nuanced than saying validation can never use TIMESTAMP or BALANCE: rules vary by entity, stake, and storage relationship.</p>
     <p>A practical debugging order:</p>
     <ol>
@@ -1387,7 +1393,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>Trace the actual <code>handleOps</code> transaction and parse <code>UserOperationEvent</code>. A UserOp hash is not a transaction hash.</li>
     </ol>
 
-    <h2>EntryPoint versions and addresses</h2>
+    <h2 id="en-section-24">EntryPoint versions and addresses</h2>
     <p>ABI alone is not enough: Bundlers join mempools for specific EntryPoints, while accounts and paymasters must implement that version's hashing, packing, and gas rules. Verify chain, address, code hash, official release, and audit before deployment.</p>
     <div class="scroll"><table>
       <thead><tr><th>Version</th><th>EntryPoint</th><th>Highlights</th></tr></thead>
@@ -1400,7 +1406,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     </table></div>
     <blockquote><p>From v0.9, non-empty initCode no longer proves this is an account's first UserOp: EntryPoint may ignore it for an existing account and emit <code>IgnoredInitCode</code>. Account security must not rely on the old assumption.</p></blockquote>
 
-    <h2>Testing, launch, and monitoring checklist</h2>
+    <h2 id="en-section-25">Testing, launch, and monitoring checklist</h2>
     <p><strong>Contract tests</strong></p>
     <ul>
       <li>Direct calls, wrong EntryPoint, bad/expired signatures, and cross-chain/account replay fail; ERC-1271 returns the exact magic value.</li>
@@ -1417,7 +1423,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>Write runbooks for upgrade delay, sponsorship pause, session/module revocation, owner recovery, and event-index rebuilds.</li>
     </ul>
 
-    <h2>Protocol security checklist</h2>
+    <h2 id="en-section-26">Protocol security checklist</h2>
     <ul>
       <li>Bind UserOp signatures to chain ID, EntryPoint, account, and full action semantics; constrain session keys by target, selector, value, expiry, and spend limits.</li>
       <li>Only EntryPoint may call validation; only EntryPoint/self or an explicit executor may enter execution.</li>
@@ -1426,7 +1432,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
       <li>Do not treat AAxx strings as a permanent API; v0.9 release notes explicitly anticipate future error-format improvements.</li>
     </ul>
 
-    <h2>User risk (asset safety)</h2>
+    <h2 id="en-section-27">User risk (asset safety)</h2>
     <p>A smart account is not an investment product, so the risk here is not losing money on a trade but <strong>having assets taken</strong>. Most of it stems from programmability itself — the flexibility is the attack surface.</p>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
@@ -1443,7 +1449,13 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     </table></div>
     <blockquote><p>In short: an EOA's risk is "you lost the key"; a smart account adds "<strong>what did you authorise</strong>" — modules, signatures and recovery settings are each a key.</p></blockquote>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-28">PM: gasless cost and availability</h2>
+<p>Measure activated, retained funded accounts; deployment count is not user count. Sponsor cost per successful action is all relevant gas, including failed attempts, divided by successful actions, plus provider and recovery/support costs. Define per-user, per-session, and daily sponsorship limits with abuse controls; provide a self-funded path when sponsorship stops.</p>
+<h2 id="en-section-29">A reproducible acceptance task</h2>
+<p>Pin chain, account implementation, EntryPoint, SDK lockfile, and Bundler. On a testnet/fork, create the account, fund it, run an approve+swap batch, and reconcile its UserOp receipt and balances. Then test wrong chain/domain, consumed nonce, expired session, exceeded spend limit, target revert, empty Paymaster deposit, and Bundler timeout. Bundler acceptance is not inclusion; a successful bundle receipt is not every UserOp succeeding.</p>
+<p>Count pending mints, destination supply, and burned-but-unpaid redemptions as disjoint obligations. Burning a token converts supply liability into an unpaid redemption claim; it does not eliminate the obligation.</p>
+
+    <h2 id="en-section-30">Official sources</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4337">ERC-4337</a> / <a href="https://eips.ethereum.org/EIPS/eip-7702">EIP-7702</a> / <a href="https://eips.ethereum.org/EIPS/eip-7562">ERC-7562</a> / <a href="https://eips.ethereum.org/EIPS/eip-7769">ERC-7769 RPC</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a> / <a href="https://eips.ethereum.org/EIPS/eip-7579">ERC-7579</a> / <a href="https://eips.ethereum.org/EIPS/eip-6780">EIP-6780</a> / <a href="https://viem.sh/account-abstraction">viem Account Abstraction</a></li>
@@ -1454,7 +1466,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
     <p class="meta">Content last verified: 2026-09-11</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -1466,6 +1478,6 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261008-content"></script>
 </body>
 </html>

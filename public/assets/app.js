@@ -15,6 +15,16 @@
     document.querySelectorAll('[data-lang-btn]').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.langBtn === lang));
     });
+
+    // Keep an article section link on its corresponding language section.
+    var section = location.hash.match(/^#(?:zh|en)(-section-\d+)$/);
+    if (section) {
+      var target = document.getElementById(lang + section[1]);
+      if (target) {
+        history.replaceState(null, '', '#' + target.id);
+        target.scrollIntoView();
+      }
+    }
   }
 
   // 初始語言：上次選的 > 瀏覽器偏好 > 中文

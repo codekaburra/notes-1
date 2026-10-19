@@ -127,3 +127,14 @@ npx wrangler deploy
 - **連結一律帶 `.html`**。Cloudflare 可以省略副檔名，GitHub Pages 不行。
 
 換句話說：現在丟 GitHub Pages 玩，之後想換 Cloudflare 只要跑 `wrangler deploy`，檔案一行都不用改。
+
+## Reading paths
+
+The home page offers separate routes for Web3 beginners, DeFi PMs, and contract developers. Shared starting points:
+
+- [Web3 foundations](public/notes/web3-foundations.html)
+- [Oracles and market integrity](public/notes/oracles.html)
+- [ERC-4626 vaults and yield](public/notes/erc-4626-vaults.html)
+- [Integration and recovery](public/notes/defi-integration.html)
+
+Article section anchors use `zh-section-N` and `en-section-N`; keep the order of equivalent sections aligned between languages. Distinguish mechanism/example updates from dated market snapshots. The initial content review and follow-up scope are in [NOTES_REVIEW.md](NOTES_REVIEW.md).
