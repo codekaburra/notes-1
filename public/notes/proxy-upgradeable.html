@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
 </head>
 <body data-title-zh="Proxy 與可升級合約" data-title-en="Proxies and Upgradeable Contracts">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Proxy 與可升級合約</h1>
-    <p class="meta">2026-10-08 · SOLIDITY · 代理模式 · 儲存佈局 · 開發者指南</p>
+    <p class="meta">2026-10-08 · SOLIDITY · 代理模式 · 儲存佈局 · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">delegatecall 到底做了什麼</a></li><li><a href="#zh-section-3">三種主流模式</a></li><li><a href="#zh-section-4">EIP-1967：為什麼需要固定槽位</a></li><li><a href="#zh-section-5">儲存佈局：最大的坑</a></li><li><a href="#zh-section-6">初始化：constructor 不能用</a></li><li><a href="#zh-upgrade-prevention">新手防踩坑流程</a></li><li><a href="#zh-section-7">選擇器衝突：Transparent 的由來</a></li><li><a href="#zh-section-8">升級前的檢查清單</a></li><li><a href="#zh-section-9">智慧合約安全風險（開發者）</a></li><li><a href="#zh-section-10">使用者風險</a></li><li><a href="#zh-section-11">升級實作：V1 → V2 的驗收</a></li><li><a href="#zh-section-12">PM：誰能在什麼時間改規則？</a></li><li><a href="#zh-section-13">官方來源</a></li></ol></nav></details>
 
     <p>合約部署後不可變，但產品需要修 bug、加功能。代理模式是整個產業的解法——代價是引入了一組全新的、而且<strong>安靜失敗</strong>的錯誤類型。這則講三種主流模式、儲存佈局怎麼對齊，以及升級本身為何已成為頂級攻擊面。</p>
 
@@ -55,27 +55,27 @@
       <ul>
         <li>原理只有一句：<strong>proxy 持有儲存與地址，implementation 只提供程式碼</strong>，兩者靠 <code>delegatecall</code> 接起來。升級＝換掉那個程式碼地址。</li>
         <li>最大的風險不是寫錯邏輯，而是<strong>儲存佈局錯位</strong>——它不會 revert，只會安靜地把某個欄位讀成另一個欄位的值。</li>
-        <li>而且<strong>「可升級」本身就是一種中心化</strong>：誰握有升級權，誰就能重寫規則。2026 年單筆約 $280M 的 Drift 事件，根因就在升級機制。</li>
+        <li>而且<strong>「可升級」本身就是一種中心化</strong>：誰握有升級權，誰就能重寫規則。升級風險應依實際管理權與驗證流程評估。</li>
       </ul>
       <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「delegatecall 到底做了什麼」與三種模式對照；Solidity 工程師 → 儲存佈局、ERC-7201、初始化與升級清單；PM／風控 → 市場背景與使用者風險。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>可升級在生產環境幾乎是預設值——主流 DeFi 協議大多跑在代理之後。這帶來一個常被低估的事實：<strong>你評估一個協議的安全性時，實際上是在評估「誰能升級它」。</strong></p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>狀態</th></tr></thead>
       <tbody>
-        <tr><td>2026 年最大事件之一：Drift</td><td>約 $280M，根因為<strong>升級機制</strong>漏洞</td></tr>
+
         <tr><td>OpenZeppelin v5 的儲存方案</td><td>改用 <strong>ERC-7201 命名空間儲存</strong>，取代 <code>__gap</code></td></tr>
         <tr><td>OZ v5 的介面變動</td><td><code>upgradeTo</code> 已移除，只剩 <code>upgradeToAndCall</code></td></tr>
         <tr><td>OZ v5 的 Transparent proxy</td><td>admin 改為 <strong>immutable</strong>，升級權改由 ProxyAdmin 的 ownership 控制</td></tr>
         <tr><td>學術關注度</td><td>代理碰撞偵測已是獨立研究主題（Proxion、USCSA 等）</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">狀態以 2026-10 查得為準；函式庫介面變動頻繁，實作前請對照你實際安裝的版本。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
     <blockquote><p>如果你讀的教學還在教 <code>__gap</code> 與 <code>upgradeTo</code>，它寫在 OZ v5 之前。<strong>v4 與 v5 的儲存模型不相容</strong>——從 v4 的順序儲存升級到 v5 的命名空間儲存若沒處理好，已有回報造成無法復原的鎖死。跨大版本升級前務必先驗證佈局。</p></blockquote>
 
-    <h2>delegatecall 到底做了什麼</h2>
+    <h2 id="zh-section-2">delegatecall 到底做了什麼</h2>
     <p>一般的 <code>call</code> 是「去對方家、用對方的東西」；<code>delegatecall</code> 是<strong>「把對方的程式碼搬來、用自己的東西執行」</strong>。所以：</p>
     <ul>
       <li>執行的是 implementation 的<strong>程式碼</strong>。</li>
@@ -131,7 +131,7 @@ fallback() external payable {
     }
 }</code></pre>
 
-    <h2>三種主流模式</h2>
+    <h2 id="zh-section-3">三種主流模式</h2>
 
     <figure>
       <div class="figbox">
@@ -181,7 +181,7 @@ fallback() external payable {
       <figcaption>怎麼選：<strong>單一合約、想省 gas → UUPS</strong>（目前最常見）；<strong>要部署上百個同質合約（如每個使用者一個金庫）→ Beacon</strong>；<strong>Transparent</strong> 主要出現在既有的舊系統；<strong>Diamond</strong> 只在你真的撞到 24KB 合約大小上限時才值得那份複雜度。</figcaption>
     </figure>
 
-    <h2>EIP-1967：為什麼需要固定槽位</h2>
+    <h2 id="zh-section-4">EIP-1967：為什麼需要固定槽位</h2>
     <p>proxy 自己也要存東西（implementation 位址、admin），但它的儲存跟 implementation 共用同一個空間。如果 proxy 把 implementation 位址放在 slot 0，而 implementation 的第一個變數剛好也在 slot 0——<strong>兩者會互相覆蓋</strong>。</p>
     <p>EIP-1967 的解法是把這些值放到<strong>幾乎不可能被一般變數佔用的位置</strong>：取一個字串的 keccak256 再減 1。</p>
 <pre><code><span class="c">// 三個標準槽位（直接背起來也無妨，debug 時很常用）</span>
@@ -191,9 +191,9 @@ beacon         : 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133
 
 <span class="c">// 推導方式：bytes32(uint256(keccak256('eip1967.proxy.implementation')) - 1)</span>
 <span class="c">// 減 1 是為了讓這個值不等於任何已知 preimage 的雜湊，進一步降低碰撞可能</span></code></pre>
-    <p>實務用途：想知道任何一個代理合約現在指向哪個 implementation，直接讀它的第一個槽位即可——區塊瀏覽器的「Read as Proxy」就是這樣做的。</p>
+    <p>實務用途：想知道任何一個代理合約現在指向哪個 implementation，讀取上方的 EIP-1967 implementation 槽（不是 slot 0）；Beacon 代理另讀 beacon 的 implementation——區塊瀏覽器的「Read as Proxy」就是這樣做的。</p>
 
-    <h2>儲存佈局：最大的坑</h2>
+    <h2 id="zh-section-5">儲存佈局：最大的坑</h2>
     <p>升級<strong>只換程式碼，不動資料</strong>。所以新版對儲存佈局的理解必須與舊版完全相容，否則欄位含義會整排位移——而且<strong>不會 revert</strong>。</p>
 
     <figure>
@@ -222,14 +222,14 @@ beacon         : 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133
           <text class="svg-ncode" x="595" y="132" text-anchor="middle">erc7201:myapp.staking</text>
           <text class="svg-mono" x="595" y="152" text-anchor="middle">另一個互不相干的區段</text>
           <line class="svg-flow-a" x1="330" y1="135" x2="426" y2="135" marker-end="url(#p3)"></line>
-          <text class="svg-mono-a" x="430" y="196">各模組有自己的區段，彼此不可能相撞</text>
+          <text class="svg-mono-a" x="430" y="196">各 namespace 碰撞機率極低；內部仍保留佈局</text>
           <text class="svg-mono-a" x="430" y="218">模組內新增變數不影響其他模組</text>
           <text class="svg-mono-a" x="430" y="240">不再需要 __gap 這種手動預留</text>
           <text class="svg-step" x="400" y="294" text-anchor="middle">⚠ 兩種模型不相容：v4 → v5 的升級必須驗證佈局，否則可能永久鎖死</text>
           <text class="svg-mono" x="400" y="318" text-anchor="middle">無論哪種方案，升級前都該用工具自動比對佈局，不要靠肉眼</text>
         </svg>
       </div>
-      <figcaption><code>__gap</code> 的邏輯是「先佔好 50 個空槽，以後加變數就吃掉 gap，後面的欄位不位移」。能用，但要手算、而且多重繼承時很難維護。<strong>ERC-7201 從根本換掉這個問題</strong>：每個模組的變數放進一段由名稱雜湊出來的獨立區域，彼此在數學上不可能相撞。</figcaption>
+      <figcaption><code>__gap</code> 的邏輯是「先佔好 50 個空槽，以後加變數就吃掉 gap，後面的欄位不位移」。能用，但要手算、而且多重繼承時很難維護。<strong>ERC-7201 從根本換掉這個問題</strong>：每個模組的變數放進一段由名稱雜湊出來的獨立區域，不同 namespace 的碰撞機率極低，但 namespace 內仍須保留相容佈局。</figcaption>
     </figure>
 
 <pre><code><span class="c">// ERC-7201 的實際寫法（OZ v5 內部全面採用）</span>
@@ -248,10 +248,10 @@ function _main() private pure returns (MainStorage storage $) {
 }
 
 function setTotal(uint256 v) external {
-    _main().total = v;        <span class="c">// 透過 $ 存取，不再有順序問題</span>
+    _main().total = v;        <span class="c">// namespace 內仍須保留相容的欄位順序</span>
 }</code></pre>
 
-    <h2>初始化：constructor 不能用</h2>
+    <h2 id="zh-section-6">初始化：constructor 不能用</h2>
     <p><code>constructor</code> 在部署時執行，而且寫進的是 <strong>implementation 自己的儲存</strong>——proxy 根本看不到。所以可升級合約改用 <code>initialize()</code>，但這就產生了新問題：<strong>它是一個誰都能呼叫的普通函式</strong>。</p>
 
     <figure>
@@ -299,22 +299,74 @@ function setTotal(uint256 v) external {
         __UUPSUpgradeable_init();
     }
 
-    <span class="c">// 第二次升級要加欄位時，用 reinitializer 指定版本號</span>
-    function initializeV2(uint256 fee_) public reinitializer(2) {
-        _main().fee = fee_;
+    <span class="c">// 首次升級若需要 migration，可使用初始化版本 2</span>
+    function initializeV2(uint256 migratedTotal_) public onlyOwner reinitializer(2) {
+        _main().total = migratedTotal_; // illustrative migration of existing state
     }
 
     <span class="c">// UUPS 的升級守衛——這是唯一的權限檢查，漏了等於任何人都能升級</span>
     function _authorizeUpgrade(address newImpl) internal override onlyOwner {}
 }</code></pre>
-    <blockquote><p>UUPS 特有的致命失誤：<strong>新版的 implementation 忘記繼承 <code>UUPSUpgradeable</code></strong>。升級成功之後，升級函式本身消失了——這個 proxy 從此<strong>永久無法再升級</strong>，資金也可能跟著鎖死。OZ 的升級外掛會檢查這一點，手動部署則完全沒有保護。</p></blockquote>
+    <blockquote><p>標準 OpenZeppelin UUPS 會在升級時檢查新版 <code>proxiableUUID</code>，不相容的 implementation 通常會 revert。這不是完整安全驗證：惡意但相容的新版仍可能移除未來升級能力。需同時驗證授權、儲存佈局與新版行為，並用 <code>upgradeToAndCall</code> 原子執行已授權的 migration。<code>reinitializer</code> 只限制版本執行次數，不提供存取控制。</p></blockquote>
 
-    <h2>選擇器衝突：Transparent 的由來</h2>
+
+    <h3>版本號到底代表什麼？</h3>
+    <p><code>initializeV2</code> 只是函式名稱；真正限制執行的是 <code>reinitializer(2)</code>。OpenZeppelin 在 <strong>proxy 的 storage</strong> 記錄已初始化的最高版本。一般首次 <code>initializer</code> 成功後是 1；<code>reinitializer(2)</code> 成功後是 2。同版本再呼叫會 revert。升級 implementation 不會重設這個紀錄，也不會自動呼叫初始化函式。</p>
+    <table><thead><tr><th>操作</th><th>用途</th><th>注意</th></tr></thead><tbody>
+    <tr><td><code>initializer</code></td><td>首次建立 proxy 的 owner、角色與基本狀態</td><td>升級時不能重跑來「更新 owner」</td></tr>
+    <tr><td><code>reinitializer(n)</code></td><td>新增模組或一次性資料 migration</td><td>n 必須大於已用版本；仍需權限控制</td></tr>
+    <tr><td><code>onlyInitializing</code></td><td>讓內部初始化 helper 只能在初始化期間執行</td><td>不是獨立的一次性或管理員檢查</td></tr>
+    <tr><td><code>_disableInitializers()</code></td><td>在 implementation constructor 鎖住其自身的初始化</td><td>不會鎖住 proxy；兩者 storage 分開</td></tr>
+    </tbody></table>
+    <p>版本可以跳號，但<strong>不會自動補跑</strong>：從 1 直接執行 <code>reinitializer(3)</code> 後，版本 2 就不能再執行。如果 V3 依賴 V2 的設定，必須安排依序 migration，或寫一個包含所有必要步驟的 migration。不要把兩個外部 <code>reinitializer</code> 互相巢狀呼叫；可抽出 <code>onlyInitializing</code> 的內部 helper。implementation 的產品版本與初始化版本可以不同；純邏輯修正未必需要 migration。</p>
+    <h3>實際操作：升級 + 初始化放在同一筆交易</h3>
+    <p>假設 V1 已初始化 owner，V2 在相容的 storage 尾端新增 <code>feeBps</code>。下面是接在既有 V1 上的示意，沿用原本 owner 與升級權限，不重新呼叫 <code>__Ownable_init</code>：</p>
+<pre><code>// V2 fragment: append only after validating the V1 layout
+uint256 public feeBps;
+
+function initializeV2(uint256 feeBps_)
+    external onlyOwner reinitializer(2)
+{
+    require(feeBps_ &lt;= 1_000, "fee too high");
+    feeBps = feeBps_;
+}</code></pre>
+    <p>先部署並驗證 V2 implementation，再由已授權帳戶透過 <strong>proxy 地址</strong> 提交升級。以下是 OpenZeppelin 5.x UUPS 的呼叫示意，需配合實際 ABI、相依版本與 signer：</p>
+<pre><code>bytes memory data = abi.encodeCall(MyAppV2.initializeV2, (100));
+// executed by the authorized owner; 100 bps = 1%
+MyAppV1(proxyAddress).upgradeToAndCall(v2Implementation, data);</code></pre>
+    <p>交易內順序是：V1 驗證升級權限 → 更新 implementation 指向 V2 → delegatecall 執行 V2 的 <code>initializeV2(100)</code> → 寫入 proxy 的 fee 與初始化版本。若 migration revert，整筆交易回滾，implementation 指向也回到 V1。若只換 implementation、之後另送初始化交易，中間可能暴露未設定好的 V2，或讓未受保護的 migration 被搶先呼叫。</p>
+    <p><strong>Transparent 的 caller 有差別：</strong>OpenZeppelin 5.x 通常由 ProxyAdmin 的 owner 呼叫 <code>ProxyAdmin.upgradeAndCall</code>；migration 裡的 <code>msg.sender</code> 是 ProxyAdmin，不是其 owner。因此上面的 <code>onlyOwner</code> 例子適用於 owner 直接呼叫的 UUPS，不能原樣搬到 Transparent。應依實際升級路徑設計 migration 授權，並用 fork 模擬真實 multisig／timelock／ProxyAdmin caller。</p>
+    <h3>升級後要驗收什麼？</h3>
+    <ul><li>確認 implementation 地址、<code>Upgraded</code> 與 <code>Initialized(2)</code> 事件，以及新參數的讀值；事件需在 proxy 執行的交易中檢查。</li><li>確認 owner、角色、餘額、債務等 V1 狀態維持預期；重複初始化及未授權呼叫都必須失敗。</li><li>模擬 migration 失敗，確認整筆升級回滾；確認未來 V3 的升級權限仍能正常運作。</li><li>不要假設換回 V1 就會回復資料：migration 已改動的 storage 和已使用的初始化版本不會隨程式碼回退。大型 migration 若無法一筆完成，需設計暫停、分批游標與完成前的功能限制。</li></ul>
+    <p>新 proxy 若直接部署 V2，也需要完整的首次初始化路徑；不能只呼叫依賴既有 owner 的 <code>initializeV2</code>。此外 Upgrades 工具預設不將 reinitializer 當成首次 initializer 驗證；需要此驗證時可使用 <code>@custom:oz-upgrades-validate-as-initializer</code>，但應用在確實包含完整首次初始化的函式，而非盲目標註所有 migration。參考 <a href="https://docs.openzeppelin.com/contracts/5.x/api/proxy#Initializable">Initializable API</a> 與 <a href="https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable">初始化驗證說明</a>。</p>
+
+<h3 id="zh-upgrade-prevention">新手如何避免升級踩坑：把經驗變成發布門檻</h3>
+<p>不要只靠記住注意事項。把常見錯誤交給固定模板、相容性驗證、測試與部署腳本攔截；人工 review 則確認需求與經濟邏輯。工具通過不代表沒有漏洞，但能降低每次操作都依賴記憶的風險。</p>
+<table><thead><tr><th>容易踩的坑</th><th>預防方法</th><th>驗收證據</th></tr></thead><tbody>
+<tr><td>proxy 部署後才初始化，被搶先設定 owner</td><td>部署時直接帶 initializer calldata；implementation constructor 鎖住自身初始化</td><td>部署交易完成即有正確 owner；implementation 直接初始化失敗</td></tr>
+<tr><td>reinitializer 有版本限制卻沒有權限</td><td>依 UUPS／Transparent 的實際 caller 設計 migration 授權</td><td>未授權 migration 失敗；正式管理路徑成功；同版本不能重跑</td></tr>
+<tr><td>改 storage 排列，舊資料遭錯讀</td><td>固定相依套件版本與 lockfile；對正確的舊版執行 layout 驗證，不任意略過警告</td><td>CI 驗證通過；有資料的 V1 升級後仍符合預期</td></tr>
+<tr><td>呼叫 implementation 而非 proxy，或使用錯鏈地址</td><td>部署 manifest 分別記錄 chain ID、proxy、implementation、ProxyAdmin／治理地址；腳本核對鏈與目前 implementation</td><td>提交前核對地址與 bytecode；交易後從 proxy 讀回設定</td></tr>
+<tr><td>升級成功，新增參數卻未設定</td><td>需要 migration 時用原子 upgrade + call；明訂新增欄位的合法值</td><td>新參數正確；刻意令 migration revert 時，implementation 與狀態一起回滾</td></tr>
+<tr><td>EOA 測試通過，正式治理操作失敗</td><td>fork 模擬實際 multisig／timelock／ProxyAdmin 呼叫鏈與準備提交的 calldata</td><td>正式 caller 的權限、等待條件與 migration 都能完成</td></tr>
+</tbody></table>
+<h4>最小可用的開發流程</h4>
+<ol><li><strong>寫驗收規則：</strong>例如 owner 不變、使用者餘額與債務不變、新 fee 為 100 bps、提款仍可用。若資料需要轉換，寫清楚轉換前後應成立的關係。</li><li><strong>建立有資料的 V1 fixture：</strong>包含不同角色、使用者、餘額和邊界值。只測空合約升級，容易漏掉 storage 與業務問題。</li><li><strong>CI 設定阻擋條件：</strong>相容性驗證、資料保留、權限負面測試、重複初始化、migration 失敗回滾，都必須通過。</li><li><strong>fork 演練：</strong>以正式權限路徑模擬確切交易；記錄區塊、implementation bytecode 與 calldata。模擬後若版本、參數或鏈上狀態有重要改動，重新評估並模擬。</li><li><strong>提交後驗收：</strong>核對 receipt、implementation、owner、角色、新參數與關鍵操作；不能只看交易狀態成功。</li></ol>
+<pre><code>V1 有資料的測試狀態
+  → V2 相容性驗證
+  → upgrade + migration 測試
+  → 未授權／重複呼叫／失敗回滾測試
+  → 正式治理路徑 fork 模擬
+  → 提交交易與讀回驗收</code></pre>
+<p><strong>工具無法替你決定的事：</strong><code>withdrawLimit = 0</code> 是禁止提款還是無上限？新增 fee 對既有使用者是否生效？這些需先定義需求，再寫成測試。回退 implementation 也不等於復原資料，必須事前設計復原或後續修正 migration。</p>
+<p>此處是建議的發布流程，不表示本筆記已提供可執行的 CI 或完成鏈上模擬。可依 <a href="https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable">OpenZeppelin 開發指南</a>建立自己的模板；前文已說明 reinitializer 的驗證限制。</p>
+
+    <h2 id="zh-section-7">選擇器衝突：Transparent 的由來</h2>
     <p>如果 proxy 自己有 <code>upgradeTo(address)</code>，而 implementation 剛好也有同名或<strong>相同四位元組選擇器</strong>的函式，那麼這個呼叫會被 proxy 攔截，永遠到不了 implementation。這就是 <strong>function selector clash</strong>。</p>
     <p>Transparent 模式的解法是依呼叫者分流：<strong>admin 呼叫走 proxy 的管理邏輯，其他人一律直接轉給 implementation</strong>。代價是每次呼叫都要讀一次 admin 做判斷（OZ v5 把 admin 改成 immutable 就是為了省掉這次讀取）。</p>
     <p>UUPS 的解法更乾淨：<strong>proxy 身上根本沒有管理函式</strong>，升級邏輯放在 implementation 裡，自然不可能衝突。這也是 UUPS 成為主流的原因之一。</p>
 
-    <h2>升級前的檢查清單</h2>
+    <h2 id="zh-section-8">升級前的檢查清單</h2>
     <ol>
       <li><strong>用工具比對儲存佈局</strong>。OpenZeppelin Upgrades（Hardhat／Foundry 皆有）會自動擋下不相容的變更。<strong>不要靠肉眼看 diff。</strong></li>
       <li><strong>確認新版仍保有升級能力</strong>（UUPS 必須繼續繼承 <code>UUPSUpgradeable</code>）。</li>
@@ -325,7 +377,7 @@ function setTotal(uint256 v) external {
       <li><strong>注意 OZ v4 → v5</strong>：順序儲存與命名空間儲存不相容，跨版本升級要特別驗證。</li>
     </ol>
 
-    <h2>智慧合約安全風險（開發者）</h2>
+    <h2 id="zh-section-9">智慧合約安全風險（開發者）</h2>
     <ul>
       <li><strong>儲存錯位不會 revert</strong>：它安靜地回傳錯誤的值。這是代理模式最危險的特性——測試若只檢查「有沒有成功」會完全漏掉。</li>
       <li><strong>不可變數不存在儲存裡</strong>：<code>immutable</code> 與 <code>constant</code> 被編進 bytecode，升級換掉 implementation 就等於換掉它們的值，而且 proxy 的儲存毫無記錄。</li>
@@ -335,7 +387,7 @@ function setTotal(uint256 v) external {
       <li><strong>驗證與開源</strong>：proxy 與 implementation 都要在區塊瀏覽器驗證，否則使用者無從得知自己在跟什麼程式碼互動。</li>
     </ul>
 
-    <h2>使用者風險</h2>
+    <h2 id="zh-section-10">使用者風險</h2>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
       <tbody>
@@ -343,13 +395,19 @@ function setTotal(uint256 v) external {
         <tr><td><strong>單一金鑰的升級權</strong></td><td>若升級權在一個 EOA 手上，該私鑰外洩即等同整個協議被接管。進場前確認是否多簽。</td></tr>
         <tr><td><strong>沒有時間鎖 = 沒有退出窗口</strong></td><td>有時間鎖時，惡意升級至少會先公開排隊，你有機會撤資；沒有的話，變更在一個區塊內生效。</td></tr>
         <tr><td><strong>審計的範圍</strong></td><td>「已審計」通常指某個版本的 implementation。升級後的新版未必在審計範圍內。</td></tr>
-        <tr><td><strong>升級本身就是事故來源</strong></td><td>2026 年約 $280M 的 Drift 事件根因即在升級機制——這不是罕見的邊緣案例。</td></tr>
+
         <tr><td><strong>怎麼自己查</strong></td><td>在區塊瀏覽器讀 proxy 的 <code>0x3608…</code> 槽位可看出目前的 implementation；讀 admin 槽位可看出誰有權升級。</td></tr>
       </tbody>
     </table></div>
     <p>延伸閱讀：<a href="./solidity-security.html">Solidity 安全漏洞圖鑑</a>的 delegatecall 與存取控制兩節。</p>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-11">升級實作：V1 → V2 的驗收</h2>
+<p>本篇 assembly 與 namespace snippet 是原理示意，帶 placeholder 的 slot 不能直接部署。使用固定版 OpenZeppelin 與 upgrades 工具：部署 implementation → proxy constructor 帶 initializer calldata → 建 V1 state → validate V2 layout → 經授權 upgradeToAndCall → 讀回所有 state。不要為 migration 隨意 reinterpret 舊欄位；新增 fee 時應在相容的 namespace struct 尾端新增欄位並 validate。</p>
+<p>測 implementation 無法 initialize、proxy 無法二次 initialize、非 owner 無法 upgrade/reinitialize、所有 balance/role 保留、migration revert 時整個 upgrade rollback。Runtime UUPS compatibility 不會替你判斷 storage compatibility 或 business logic。<a href="https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable">OpenZeppelin storage validation</a>說明 namespace 內也必須保留相容佈局。</p>
+<h2 id="zh-section-12">PM：誰能在什麼時間改規則？</h2>
+<p>列 implementation、ProxyAdmin/beacon、owner、多簽 signer、timelock、emergency bypass 的關係。比較 upgrade notice 與真實 exit latency；通知 24 小時、退出需 7 天，就不構成完整退出窗口。Audit coverage 應綁 implementation bytecode、compiler、library 與 configuration，不只列 auditor logo。</p>
+
+    <h2 id="zh-section-13">官方來源</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1967">EIP-1967：代理儲存槽</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-7201">ERC-7201：命名空間儲存佈局</a></li>
@@ -361,9 +419,9 @@ function setTotal(uint256 v) external {
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Proxies and Upgradeable Contracts</h1>
-    <p class="meta">2026-10-08 · SOLIDITY · PROXY PATTERNS · STORAGE LAYOUT · DEVELOPER GUIDE</p>
+    <p class="meta">2026-10-08 · SOLIDITY · PROXY PATTERNS · STORAGE LAYOUT · DEVELOPER GUIDE</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">What delegatecall actually does</a></li><li><a href="#en-section-3">Three mainstream patterns</a></li><li><a href="#en-section-4">EIP-1967: why fixed slots</a></li><li><a href="#en-section-5">Storage layout: the big trap</a></li><li><a href="#en-section-6">Initialisation: constructors do not work</a></li><li><a href="#en-upgrade-prevention">Beginner prevention workflow</a></li><li><a href="#en-section-7">Selector clash: where Transparent came from</a></li><li><a href="#en-section-8">Pre-upgrade checklist</a></li><li><a href="#en-section-9">Smart-contract security (developers)</a></li><li><a href="#en-section-10">User risk</a></li><li><a href="#en-section-11">Upgrade acceptance: V1 → V2</a></li><li><a href="#en-section-12">PM: who can change rules, and when?</a></li><li><a href="#en-section-13">Official sources</a></li></ol></nav></details>
 
     <p>Deployed contracts are immutable, but products need bug fixes and new features. Proxies are the industry's answer — at the cost of a whole new category of errors that <strong>fail silently</strong>. Here are the three mainstream patterns, how to keep storage aligned, and why the upgrade mechanism is now a first-class attack surface.</p>
 
@@ -372,27 +430,27 @@ function setTotal(uint256 v) external {
       <ul>
         <li>One sentence covers the mechanism: <strong>the proxy owns the storage and the address, the implementation only supplies code</strong>, joined by <code>delegatecall</code>. Upgrading swaps that code address.</li>
         <li>The biggest risk is not buggy logic but <strong>storage layout drift</strong> — it does not revert, it quietly reads one field as another field's value.</li>
-        <li>And <strong>"upgradeable" is itself a form of centralisation</strong>: whoever holds the upgrade key can rewrite the rules. The ~$280M Drift incident in 2026 traced back to the upgrade mechanism.</li>
+        <li>And <strong>"upgradeable" is itself a form of centralisation</strong>: whoever holds the upgrade key can rewrite the rules. Assess upgrade risk through the actual authority and validation process.</li>
       </ul>
       <p class="who"><strong>Where to start:</strong> beginners → "What delegatecall actually does" and the pattern comparison; Solidity engineers → storage layout, ERC-7201, initialisers and the upgrade checklist; PMs and risk → market background and user risk.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>Upgradeability is effectively the default in production — most major DeFi protocols run behind a proxy. That makes an under-appreciated point: <strong>when you assess a protocol's safety, you are really assessing who can upgrade it.</strong></p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Status</th></tr></thead>
       <tbody>
-        <tr><td>One of 2026's largest incidents: Drift</td><td>~$280M, root cause in the <strong>upgrade mechanism</strong></td></tr>
+
         <tr><td>OpenZeppelin v5 storage approach</td><td>Moved to <strong>ERC-7201 namespaced storage</strong>, replacing <code>__gap</code></td></tr>
         <tr><td>OZ v5 interface change</td><td><code>upgradeTo</code> removed; only <code>upgradeToAndCall</code> remains</td></tr>
         <tr><td>OZ v5 transparent proxy</td><td>Admin is now <strong>immutable</strong>; upgrade rights move via ProxyAdmin ownership</td></tr>
         <tr><td>Research attention</td><td>Proxy collision detection is its own research topic (Proxion, USCSA, others)</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Status current as of 2026-10; library interfaces change often — check against the version you actually installed.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
     <blockquote><p>If the tutorial you are reading still teaches <code>__gap</code> and <code>upgradeTo</code>, it predates OZ v5. <strong>The v4 and v5 storage models are incompatible</strong> — upgrading from v4's sequential storage to v5's namespaced storage has been reported to cause unrecoverable deadlock when mishandled. Validate the layout before any major-version upgrade.</p></blockquote>
 
-    <h2>What delegatecall actually does</h2>
+    <h2 id="en-section-2">What delegatecall actually does</h2>
     <p>A normal <code>call</code> means "go to their house and use their things"; <code>delegatecall</code> means <strong>"bring their code here and run it on my things"</strong>. So:</p>
     <ul>
       <li>The <strong>code</strong> executed belongs to the implementation.</li>
@@ -448,7 +506,7 @@ fallback() external payable {
     }
 }</code></pre>
 
-    <h2>Three mainstream patterns</h2>
+    <h2 id="en-section-3">Three mainstream patterns</h2>
 
     <figure>
       <div class="figbox">
@@ -498,7 +556,7 @@ fallback() external payable {
       <figcaption>How to choose: <strong>a single contract where gas matters → UUPS</strong> (the common default today); <strong>hundreds of identical contracts, such as one vault per user → Beacon</strong>; <strong>Transparent</strong> mostly appears in existing legacy systems; <strong>Diamond</strong> only earns its complexity when you genuinely hit the 24KB contract size limit.</figcaption>
     </figure>
 
-    <h2>EIP-1967: why fixed slots</h2>
+    <h2 id="en-section-4">EIP-1967: why fixed slots</h2>
     <p>The proxy needs to store things too (the implementation address, the admin), but its storage is shared with the implementation's. If the proxy put the implementation address in slot 0 and the implementation's first variable also landed in slot 0, <strong>they would overwrite each other</strong>.</p>
     <p>EIP-1967 solves this by placing those values somewhere <strong>an ordinary variable will essentially never reach</strong>: the keccak256 of a string, minus one.</p>
 <pre><code><span class="c">// The three standard slots (worth memorising; you will read them while debugging)</span>
@@ -508,9 +566,9 @@ beacon         : 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133
 
 <span class="c">// Derivation: bytes32(uint256(keccak256('eip1967.proxy.implementation')) - 1)</span>
 <span class="c">// The minus one makes the value the hash of no known preimage, lowering collision risk further</span></code></pre>
-    <p>Practical use: to find which implementation any proxy currently points at, just read its first slot — that is exactly what a block explorer's "Read as Proxy" does.</p>
+    <p>Practical use: to find which implementation any proxy currently points at, read the EIP-1967 implementation slot above, not slot 0; for a Beacon proxy, resolve the beacon implementation — that is exactly what a block explorer's "Read as Proxy" does.</p>
 
-    <h2>Storage layout: the big trap</h2>
+    <h2 id="en-section-5">Storage layout: the big trap</h2>
     <p>An upgrade <strong>replaces code, not data</strong>. So the new version's understanding of the layout must be fully compatible with the old one, or every field shifts meaning — <strong>without reverting</strong>.</p>
 
     <figure>
@@ -546,7 +604,7 @@ beacon         : 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133
           <text class="svg-mono" x="400" y="318" text-anchor="middle">either way, diff the layout with a tool before upgrading — never by eye</text>
         </svg>
       </div>
-      <figcaption><code>__gap</code>'s logic is "reserve 50 empty slots now, and new fields later consume the gap so nothing after it shifts". It works, but it is hand-counted and painful under multiple inheritance. <strong>ERC-7201 removes the problem at the root</strong>: each module's variables live in a region derived from a hash of its name, so collision is mathematically improbable.</figcaption>
+      <figcaption><code>__gap</code>'s logic is "reserve 50 empty slots now, and new fields later consume the gap so nothing after it shifts". It works, but it is hand-counted and painful under multiple inheritance. <strong>ERC-7201 isolates modules</strong>: each module's variables live in a region derived from a hash of its name, so cross-namespace collision is improbable; fields inside each namespace still require a compatible layout.</figcaption>
     </figure>
 
 <pre><code><span class="c">// ERC-7201 in practice (used throughout OZ v5 internally)</span>
@@ -565,10 +623,10 @@ function _main() private pure returns (MainStorage storage $) {
 }
 
 function setTotal(uint256 v) external {
-    _main().total = v;        <span class="c">// accessed through $; ordering no longer matters</span>
+    _main().total = v;        <span class="c">// preserve compatible field layout inside this namespace</span>
 }</code></pre>
 
-    <h2>Initialisation: constructors do not work</h2>
+    <h2 id="en-section-6">Initialisation: constructors do not work</h2>
     <p>A <code>constructor</code> runs at deployment and writes to the <strong>implementation's own storage</strong> — which the proxy never sees. So upgradeable contracts use <code>initialize()</code> instead, which creates a new problem: <strong>it is an ordinary function anyone can call</strong>.</p>
 
     <figure>
@@ -617,21 +675,67 @@ function setTotal(uint256 v) external {
     }
 
     <span class="c">// Adding fields in a later upgrade: use reinitializer with a version number</span>
-    function initializeV2(uint256 fee_) public reinitializer(2) {
-        _main().fee = fee_;
+    function initializeV2(uint256 migratedTotal_) public onlyOwner reinitializer(2) {
+        _main().total = migratedTotal_; // illustrative migration of existing state
     }
 
     <span class="c">// UUPS's upgrade guard — the only permission check; omit it and anyone can upgrade</span>
     function _authorizeUpgrade(address newImpl) internal override onlyOwner {}
 }</code></pre>
-    <blockquote><p>A fatal UUPS-specific mistake: <strong>the new implementation forgets to inherit <code>UUPSUpgradeable</code></strong>. The upgrade succeeds, and with it the upgrade function disappears — that proxy can <strong>never be upgraded again</strong>, and funds may be stranded with it. OZ's upgrade plugin catches this; a manual deployment has no protection at all.</p></blockquote>
+    <blockquote><p>Standard OpenZeppelin UUPS checks the new implementation’s <code>proxiableUUID</code>; incompatible implementations normally revert. This is not full safety validation: compatible malicious code can still remove future upgrade ability. Validate authority, storage layout, and behavior, then run the authorized migration atomically with <code>upgradeToAndCall</code>. A <code>reinitializer</code> limits version execution, not caller authority.</p></blockquote>
 
-    <h2>Selector clash: where Transparent came from</h2>
+
+    <h3>What does the initialization version mean?</h3>
+    <p><code>initializeV2</code> is just a function name. <code>reinitializer(2)</code> enforces the version. The proxy stores the highest initialized version: normally 1 after its first initializer, then 2 after a successful V2 migration. Repeating that version reverts. Changing implementation neither resets this record nor automatically runs initialization.</p>
+    <table><thead><tr><th>Operation</th><th>Purpose</th><th>Constraint</th></tr></thead><tbody><tr><td><code>initializer</code></td><td>First proxy setup</td><td>Do not rerun it to update ownership</td></tr><tr><td><code>reinitializer(n)</code></td><td>New module or one-time migration</td><td>Higher version required; access control still required</td></tr><tr><td><code>onlyInitializing</code></td><td>Internal initialization helpers</td><td>Neither an admin check nor a once-only guard</td></tr><tr><td><code>_disableInitializers()</code></td><td>Lock implementation initialization in its constructor</td><td>Does not lock the proxy's separate storage</td></tr></tbody></table>
+    <p>Skipping from 1 to 3 does not execute version 2, and prevents running version 2 afterward. Sequence dependent migrations or include every required step in one migration. Do not nest external reinitializers; extract internal helpers with <code>onlyInitializing</code>. Product code versions and initialization versions are separate: a logic-only fix may need no migration.</p>
+    <h3>Operational flow: upgrade and initialize in one transaction</h3>
+    <p>Suppose V1 already set its owner. V2 appends feeBps in a validated compatible layout. This fragment preserves existing ownership and does not rerun <code>__Ownable_init</code>:</p>
+<pre><code>// V2 fragment: append only after validating the V1 layout
+uint256 public feeBps;
+function initializeV2(uint256 feeBps_)
+    external onlyOwner reinitializer(2)
+{
+    require(feeBps_ &lt;= 1_000, "fee too high");
+    feeBps = feeBps_;
+}</code></pre>
+    <p>Deploy and validate V2, then have the authorized signer submit through the proxy address. This OpenZeppelin 5.x UUPS call sketch requires the actual ABI and pinned dependencies:</p>
+<pre><code>bytes memory data = abi.encodeCall(MyAppV2.initializeV2, (100));
+// authorized owner; 100 bps = 1%
+MyAppV1(proxyAddress).upgradeToAndCall(v2Implementation, data);</code></pre>
+    <p>The transaction authorizes through V1, changes the implementation, then delegatecalls the V2 migration into proxy storage. A migration revert rolls back the implementation change too. Separate upgrade and initialization transactions leave an intermediate configuration gap and can expose unprotected migration functions to competing callers.</p>
+    <p><strong>Transparent differs:</strong> with OpenZeppelin 5.x, the ProxyAdmin owner normally calls <code>ProxyAdmin.upgradeAndCall</code>. The migration sees ProxyAdmin as <code>msg.sender</code>, not its owner. The owner-only UUPS example therefore cannot be copied unchanged. Design migration authorization for the actual route and simulate the real multisig, timelock, and ProxyAdmin callers.</p>
+    <h3>Acceptance and recovery</h3>
+    <ul><li>Verify the implementation address, proxy transaction events <code>Upgraded</code> and <code>Initialized(2)</code>, and new parameters.</li><li>Verify existing ownership, roles, balances and liabilities; duplicate and unauthorized initialization must fail.</li><li>Simulate migration failure and atomic rollback; verify future V3 upgrade authorization still works.</li><li>Switching code back to V1 does not undo migrated storage or initialization versions. Large migrations need explicit pause policy, batch progress, and feature restrictions until complete.</li></ul>
+    <p>A fresh proxy deployed directly with V2 needs a complete first-time setup path; an owner-only migration cannot initialize its missing owner. Upgrades tooling does not validate reinitializers as initializers by default. Use <code>@custom:oz-upgrades-validate-as-initializer</code> when appropriate for a complete first-time initializer, rather than marking every migration. See <a href="https://docs.openzeppelin.com/contracts/5.x/api/proxy#Initializable">Initializable</a> and <a href="https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable">initializer validation</a>.</p>
+
+<h3 id="en-upgrade-prevention">Prevent beginner mistakes with release gates</h3>
+<p>Turn recurring mistakes into template, validation, test, and deployment checks. Reviewers still need to assess requirements and economics. Passing tools reduces routine mistakes; it does not prove the absence of vulnerabilities.</p>
+<table><thead><tr><th>Common mistake</th><th>Prevention</th><th>Evidence</th></tr></thead><tbody>
+<tr><td>Leaving a deployed proxy uninitialized</td><td>Include initializer calldata at deployment; lock the implementation's initialization</td><td>Correct owner immediately after deployment; direct implementation initialization fails</td></tr>
+<tr><td>A version guard without migration authorization</td><td>Authorize the actual UUPS or Transparent caller route</td><td>Unauthorized and duplicate calls fail; governance route succeeds</td></tr>
+<tr><td>Incompatible storage changes</td><td>Pin dependencies and lockfile; compare against the correct prior layout without casually bypassing warnings</td><td>CI validation and populated V1 upgrade tests pass</td></tr>
+<tr><td>Wrong address or chain</td><td>Separate chain ID, proxy, implementation and governance addresses in a manifest; check current implementation</td><td>Preflight chain and bytecode checks; post-transaction reads through the proxy</td></tr>
+<tr><td>New parameters left unset</td><td>Use atomic upgrade and migration when needed; define valid new values</td><td>Correct parameters; forced migration failure rolls back code pointer and state</td></tr>
+<tr><td>EOA tests pass but governance fails</td><td>Fork-simulate the real multisig, timelock and ProxyAdmin route with exact calldata</td><td>Authorization, waiting requirements and migration succeed</td></tr>
+</tbody></table>
+<h4>A minimal development workflow</h4>
+<ol><li><strong>Define acceptance rules:</strong> owner preserved, balances and debt preserved, fee set to 100 bps, withdrawals working. For intentional transformations, specify the relationship between old and new data.</li><li><strong>Populate a V1 fixture:</strong> include roles, users, balances and boundary cases. Empty-contract upgrades miss storage and business failures.</li><li><strong>Gate CI:</strong> require compatibility, state preservation, unauthorized-call, repeat-initialization and atomic-rollback tests.</li><li><strong>Rehearse on a fork:</strong> use the real authority route and exact transaction. Record block, bytecode and calldata; reassess and simulate again after material code, parameter or on-chain changes.</li><li><strong>Verify after submission:</strong> inspect receipt, implementation, owner, roles, parameters and key operations. Transaction success alone is insufficient.</li></ol>
+<pre><code>Populated V1 fixture
+  → V2 compatibility validation
+  → upgrade + migration tests
+  → unauthorized / duplicate / rollback tests
+  → governance-route fork simulation
+  → submission and post-upgrade reads</code></pre>
+<p>Tools cannot decide whether a zero withdrawal limit means disabled withdrawals or unlimited withdrawals, or whether new fees should affect existing positions. Specify these requirements and test them. Code rollback does not restore migrated data; plan recovery or a corrective migration in advance.</p>
+<p>This is a recommended workflow, not an executable CI package or a completed on-chain simulation. Build a reusable template using the <a href="https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable">OpenZeppelin guide</a>; the reinitializer validation limitation is explained above.</p>
+
+    <h2 id="en-section-7">Selector clash: where Transparent came from</h2>
     <p>If the proxy itself exposes <code>upgradeTo(address)</code> and the implementation happens to have a function with the same name or the same <strong>four-byte selector</strong>, the call is intercepted by the proxy and never reaches the implementation. That is a <strong>function selector clash</strong>.</p>
     <p>The transparent pattern resolves it by routing on the caller: <strong>admin calls hit the proxy's admin logic, everyone else is forwarded straight through</strong>. The cost is reading the admin on every call — which is exactly why OZ v5 made the admin immutable.</p>
     <p>UUPS resolves it more cleanly: <strong>the proxy has no admin functions at all</strong>. Upgrade logic lives in the implementation, so a clash is impossible by construction — one reason UUPS became the default.</p>
 
-    <h2>Pre-upgrade checklist</h2>
+    <h2 id="en-section-8">Pre-upgrade checklist</h2>
     <ol>
       <li><strong>Diff the storage layout with a tool.</strong> OpenZeppelin Upgrades (Hardhat and Foundry) blocks incompatible changes automatically. <strong>Do not eyeball the diff.</strong></li>
       <li><strong>Confirm the new version is still upgradeable</strong> (UUPS must keep inheriting <code>UUPSUpgradeable</code>).</li>
@@ -642,7 +746,7 @@ function setTotal(uint256 v) external {
       <li><strong>Mind OZ v4 → v5</strong>: sequential and namespaced storage are incompatible; validate carefully across that boundary.</li>
     </ol>
 
-    <h2>Smart-contract security (developers)</h2>
+    <h2 id="en-section-9">Smart-contract security (developers)</h2>
     <ul>
       <li><strong>Layout drift does not revert</strong>: it silently returns wrong values. This is the pattern's most dangerous property — tests that only check "did it succeed" miss it entirely.</li>
       <li><strong>Immutables do not live in storage</strong>: <code>immutable</code> and <code>constant</code> are baked into bytecode, so swapping the implementation swaps their values with no trace in the proxy's storage.</li>
@@ -652,7 +756,7 @@ function setTotal(uint256 v) external {
       <li><strong>Verify and publish both</strong> proxy and implementation on the explorer, or users cannot tell what code they are interacting with.</li>
     </ul>
 
-    <h2>User risk</h2>
+    <h2 id="en-section-10">User risk</h2>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
       <tbody>
@@ -660,13 +764,19 @@ function setTotal(uint256 v) external {
         <tr><td><strong>A single key holding upgrade rights</strong></td><td>If upgrade rights sit on one EOA, that key leaking is equivalent to the whole protocol being taken over. Check for a multisig first.</td></tr>
         <tr><td><strong>No timelock = no exit window</strong></td><td>With a timelock, a malicious upgrade at least queues in public and you can withdraw; without one it lands in a single block.</td></tr>
         <tr><td><strong>What an audit covered</strong></td><td>"Audited" usually means one implementation version. The version shipped after an upgrade may never have been in scope.</td></tr>
-        <tr><td><strong>Upgrades are themselves an incident source</strong></td><td>The ~$280M Drift incident in 2026 traced to the upgrade mechanism — this is not a rare edge case.</td></tr>
+
         <tr><td><strong>How to check yourself</strong></td><td>Read slot <code>0x3608…</code> on the explorer to see the current implementation, and the admin slot to see who may upgrade it.</td></tr>
       </tbody>
     </table></div>
     <p>See also: the delegatecall and access-control sections of the <a href="./solidity-security.html">Solidity security field guide</a>.</p>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-11">Upgrade acceptance: V1 → V2</h2>
+<p>The assembly and namespace snippets explain mechanics; placeholder slots are not deployable. Pin OpenZeppelin and upgrade tooling: deploy implementation → initialize atomically through proxy construction → establish V1 state → validate V2 layout → authorize upgradeToAndCall → verify state. Do not repurpose existing fields during migration; append new fee state compatibly and validate it.</p>
+<p>Test locked implementation initialization, repeated proxy initialization, unauthorized upgrade/reinitialization, preserved balances/roles, and atomic rollback when migration reverts. Runtime UUPS compatibility does not validate storage or business logic. <a href="https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable">OpenZeppelin’s storage validation</a> covers compatibility within namespaces.</p>
+<h2 id="en-section-12">PM: who can change rules, and when?</h2>
+<p>Map implementation, ProxyAdmin/beacon, owner, multisig signers, timelock, and emergency bypass. Compare upgrade notice against actual exit latency: 24-hour notice with a seven-day exit is not a full exit window. Bind audit coverage to implementation bytecode, compiler, library, and configuration, rather than an auditor logo.</p>
+
+    <h2 id="en-section-13">Official sources</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1967">EIP-1967: proxy storage slots</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-7201">ERC-7201: namespaced storage layout</a></li>
@@ -677,7 +787,7 @@ function setTotal(uint256 v) external {
     <p class="meta">Content last verified: 2026-10-08</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -689,6 +799,6 @@ function setTotal(uint256 v) external {
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261019-enrich"></script>
 </body>
 </html>

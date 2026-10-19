@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
 </head>
 <body data-title-zh="EVM Gas 與 EIP-1559" data-title-en="EVM Gas and EIP-1559">
 <div class="wrap">
@@ -46,7 +46,7 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>EVM Gas 與 EIP-1559</h1>
-    <p class="meta">2026-09-19 · EVM · LONDON 硬分叉 · 費用市場 · 開發者指南</p>
+    <p class="meta">2026-09-19 · EVM · LONDON 硬分叉 · 費用市場 · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">兩個時代的對照</a></li><li><a href="#zh-section-3">base fee 怎麼自動調整</a></li><li><a href="#zh-section-4">一筆交易的費用怎麼算</a></li><li><a href="#zh-section-5">前端怎麼設（viem）</a></li><li><a href="#zh-section-6">Gas 優化：省在哪裡</a></li><li><a href="#zh-section-7">L2 與 blob：費用真正下降的地方</a></li><li><a href="#zh-section-8">開發者注意事項</a></li><li><a href="#zh-section-9">使用者風險</a></li><li><a href="#zh-section-10">算一次費用與失敗成本</a></li><li><a href="#zh-section-11">官方來源</a></li></ol></nav></details>
 
     <p>London 硬分叉（2021-08-05）改寫了以太坊的收費方式。這則講清楚<strong>之前是什麼、之後是什麼、為什麼要改</strong>，以及作為工程師你該怎麼設參數、怎麼省。</p>
 
@@ -57,10 +57,10 @@
         <li><strong>London 之後</strong>費用拆成兩塊：<strong>base fee</strong> 由協議依區塊擁擠度自動定價並<strong>銷毀</strong>，<strong>priority fee</strong> 是你給驗證者的小費。你只需設一個能接受的上限。</li>
         <li>重點澄清：EIP-1559 <strong>沒有讓 gas 變便宜</strong>，它讓價格<strong>可預測</strong>。真正讓費用下降的是 L2 與 EIP-4844 的 blob。</li>
       </ul>
-      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「兩個時代的對照」與「一筆交易的費用怎麼算」；工程師 → 參數設定與 gas 優化；PM → 市場背景與「為什麼費用仍會暴漲」。</p>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「兩個時代的對照」與「一筆交易的費用怎麼算」；工程師 → 參數設定與 gas 優化；PM → 市場背景、「base fee 怎麼自動調整」（費用為何仍會暴漲）與「算一次費用與失敗成本」。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字</th></tr></thead>
       <tbody>
@@ -72,10 +72,10 @@
         <tr><td>base fee 每區塊最大變動</td><td>±12.5%</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，以 2026-09 查得為準。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
     <p>那個「銷毀 450 萬枚」的數字常被當成 EIP-1559 的賣點，但銷毀其實是<strong>副作用而非目的</strong>。真正的目的是修好費用市場的使用者體驗；ETH 因此具備通縮可能，是附帶結果。</p>
 
-    <h2>兩個時代的對照</h2>
+    <h2 id="zh-section-2">兩個時代的對照</h2>
 
     <figure>
       <div class="figbox">
@@ -107,15 +107,15 @@
           <line class="svg-flow-a" x1="260" y1="212" x2="328" y2="212" marker-end="url(#e1a)"></line>
           <line class="svg-flow" x1="260" y1="272" x2="328" y2="272" marker-end="url(#e1)"></line>
           <text class="svg-mono-a" x="590" y="206">你只需設一個上限</text>
-          <text class="svg-mono" x="590" y="228">多付的會自動退還</text>
+          <text class="svg-mono" x="590" y="228">依實際 gas 與有效單價結算</text>
           <text class="svg-mono" x="590" y="276">小費決定排序快慢</text>
         </svg>
       </div>
       <figcaption>改動的本質是<strong>把「猜價格」換成「設上限」</strong>。之前你得預測整個市場的出價分布；之後協議已經算好 base fee，你只需回答「我最多願意付多少」。這也是為什麼 1559 之後錢包的 gas 估算準確度大幅提升。</figcaption>
     </figure>
 
-    <h2>base fee 怎麼自動調整</h2>
-    <p>協議設定每個區塊的<strong>目標用量</strong>為上限的一半（目前目標約 1,500 萬 gas、上限約 3,000 萬）。下一個區塊的 base fee 依上一個區塊的滿載程度調整，<strong>單次最多變動 ±12.5%</strong>。</p>
+    <h2 id="zh-section-3">base fee 怎麼自動調整</h2>
+    <p>協議設定每個區塊的<strong>目標用量</strong>為上限的一半（以目標 1,500 萬／上限 3,000 萬為示例；實際讀當前區塊）。下一個區塊的 base fee 依上一個區塊的滿載程度調整，<strong>單次最多變動 ±12.5%</strong>。</p>
 
     <figure>
       <div class="figbox">
@@ -147,7 +147,7 @@
       <figcaption>±12.5% 看似溫和，但它是<strong>複利</strong>的：連續 10 個滿載區塊約等於 1.125¹⁰ ≈ 3.2 倍。所以 NFT 開賣之類的瞬間需求，仍然會在兩分鐘內把 base fee 推到數十倍——<strong>EIP-1559 讓價格可預測，但沒有、也不打算讓它變便宜</strong>。</figcaption>
     </figure>
 
-    <h2>一筆交易的費用怎麼算</h2>
+    <h2 id="zh-section-4">一筆交易的費用怎麼算</h2>
     <p>Type 2（EIP-1559）交易由你設兩個參數：</p>
 <pre><code>maxPriorityFeePerGas  <span class="c">// 小費上限：你願意給驗證者多少</span>
 maxFeePerGas          <span class="c">// 總價上限：base fee + 小費，加起來最多多少</span></code></pre>
@@ -160,11 +160,11 @@ totalFee = gasUsed × effectiveGasPrice
 <span class="c">// 分配</span>
 銷毀    = gasUsed × baseFeePerGas
 驗證者  = gasUsed × (effectiveGasPrice - baseFeePerGas)
-退還    = gasUsed × (maxFeePerGas - effectiveGasPrice)   <span class="c">// 多設的上限不會被拿走</span></code></pre>
+未用單價額度 = gasUsed × (maxFeePerGas - effectiveGasPrice)   <span class="c">// 多設的上限不會被拿走</span></code></pre>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 780 260" role="img" aria-label="一筆交易的費用拆解：使用者設定的 maxFeePerGas 上限分成三段，最底層是被銷毀的 base fee，中間是付給驗證者的小費，最上層多設的額度會退還給使用者。">
+        <svg viewBox="0 0 780 260" role="img" aria-label="一筆交易的費用拆解：使用者設定的 maxFeePerGas 上限分成三段，最底層是被銷毀的 base fee，中間是付給驗證者的小費，最上層是未使用的單價緩衝，非完整退款公式。">
           <defs><marker id="e3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
           <line class="svg-axis" x1="150" y1="230" x2="150" y2="30"></line>
           <text class="svg-mono" x="142" y="40" text-anchor="end">maxFeePerGas</text>
@@ -175,7 +175,7 @@ totalFee = gasUsed × effectiveGasPrice
           <text class="svg-nlabel" x="310" y="126" text-anchor="middle">priority fee → 驗證者</text>
           <rect x="170" y="36" width="280" height="56" rx="4" fill="none" stroke="var(--line)" stroke-width="1.4" stroke-dasharray="4 4"></rect>
           <text class="svg-ncode" x="310" y="60" text-anchor="middle">多設的緩衝</text>
-          <text class="svg-mono-a" x="310" y="80" text-anchor="middle">← 原封退還給你</text>
+          <text class="svg-mono-a" x="310" y="80" text-anchor="middle">← 原封未使用的單價緩衝</text>
           <line class="svg-flow" x1="456" y1="190" x2="520" y2="190" marker-end="url(#e3)"></line>
           <text class="svg-mono" x="528" y="194">永久離開流通</text>
           <line class="svg-flow" x1="456" y1="121" x2="520" y2="121" marker-end="url(#e3)"></line>
@@ -188,7 +188,7 @@ totalFee = gasUsed × effectiveGasPrice
       <figcaption>最重要的實務結論：<strong><code>maxFeePerGas</code> 設高不會讓你多付錢</strong>，只是允許你的交易在 base fee 上漲時仍能被打包。很多人沿用 London 前的直覺、把它壓得很緊，結果 base fee 一漲交易就卡住。</figcaption>
     </figure>
 
-    <h2>前端怎麼設（viem）</h2>
+    <h2 id="zh-section-5">前端怎麼設（viem）</h2>
 <pre><code>import { parseGwei } from "viem";
 
 <span class="c">// 多數情況：讓 viem 自己估，它會讀鏈上 base fee 並加上合理緩衝</span>
@@ -205,9 +205,9 @@ await walletClient.sendTransaction({
   <span class="c">// 抓 2 倍 base fee 當緩衝：即使連續數個滿載區塊也還撐得住</span>
   maxFeePerGas: base * 2n + tip,
 });</code></pre>
-    <p>那個 <code>base * 2n</code> 不是隨便抓的：base fee 每區塊最多漲 12.5%，2 倍緩衝約可撐過 6 個連續滿載區塊（1.125⁶ ≈ 2.03），對多數交易足夠。</p>
+    <p>那個 <code>base * 2n</code> 不是隨便抓的：base fee 每區塊最多漲 12.5%，2 倍緩衝可涵蓋五次滿載增幅；第六次已超過 2 倍（1.125⁶ ≈ 2.03），對多數交易足夠。</p>
 
-    <h2>Gas 優化：省在哪裡</h2>
+    <h2 id="zh-section-6">Gas 優化：省在哪裡</h2>
     <p>以下依實際效益排序。前兩項的量級遠大於其餘：</p>
     <div class="scroll"><table>
       <thead><tr><th>手段</th><th>為什麼有效</th></tr></thead>
@@ -222,11 +222,11 @@ await walletClient.sendTransaction({
     </table></div>
     <blockquote><p>但先量測再優化。用 <code>forge test --gas-report</code> 找出真正昂貴的函式，別把時間花在省幾百 gas 的微調上——<strong>一次多餘的 <code>SSTORE</code> 抵得過幾十處迴圈優化</strong>。</p></blockquote>
 
-    <h2>L2 與 blob：費用真正下降的地方</h2>
+    <h2 id="zh-section-7">L2 與 blob：費用真正下降的地方</h2>
     <p>L2 上的交易費由兩部分組成：<strong>L2 執行成本</strong>（很便宜）加上<strong>把資料發布到 L1 的成本</strong>（過去是主要開銷）。EIP-4844 引入 <strong>blob</strong>——一種專為 rollup 設計的資料格式，有<strong>獨立的費用市場</strong>，與一般交易的 base fee 分開計價，且資料只保留一段時間後即可丟棄。</p>
     <p>結果是 L2 費用大幅下降。但也帶來新的波動來源：<strong>blob 的供需自成一個市場</strong>，當多條 rollup 同時搶 blob 空間時，blob base fee 會獨立飆升，此時 L2 費用會上漲而 L1 一般交易費卻毫無變化。想了解細節，見 <a href="./optimistic-rollup-bridge.html">Optimistic Rollup</a> 與 <a href="./zk-rollup.html">ZK Rollup</a> 兩則。</p>
 
-    <h2>開發者注意事項</h2>
+    <h2 id="zh-section-8">開發者注意事項</h2>
     <ul>
       <li><strong>不要把 gas 成本寫死</strong>：硬分叉會改變 opcode 定價（歷史上多次發生）。寫死的 gas 上限在未來的分叉後可能失效。</li>
       <li><strong>避免 <code>transfer</code> 與 <code>send</code></strong>：它們固定只轉 2300 gas，收款方若是合約可能因此失敗。改用 <code>call{value: x}("")</code> 並檢查回傳值（記得搭配重入防護）。</li>
@@ -235,7 +235,7 @@ await walletClient.sendTransaction({
       <li><strong>L1 與 L2 的費用模型不同</strong>：在 L2 上，calldata 大小往往比執行步數更影響成本。</li>
     </ul>
 
-    <h2>使用者風險</h2>
+    <h2 id="zh-section-9">使用者風險</h2>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
       <tbody>
@@ -247,7 +247,11 @@ await walletClient.sendTransaction({
       </tbody>
     </table></div>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-10">算一次費用與失敗成本</h2>
+<p>Ethereum L1 示例：gasUsed 50,000、base fee 20 gwei、tip 2 gwei、max fee 50 gwei，effective price = 22 gwei；實付 0.0011 ETH，burn 0.001 ETH、tip 0.0001 ETH。gasLimit 80,000 時，費用上限為 0.004 ETH，還需有轉出的 value；最後以 receipt 計費。unused price headroom、未用 gas 與 EVM refund credit 是不同概念。</p>
+<p>若交易在 30,000 gas 時 revert，狀態回滾但約付 0.00066 ETH；out of gas 可耗掉整個限制。鏈上 receipt 才有實際費用；L2 另讀 data fee 與 chain-specific 收費。PM 應看「全部失敗成本加成功成本／成功動作數」，而非只看單筆平均 gas。</p>
+
+    <h2 id="zh-section-11">官方來源</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559：費用市場改革</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4844">EIP-4844：Shard Blob Transactions</a></li>
@@ -258,9 +262,9 @@ await walletClient.sendTransaction({
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>EVM Gas and EIP-1559</h1>
-    <p class="meta">2026-09-19 · EVM · LONDON HARD FORK · FEE MARKET · DEVELOPER GUIDE</p>
+    <p class="meta">2026-09-19 · EVM · LONDON HARD FORK · FEE MARKET · DEVELOPER GUIDE</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">The two eras</a></li><li><a href="#en-section-3">How the base fee adjusts</a></li><li><a href="#en-section-4">How a fee is computed</a></li><li><a href="#en-section-5">Setting it from the front end (viem)</a></li><li><a href="#en-section-6">Gas optimisation: where the savings are</a></li><li><a href="#en-section-7">L2s and blobs: where fees really fell</a></li><li><a href="#en-section-8">Developer notes</a></li><li><a href="#en-section-9">User risk</a></li><li><a href="#en-section-10">A fee example, including failure</a></li><li><a href="#en-section-11">Official sources</a></li></ol></nav></details>
 
     <p>The London hard fork (2021-08-05) rewrote how Ethereum charges for blockspace. This note covers <strong>what came before, what came after, and why it changed</strong> — plus how to set the parameters and where the savings actually are.</p>
 
@@ -271,10 +275,10 @@ await walletClient.sendTransaction({
         <li><strong>After London</strong> the fee splits in two: a <strong>base fee</strong> priced by the protocol from congestion and then <strong>burned</strong>, plus a <strong>priority fee</strong> tip to the validator. You only set a ceiling you can live with.</li>
         <li>An important correction: EIP-1559 <strong>did not make gas cheaper</strong>, it made the price <strong>predictable</strong>. What actually lowered fees was L2s and EIP-4844 blobs.</li>
       </ul>
-      <p class="who"><strong>Where to start:</strong> beginners → "The two eras" and "How a fee is computed"; engineers → parameters and gas optimisation; PMs → market background and "why fees still spike".</p>
+      <p class="who"><strong>Where to start:</strong> beginners → "The two eras" and "How a fee is computed"; engineers → parameters and gas optimisation; PMs → market background, "How the base fee adjusts" (why fees still spike) and "A fee example, including failure".</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
       <tbody>
@@ -286,10 +290,10 @@ await walletClient.sendTransaction({
         <tr><td>Max base fee change per block</td><td>±12.5%</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate, current as of 2026-09.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
     <p>That "4.5M ETH burned" number gets cited as the point of EIP-1559, but the burn is a <strong>side effect, not the goal</strong>. The goal was fixing the fee market's user experience; ETH's potential deflation is a consequence.</p>
 
-    <h2>The two eras</h2>
+    <h2 id="en-section-2">The two eras</h2>
 
     <figure>
       <div class="figbox">
@@ -321,15 +325,15 @@ await walletClient.sendTransaction({
           <line class="svg-flow-a" x1="260" y1="212" x2="328" y2="212" marker-end="url(#k1a)"></line>
           <line class="svg-flow" x1="260" y1="272" x2="328" y2="272" marker-end="url(#k1)"></line>
           <text class="svg-mono-a" x="590" y="206">you only set a ceiling</text>
-          <text class="svg-mono" x="590" y="228">the excess is refunded</text>
+          <text class="svg-mono" x="590" y="228">charged at the effective price</text>
           <text class="svg-mono" x="590" y="276">the tip sets your ordering</text>
         </svg>
       </div>
       <figcaption>The essence of the change is <strong>replacing "guess the price" with "set a ceiling"</strong>. Before, you had to predict the market's whole bid distribution; after, the protocol has already computed the base fee and you just answer "what is the most I will pay". That is why wallet gas estimates got so much better post-1559.</figcaption>
     </figure>
 
-    <h2>How the base fee adjusts</h2>
-    <p>The protocol targets each block at <strong>half</strong> the limit (currently ~15M gas target, ~30M limit). The next block's base fee adjusts from how full the last one was, <strong>by at most ±12.5% per block</strong>.</p>
+    <h2 id="en-section-3">How the base fee adjusts</h2>
+    <p>The protocol targets each block at <strong>half</strong> the limit (illustratively 15M target with a 30M limit; read the current block limit). The next block's base fee adjusts from how full the last one was, <strong>by at most ±12.5% per block</strong>.</p>
 
     <figure>
       <div class="figbox">
@@ -360,7 +364,7 @@ await walletClient.sendTransaction({
       <figcaption>±12.5% sounds gentle, but it <strong>compounds</strong>: ten consecutive full blocks is 1.125¹⁰ ≈ 3.2x. So a sudden surge — an NFT mint, say — can still push the base fee up tens of times within minutes. <strong>EIP-1559 made the price predictable; it never intended to make it low.</strong></figcaption>
     </figure>
 
-    <h2>How a fee is computed</h2>
+    <h2 id="en-section-4">How a fee is computed</h2>
     <p>A type 2 (EIP-1559) transaction takes two parameters from you:</p>
 <pre><code>maxPriorityFeePerGas  <span class="c">// tip ceiling: what you will pay the validator</span>
 maxFeePerGas          <span class="c">// total ceiling: base fee + tip, combined maximum</span></code></pre>
@@ -373,11 +377,11 @@ totalFee = gasUsed x effectiveGasPrice
 <span class="c">// Where it goes</span>
 burned    = gasUsed x baseFeePerGas
 validator = gasUsed x (effectiveGasPrice - baseFeePerGas)
-refunded  = gasUsed x (maxFeePerGas - effectiveGasPrice)   <span class="c">// headroom is never taken</span></code></pre>
+unusedPriceHeadroom = gasUsed x (maxFeePerGas - effectiveGasPrice)   <span class="c">// headroom is never taken</span></code></pre>
 
     <figure>
       <div class="figbox">
-        <svg viewBox="0 0 780 260" role="img" aria-label="Breakdown of one transaction's fee: the user's maxFeePerGas ceiling divides into the burned base fee at the bottom, the validator's priority fee in the middle, and unused headroom at the top which is refunded.">
+        <svg viewBox="0 0 780 260" role="img" aria-label="Breakdown of one transaction's fee: the user's maxFeePerGas ceiling divides into the burned base fee at the bottom, the validator's priority fee in the middle, and unused price headroom at the top.">
           <defs><marker id="k3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
           <line class="svg-axis" x1="150" y1="230" x2="150" y2="30"></line>
           <text class="svg-mono" x="142" y="40" text-anchor="end">maxFeePerGas</text>
@@ -388,7 +392,7 @@ refunded  = gasUsed x (maxFeePerGas - effectiveGasPrice)   <span class="c">// he
           <text class="svg-nlabel" x="310" y="126" text-anchor="middle">priority fee → validator</text>
           <rect x="170" y="36" width="280" height="56" rx="4" fill="none" stroke="var(--line)" stroke-width="1.4" stroke-dasharray="4 4"></rect>
           <text class="svg-ncode" x="310" y="60" text-anchor="middle">unused headroom</text>
-          <text class="svg-mono-a" x="310" y="80" text-anchor="middle">← refunded in full</text>
+          <text class="svg-mono-a" x="310" y="80" text-anchor="middle">← unused price headroom</text>
           <line class="svg-flow" x1="456" y1="190" x2="520" y2="190" marker-end="url(#k3)"></line>
           <text class="svg-mono" x="528" y="194">leaves circulation forever</text>
           <line class="svg-flow" x1="456" y1="121" x2="520" y2="121" marker-end="url(#k3)"></line>
@@ -401,7 +405,7 @@ refunded  = gasUsed x (maxFeePerGas - effectiveGasPrice)   <span class="c">// he
       <figcaption>The practical takeaway: <strong>a high <code>maxFeePerGas</code> does not cost you more</strong>; it merely lets your transaction survive a rising base fee. Many people carry the pre-London instinct, set it tight, and get stuck the moment the base fee climbs.</figcaption>
     </figure>
 
-    <h2>Setting it from the front end (viem)</h2>
+    <h2 id="en-section-5">Setting it from the front end (viem)</h2>
 <pre><code>import { parseGwei } from "viem";
 
 <span class="c">// Usually: let viem estimate — it reads the on-chain base fee and adds sane headroom</span>
@@ -418,9 +422,9 @@ await walletClient.sendTransaction({
   <span class="c">// 2x base fee as headroom: survives several consecutive full blocks</span>
   maxFeePerGas: base * 2n + tip,
 });</code></pre>
-    <p>That <code>base * 2n</code> is not arbitrary: at a maximum of +12.5% per block, 2x headroom survives about six consecutive full blocks (1.125⁶ ≈ 2.03), which is enough for most transactions.</p>
+    <p>That <code>base * 2n</code> is not arbitrary: at a maximum of +12.5% per block, 2x headroom survives five full-block increases; the sixth exceeds 2x (1.125⁶ ≈ 2.03), which is enough for most transactions.</p>
 
-    <h2>Gas optimisation: where the savings are</h2>
+    <h2 id="en-section-6">Gas optimisation: where the savings are</h2>
     <p>Ordered by real impact. The first two dwarf the rest:</p>
     <div class="scroll"><table>
       <thead><tr><th>Technique</th><th>Why it works</th></tr></thead>
@@ -435,11 +439,11 @@ await walletClient.sendTransaction({
     </table></div>
     <blockquote><p>But measure before optimising. Use <code>forge test --gas-report</code> to find the genuinely expensive functions rather than shaving a few hundred gas — <strong>one avoidable <code>SSTORE</code> outweighs dozens of loop micro-optimisations</strong>.</p></blockquote>
 
-    <h2>L2s and blobs: where fees really fell</h2>
+    <h2 id="en-section-7">L2s and blobs: where fees really fell</h2>
     <p>An L2 transaction fee has two parts: <strong>L2 execution</strong> (very cheap) and <strong>publishing data to L1</strong> (historically the bulk). EIP-4844 introduced <strong>blobs</strong> — a data format built for rollups with its <strong>own fee market</strong>, priced separately from ordinary transactions and discarded after a retention window.</p>
     <p>L2 fees dropped sharply as a result. It also created a new source of volatility: <strong>blob space has its own supply and demand</strong>, so when many rollups compete for it the blob base fee spikes independently — L2 fees rise while ordinary L1 fees do not move at all. For details see the <a href="./optimistic-rollup-bridge.html">Optimistic Rollup</a> and <a href="./zk-rollup.html">ZK Rollup</a> notes.</p>
 
-    <h2>Developer notes</h2>
+    <h2 id="en-section-8">Developer notes</h2>
     <ul>
       <li><strong>Never hardcode gas costs</strong>: hard forks reprice opcodes, and have several times. A hardcoded gas stipend can break after a future fork.</li>
       <li><strong>Avoid <code>transfer</code> and <code>send</code></strong>: they forward a fixed 2300 gas, which fails when the recipient is a contract. Use <code>call{value: x}("")</code> and check the return (with reentrancy protection).</li>
@@ -448,7 +452,7 @@ await walletClient.sendTransaction({
       <li><strong>L1 and L2 fee models differ</strong>: on an L2, calldata size often matters more than execution steps.</li>
     </ul>
 
-    <h2>User risk</h2>
+    <h2 id="en-section-9">User risk</h2>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
       <tbody>
@@ -460,7 +464,11 @@ await walletClient.sendTransaction({
       </tbody>
     </table></div>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-10">A fee example, including failure</h2>
+<p>Ethereum L1 example: gasUsed 50,000, base fee 20 gwei, tip 2 gwei, and max fee 50 gwei produce a 22 gwei effective price. Cost is 0.0011 ETH: 0.001 burned and 0.0001 tip. With gasLimit 80,000 the fee cap is 0.004 ETH, plus transferred value must be affordable. Use the receipt for final cost; unused price headroom, unused gas, and EVM refund credits are different concepts.</p>
+<p>A revert after 30,000 gas costs approximately 0.00066 ETH here despite rolling back state; out of gas can consume the entire limit. On L2, include data and chain-specific fees. PMs should measure total successful and failed costs per successful action, not just average gas per transaction.</p>
+
+    <h2 id="en-section-11">Official sources</h2>
     <ul>
       <li><a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559: fee market change</a></li>
       <li><a href="https://eips.ethereum.org/EIPS/eip-4844">EIP-4844: shard blob transactions</a></li>
@@ -470,7 +478,7 @@ await walletClient.sendTransaction({
     <p class="meta">Content last verified: 2026-09-19</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -482,6 +490,6 @@ await walletClient.sendTransaction({
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261019-enrich"></script>
 </body>
 </html>

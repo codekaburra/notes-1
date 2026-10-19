@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ERC-4626 金庫：Shares、收益與退出</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
+</head>
+<body data-title-zh="ERC-4626 金庫：Shares、收益與退出" data-title-en="ERC-4626 Vaults: Shares, Yield, and Exits">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+<a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
+<div data-l="zh"><h1>ERC-4626 金庫：Shares、收益與退出</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">Assets 不等於 shares</a></li><li><a href="#zh-section-2">四種操作的輸入與取整</a></li><li><a href="#zh-section-3">Preview、limits 與執行</a></li><li><a href="#zh-section-4">Donation 如何改變股價</a></li><li><a href="#zh-section-5">收益與市場：不要只比較 APY</a></li><li><a href="#zh-section-6">開發驗收</a></li><li><a href="#zh-section-7">參考來源</a></li></ol></nav></details><p>Vault 把 underlying asset 換成 share claim，再把資產放入策略。ERC-4626 統一存取與報價介面，並不保證策略安全、收益或立即提款。</p>
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li>金庫把資產換成 <strong>share</strong>。存款不會改變每股價格，<strong>只有收益與損失會</strong>——你的 share 數量不變，每股值多少在變。</li>
+        <li>四種操作的取整方向是固定的：<strong>你拿到的向下取整，你付出的向上取整</strong>，誤差永遠留在金庫裡。</li>
+        <li><strong>totalAssets 高不代表能立刻領出</strong>。比較金庫要看淨收益、退出路徑與權限，而不是只看 APY。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 第一張圖的三個狀態；工程師 → 取整矩陣、存款程式碼與開發驗收；PM → 「收益與市場」那節。</p>
+    </div>
+
+<h2 id="zh-section-1">Assets 不等於 shares</h2>
+<p>假設 vault 有 1,200 USDC、1,000 shares，每股約 1.2 USDC；存入 120 可得約 100 shares，未計 fee 與取整。策略賺 120 後，資產 1,440、shares 1,100，每股約 1.3091。損失也會反映在每股價格，而不一定減少你的 share 數量。</p>
+<p>totalAssets 的定義要讀 implementation：可能包括可用 cash、已部署策略資產、收益與損失估值。totalAssets 高不代表 idle liquidity 高；帳面 claim 與立即可退出 amount 是不同數字。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 830 328" role="img" aria-label="金庫資產與份額的算例：初始一千兩百 USDC 對一千股，每股一點二；存入一百二十 USDC 得到一百股，每股價格不變；策略賺得一百二十後總資產一千四百四十、股數仍為一千一百，每股升至約一點三零九一。">
+          <defs></defs>
+          <rect x="24" y="14" width="14" height="14" rx="2" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"></rect>
+          <text class="svg-ncode" x="44" y="26">totalAssets（USDC）</text>
+          <rect x="250" y="14" width="14" height="14" rx="2" fill="var(--surface)" stroke="var(--line)" stroke-width="1.4"></rect>
+          <text class="svg-ncode" x="270" y="26">totalSupply（shares）</text>
+          <line class="svg-axis" x1="40" y1="240" x2="790" y2="240"></line>
+          <rect class="svg-liq" x="92" y="90.0" width="50" height="150.0" rx="3"></rect>
+          <text class="svg-mono" x="117" y="83.0" text-anchor="middle">1,200</text>
+          <rect class="svg-node" x="158" y="115.0" width="50" height="125.0" rx="3"></rect>
+          <text class="svg-mono" x="183" y="108.0" text-anchor="middle">1,000</text>
+          <text class="svg-nlabel" x="150" y="264" text-anchor="middle">① 初始</text>
+          <text class="svg-mono" x="150" y="284" text-anchor="middle">每股 1.2000</text>
+          <rect class="svg-liq" x="352" y="75.0" width="50" height="165.0" rx="3"></rect>
+          <text class="svg-mono" x="377" y="68.0" text-anchor="middle">1,320</text>
+          <rect class="svg-node" x="418" y="102.5" width="50" height="137.5" rx="3"></rect>
+          <text class="svg-mono" x="443" y="95.5" text-anchor="middle">1,100</text>
+          <text class="svg-nlabel" x="410" y="264" text-anchor="middle">② 存入 120 USDC</text>
+          <text class="svg-mono" x="410" y="284" text-anchor="middle">每股 1.2000</text>
+          <rect class="svg-liq" x="612" y="60.0" width="50" height="180.0" rx="3"></rect>
+          <text class="svg-mono" x="637" y="53.0" text-anchor="middle">1,440</text>
+          <rect class="svg-node" x="678" y="102.5" width="50" height="137.5" rx="3"></rect>
+          <text class="svg-mono" x="703" y="95.5" text-anchor="middle">1,100</text>
+          <text class="svg-nlabel" x="670" y="264" text-anchor="middle">③ 策略賺 120</text>
+          <text class="svg-mono-a" x="670" y="284" text-anchor="middle">每股 1.3091</text>
+          <text class="svg-step" x="415" y="314" text-anchor="middle">存款只同時增加兩根柱子；收益只增加左邊那根——每股價格因此上升</text>
+        </svg>
+      </div>
+      <figcaption>② 與 ③ 的差別是理解金庫的關鍵：<strong>存款讓資產與股數等比例增加</strong>，所以每股價格不變；<strong>收益只增加資產</strong>，所以每股價格上升。損失也一樣，只是方向相反——你的股數不會變少，但每股值變低了。</figcaption>
+    </figure>
+
+<h2 id="zh-section-2">四種操作的輸入與取整</h2>
+<div class="scroll"><table><thead><tr><th scope="col">操作</th><th scope="col">固定輸入</th><th scope="col">對使用者計算</th></tr></thead><tbody><tr><td>deposit</td><td>assets</td><td>shares 向下</td></tr><tr><td>mint</td><td>shares</td><td>需要 assets 向上</td></tr><tr><td>withdraw</td><td>assets</td><td>需要 burn shares 向上</td></tr><tr><td>redeem</td><td>shares</td><td>拿到 assets 向下</td></tr></tbody></table></div>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 830 290" role="img" aria-label="ERC-4626 四種操作的取整方向：指定資產時，存款得到的股數向下取整，提領需燒掉的股數向上取整；指定股數時，鑄造所需的資產向上取整，贖回得到的資產向下取整。">
+          <defs></defs>
+          <text class="svg-label" x="350" y="38" text-anchor="middle">進入金庫</text>
+          <text class="svg-label" x="640" y="38" text-anchor="middle">退出金庫</text>
+          <text class="svg-nlabel" x="24" y="100">你指定 assets</text>
+          <text class="svg-nlabel" x="24" y="196">你指定 shares</text>
+          <rect class="svg-node-a" x="210" y="54" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="350" y="88" text-anchor="middle">deposit(assets)</text>
+          <text class="svg-mono-a" x="350" y="112" text-anchor="middle">得到 shares：向下 ↓</text>
+          <rect class="svg-node" x="500" y="54" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="640" y="88" text-anchor="middle">withdraw(assets)</text>
+          <text class="svg-ncode" x="640" y="112" text-anchor="middle">要燒的 shares：向上 ↑</text>
+          <rect class="svg-node" x="210" y="150" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="350" y="184" text-anchor="middle">mint(shares)</text>
+          <text class="svg-ncode" x="350" y="208" text-anchor="middle">要付的 assets：向上 ↑</text>
+          <rect class="svg-node-a" x="500" y="150" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="640" y="184" text-anchor="middle">redeem(shares)</text>
+          <text class="svg-mono-a" x="640" y="208" text-anchor="middle">得到 assets：向下 ↓</text>
+          <text class="svg-step" x="415" y="272" text-anchor="middle">規則只有一條：你拿到的向下取整，你付出的向上取整</text>
+        </svg>
+      </div>
+      <figcaption>亮色格是「你拿到的東西」，一律向下取整；其餘是「你付出的東西」，一律向上取整。這樣每次操作的捨入誤差都留在金庫，<strong>不可能被反覆存提而一點一點抽走</strong>。但取整正確<em>不足以</em>防禦捐贈攻擊，那還需要 virtual offset 與滑點保護。</figcaption>
+    </figure>
+
+<h2 id="zh-section-3">Preview、limits 與執行</h2>
+<p>convertToAssets/convertToShares 是理想化換算；preview 方法模擬特定操作的 fees/rounding；maxDeposit/maxMint/maxWithdraw/maxRedeem 表達目前限制。Preview 不保證稍後交易成功，也不一定包含可用性限制；先讀 max，執行仍用 slippage guard。<code>withdraw</code> 與 <code>redeem</code> 是兩種指定輸入，不是任意可交換的函式。</p>
+    <p class="code-cap">透過合約存款：先讀上限，再對實際成交設下界——preview 是估算，不是保證</p>
+<pre><code>using SafeERC20 for IERC20;
+
+<span class="c">// ① 先讀上限：金庫可能有 cap、暫停或白名單</span>
+require(assets &lt;= vault.maxDeposit(receiver), "exceeds maxDeposit");
+
+<span class="c">// ② preview 已含 fee 與向下取整，用它算可接受的下界</span>
+uint256 expected  = vault.previewDeposit(assets);
+uint256 minShares = expected * (10_000 - slippageBps) / 10_000;
+
+IERC20(asset).forceApprove(address(vault), assets);
+uint256 shares = vault.deposit(assets, receiver);
+
+<span class="c">// ③ 執行時再守一次——preview 與實際成交之間狀態可能已變</span>
+require(shares &gt;= minShares, "slippage");
+require(shares &gt; 0, "zero shares");   <span class="c">// 必要但不充分：不能取代 virtual offset</span></code></pre>
+
+<h2 id="zh-section-4">Donation 如何改變股價</h2>
+<p>在天真的 vault，直接轉 underlying 會增加 assets 卻不 mint shares，下一筆 deposit 可能換到極少甚至零 shares。Virtual assets/shares 與 decimal offset 能降低首位存款攻擊；deposit minShares、mint maxAssets 與經驗證的 router 保護成交。不要只把「拒絕零 shares」當完整防禦；策略 valuation、loss socialization 與近空 vault 都需測。</p>
+<h2 id="zh-section-5">收益與市場：不要只比較 APY</h2>
+<p>拆 net yield = 策略收入 + subsidy − management/performance fees − losses − operating costs，統一 denominator 與期間。補貼結束、利率下降、borrower default 都會改 net yield。比較 underlying 與 strategy exposure、提款 queue、退出 fee、oracle 與 admin，而非只看 shares 的 symbol。</p>
+<p>PM 需回答：提款要幾筆交易、是否 pending queue、誰可 finalize、會否改 quote、損失由哪批 shares 承擔。非同步 withdrawal 的擴充不是基本 ERC-4626 的立即提款保證。</p>
+<h2 id="zh-section-6">開發驗收</h2>
+<p>在 fixed fork 測 deposit/mint/withdraw/redeem、preview 與實際值、不同 decimals、零與一個 base unit、donation、fee、strategy loss、pause 與 queue。驗證不可無代價鑄造 shares、未授權不能提別人的 shares、損失不被 hide、rounding 不會累積抽走 assets。</p>
+<h2 id="zh-section-7">參考來源</h2><ul><li><a href="https://eips.ethereum.org/EIPS/eip-4626">ERC-4626 standard</a></li><li><a href="https://docs.openzeppelin.com/contracts/5.x/erc4626">OpenZeppelin vault implementation and inflation defense</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-7540">ERC-7540 asynchronous vaults</a></li></ul></div>
+<div data-l="en"><h1>ERC-4626 Vaults: Shares, Yield, and Exits</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Assets and shares are different units</a></li><li><a href="#en-section-2">Four operations and rounding</a></li><li><a href="#en-section-3">Previews, limits, and execution</a></li><li><a href="#en-section-4">Donation changes the exchange rate</a></li><li><a href="#en-section-5">Yield economics and exits</a></li><li><a href="#en-section-6">Development acceptance</a></li><li><a href="#en-section-7">References</a></li></ol></nav></details><p>A vault exchanges underlying assets for share claims and deploys assets into strategies. ERC-4626 standardizes access and quoting; it does not guarantee strategy safety, yield, or instant withdrawals.</p>
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li>A vault swaps assets for <strong>shares</strong>. Deposits do not move the price per share; <strong>only gains and losses do</strong> — your share count stays put while each share's value changes.</li>
+        <li>The four operations round in fixed directions: <strong>what you receive rounds down, what you pay rounds up</strong>, so the residue always stays in the vault.</li>
+        <li><strong>A high totalAssets does not mean you can exit now</strong>. Compare vaults on net yield, exit path and permissions, not APY alone.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> beginners → the three states in the first diagram; engineers → the rounding matrix, the deposit code and development acceptance; PMs → the yield economics section.</p>
+    </div>
+
+<h2 id="en-section-1">Assets and shares are different units</h2>
+<p>A vault with 1,200 USDC and 1,000 shares has an approximate 1.2 USDC share price. Depositing 120 yields about 100 shares before fees/rounding. After the strategy earns another 120, assets are 1,440 with 1,100 shares: approximately 1.3091 USDC each. Losses can reduce share price without reducing your share count.</p>
+<p>Read the implementation’s totalAssets definition: it may include cash, deployed strategy assets, income, and loss valuations. High totalAssets does not imply high idle liquidity. Accounting claims and immediately withdrawable amounts differ.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 830 328" role="img" aria-label="Worked vault example: 1,200 USDC against 1,000 shares is 1.2 per share; depositing 120 USDC mints 100 shares at the same price; after the strategy earns 120, assets are 1,440 against 1,100 shares, about 1.3091 per share.">
+          <defs></defs>
+          <rect x="24" y="14" width="14" height="14" rx="2" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"></rect>
+          <text class="svg-ncode" x="44" y="26">totalAssets (USDC)</text>
+          <rect x="250" y="14" width="14" height="14" rx="2" fill="var(--surface)" stroke="var(--line)" stroke-width="1.4"></rect>
+          <text class="svg-ncode" x="270" y="26">totalSupply (shares)</text>
+          <line class="svg-axis" x1="40" y1="240" x2="790" y2="240"></line>
+          <rect class="svg-liq" x="92" y="90.0" width="50" height="150.0" rx="3"></rect>
+          <text class="svg-mono" x="117" y="83.0" text-anchor="middle">1,200</text>
+          <rect class="svg-node" x="158" y="115.0" width="50" height="125.0" rx="3"></rect>
+          <text class="svg-mono" x="183" y="108.0" text-anchor="middle">1,000</text>
+          <text class="svg-nlabel" x="150" y="264" text-anchor="middle">① start</text>
+          <text class="svg-mono" x="150" y="284" text-anchor="middle">1.2000 per share</text>
+          <rect class="svg-liq" x="352" y="75.0" width="50" height="165.0" rx="3"></rect>
+          <text class="svg-mono" x="377" y="68.0" text-anchor="middle">1,320</text>
+          <rect class="svg-node" x="418" y="102.5" width="50" height="137.5" rx="3"></rect>
+          <text class="svg-mono" x="443" y="95.5" text-anchor="middle">1,100</text>
+          <text class="svg-nlabel" x="410" y="264" text-anchor="middle">② deposit 120 USDC</text>
+          <text class="svg-mono" x="410" y="284" text-anchor="middle">1.2000 per share</text>
+          <rect class="svg-liq" x="612" y="60.0" width="50" height="180.0" rx="3"></rect>
+          <text class="svg-mono" x="637" y="53.0" text-anchor="middle">1,440</text>
+          <rect class="svg-node" x="678" y="102.5" width="50" height="137.5" rx="3"></rect>
+          <text class="svg-mono" x="703" y="95.5" text-anchor="middle">1,100</text>
+          <text class="svg-nlabel" x="670" y="264" text-anchor="middle">③ strategy earns 120</text>
+          <text class="svg-mono-a" x="670" y="284" text-anchor="middle">1.3091 per share</text>
+          <text class="svg-step" x="415" y="314" text-anchor="middle">a deposit grows both bars; a gain grows only the left one — so the price per share rises</text>
+        </svg>
+      </div>
+      <figcaption>The difference between ② and ③ is the key to vaults: <strong>a deposit grows assets and shares proportionally</strong>, so the price per share holds; <strong>a gain grows only assets</strong>, so the price per share rises. Losses work the same way in reverse — your share count does not shrink, but each share is worth less.</figcaption>
+    </figure>
+
+<h2 id="en-section-2">Four operations and rounding</h2>
+<div class="scroll"><table><thead><tr><th scope="col">Method</th><th scope="col">Fixed input</th><th scope="col">User-facing calculation</th></tr></thead><tbody><tr><td>deposit</td><td>assets</td><td>shares round down</td></tr><tr><td>mint</td><td>shares</td><td>required assets round up</td></tr><tr><td>withdraw</td><td>assets</td><td>required burned shares round up</td></tr><tr><td>redeem</td><td>shares</td><td>received assets round down</td></tr></tbody></table></div>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 830 290" role="img" aria-label="ERC-4626 rounding by operation: when you specify assets, deposit rounds shares received down and withdraw rounds shares burned up; when you specify shares, mint rounds assets required up and redeem rounds assets received down.">
+          <defs></defs>
+          <text class="svg-label" x="350" y="38" text-anchor="middle">entering the vault</text>
+          <text class="svg-label" x="640" y="38" text-anchor="middle">leaving the vault</text>
+          <text class="svg-nlabel" x="24" y="100">you specify assets</text>
+          <text class="svg-nlabel" x="24" y="196">you specify shares</text>
+          <rect class="svg-node-a" x="210" y="54" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="350" y="88" text-anchor="middle">deposit(assets)</text>
+          <text class="svg-mono-a" x="350" y="112" text-anchor="middle">shares received: down ↓</text>
+          <rect class="svg-node" x="500" y="54" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="640" y="88" text-anchor="middle">withdraw(assets)</text>
+          <text class="svg-ncode" x="640" y="112" text-anchor="middle">shares burned: up ↑</text>
+          <rect class="svg-node" x="210" y="150" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="350" y="184" text-anchor="middle">mint(shares)</text>
+          <text class="svg-ncode" x="350" y="208" text-anchor="middle">assets required: up ↑</text>
+          <rect class="svg-node-a" x="500" y="150" width="280" height="82" rx="10"></rect>
+          <text class="svg-nlabel" x="640" y="184" text-anchor="middle">redeem(shares)</text>
+          <text class="svg-mono-a" x="640" y="208" text-anchor="middle">assets received: down ↓</text>
+          <text class="svg-step" x="415" y="272" text-anchor="middle">one rule: what you receive rounds down, what you pay rounds up</text>
+        </svg>
+      </div>
+      <figcaption>Highlighted cells are what you receive and always round down; the rest are what you pay and always round up. Every operation's rounding residue stays in the vault, so it <strong>cannot be drained by repeated deposit-and-withdraw cycles</strong>. Correct rounding is <em>not sufficient</em> against donation attacks, though — that also needs a virtual offset and slippage protection.</figcaption>
+    </figure>
+
+<h2 id="en-section-3">Previews, limits, and execution</h2>
+<p>convertToAssets/convertToShares are idealized conversions. Preview methods model operation-specific fees/rounding; maxDeposit/maxMint/maxWithdraw/maxRedeem express current limits. A preview does not promise later success and need not capture availability limits. Read max and enforce execution slippage separately. withdraw fixes assets while redeem fixes shares; their inputs are not interchangeable.</p>
+    <p class="code-cap">Depositing through a contract: read the limit first, then bound the actual fill — a preview is an estimate, not a guarantee</p>
+<pre><code>using SafeERC20 for IERC20;
+
+<span class="c">// ① read the limit first: the vault may have a cap, a pause, or an allowlist</span>
+require(assets &lt;= vault.maxDeposit(receiver), "exceeds maxDeposit");
+
+<span class="c">// ② the preview already includes fees and rounding down; derive the floor from it</span>
+uint256 expected  = vault.previewDeposit(assets);
+uint256 minShares = expected * (10_000 - slippageBps) / 10_000;
+
+IERC20(asset).forceApprove(address(vault), assets);
+uint256 shares = vault.deposit(assets, receiver);
+
+<span class="c">// ③ guard again at execution — state may have moved since the preview</span>
+require(shares &gt;= minShares, "slippage");
+require(shares &gt; 0, "zero shares");   <span class="c">// necessary but not sufficient: no substitute for a virtual offset</span></code></pre>
+
+<h2 id="en-section-4">Donation changes the exchange rate</h2>
+<p>In a naive vault, transferring underlying directly increases assets without minting shares, so a subsequent deposit can receive very few or zero shares. Virtual assets/shares and decimal offsets reduce first-depositor attacks; enforce minShares/maxAssets through a verified integration. Rejecting zero shares alone is not comprehensive protection. Test strategy valuation, loss allocation, and nearly empty vaults.</p>
+<h2 id="en-section-5">Yield economics and exits</h2>
+<p>Separate strategy income and subsidies from fees, losses, and operating costs using a consistent denominator and time window. Ending incentives, falling rates, and defaults change net yield. Compare underlying/strategy exposure, withdrawal queues, fees, oracles, and admins rather than share symbols or APY alone.</p>
+<p>PMs should identify transaction count, pending queues, finalization actors, quote changes, and who absorbs losses. An asynchronous withdrawal extension is not a basic ERC-4626 guarantee of instant redemption.</p>
+<h2 id="en-section-6">Development acceptance</h2>
+<p>At a fixed fork test all four methods, preview versus actual values, decimals, zero/one base-unit amounts, donations, fees, losses, pauses, and queues. Assert no free share creation, no unauthorized withdrawals, visible loss accounting, and no accumulated rounding extraction.</p>
+<h2 id="en-section-7">References</h2><ul><li><a href="https://eips.ethereum.org/EIPS/eip-4626">ERC-4626 standard</a></li><li><a href="https://docs.openzeppelin.com/contracts/5.x/erc4626">OpenZeppelin vault implementation and inflation defense</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-7540">ERC-7540 asynchronous vaults</a></li></ul></div>
+</main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js?v=20261019-enrich"></script>
+</body>
+</html>

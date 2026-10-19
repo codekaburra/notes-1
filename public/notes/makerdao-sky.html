@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
 </head>
 <body data-title-zh="MakerDAO 與 Sky 穩定幣" data-title-en="MakerDAO, Sky, and the Stablecoin">
 <div class="wrap">
@@ -46,26 +46,26 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>MakerDAO 與 Sky 穩定幣</h1>
-    <p class="meta">2026-09-19 · 穩定幣 · CDP · 清算拍賣 · 開發者指南</p>
+    <p class="meta">2026-09-19 · 穩定幣 · CDP · 清算拍賣 · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景：舊機制與現行產品</a></li><li><a href="#zh-section-2">先分清楚：三種穩定幣模型</a></li><li><a href="#zh-section-3">金庫（Vault）怎麼運作</a></li><li><a href="#zh-section-4">錨定怎麼維持：靠套利，不靠承諾</a></li><li><a href="#zh-section-5">PSM：維持錨定的代價</a></li><li><a href="#zh-section-6">清算：荷蘭式拍賣</a></li><li><a href="#zh-section-7">開發者整合注意事項</a></li><li><a href="#zh-section-8">使用者風險</a></li><li><a href="#zh-section-9">把三個產品分開：穩定幣、儲蓄、抵押借款</a></li><li><a href="#zh-section-10">PM／工程師共同驗收</a></li><li><a href="#zh-section-11">官方來源</a></li></ol></nav></details>
 
-    <p>DeFi 最早、也最重要的穩定幣系統。這則講它<strong>憑什麼值一美元</strong>——不是靠銀行帳戶裡的儲備金，而是靠超額抵押、套利誘因與清算拍賣三者的互相牽制。以及它為了維持錨定，付出了什麼代價。</p>
+    <p>DeFi 最早、也最重要的穩定幣系統。這則講它<strong>憑什麼值一美元</strong>——靠抵押品支撐、轉換流動性、套利誘因與清算共同運作。以及它為了維持錨定，付出了什麼代價。</p>
 
     <div class="tldr">
       <span class="tldr-label">三句話版本</span>
       <ul>
-        <li><strong>先更新名稱</strong>：MakerDAO 已完成向 <strong>Sky</strong> 的品牌遷移，DAI 可升級為 <strong>USDS</strong>，MKR 以 1:24,000 轉為 <strong>SKY</strong>。兩種穩定幣目前並存，但 USDS 規模已超越 DAI。</li>
-        <li>它的錨定<strong>不靠儲備金，靠誘因</strong>：價格高於 1 美元時鑄造有利可圖，低於 1 美元時還債有利可圖，套利者把價格推回去。</li>
+        <li><strong>先更新名稱</strong>：MakerDAO 生態以 <strong>Sky</strong> 品牌運作，DAI 可升級為 <strong>USDS</strong>，MKR 以 1:24,000 轉為 <strong>SKY</strong>。兩種穩定幣目前並存，但 USDS 規模已超越 DAI。</li>
+        <li>它的錨定<strong>靠抵押品、轉換流動性、治理與套利共同維持</strong>：價格高於 1 美元時鑄造有利可圖，低於 1 美元時還債有利可圖，套利者把價格推回去。</li>
         <li>但有個張力值得認清：為了穩住錨定而引入的 <strong>PSM</strong>（以 USDC 1:1 兌換）讓這個「去中心化穩定幣」<strong>在實務上高度依賴中心化資產</strong>。</li>
       </ul>
       <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「三種穩定幣模型」與「金庫怎麼運作」；Solidity 工程師 → 清算拍賣與整合注意事項；PM／風控 → 市場背景與使用者風險，特別是 PSM 那一段。</p>
     </div>
 
-    <h2>市場背景：一場剛結束的品牌遷移</h2>
-    <p>如果你讀的教學還在講「MakerDAO 與 DAI」，它多半過時了。Endgame 計畫下的改名自 2024 年 8 月啟動，<strong>整段遷移在 2026 年 8 月收尾</strong>。</p>
+    <h2 id="zh-section-1">市場背景：舊機制與現行產品</h2>
+    <p>MakerDAO 與 DAI 教學仍可解釋舊機制，但須與現行 Sky 產品整合分開。Endgame 計畫下的改名自 2024 年 8 月啟動，<strong>各產品的支援、遷移與轉換狀態依官方部署及公告查核</strong>。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字 / 狀態</th></tr></thead>
       <tbody>
-        <tr><td>品牌</td><td>MakerDAO → <strong>Sky</strong>（2024-08 啟動，2026-08 完成）</td></tr>
+        <tr><td>品牌</td><td>MakerDAO → <strong>Sky</strong>（2024-08 啟動，完成狀態依官方公告查核）</td></tr>
         <tr><td>穩定幣</td><td>DAI → <strong>USDS</strong>（可透過轉換合約雙向 1:1）</td></tr>
         <tr><td>治理代幣</td><td>MKR → <strong>SKY</strong>，比例 1:24,000</td></tr>
         <tr><td>USDS 供給量</td><td>約 $7.6B–8.7B</td></tr>
@@ -74,10 +74,10 @@
         <tr><td>生息包裝代幣</td><td>sUSDS</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，以 2026-09 查得為準；決策前請自行複核。</p>
-    <p>對開發者的實際影響：<strong>兩種代幣、兩個地址、同一套底層系統。</strong>2026 年 4–5 月間主要交易所已強制把 DAI 餘額轉為 USDS，但鏈上兩者仍可經轉換合約互換。整合時要決定支援哪一個（或兩個都支援），並注意流動性正在往 USDS 集中。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
+    <p>對開發者的實際影響：<strong>兩種代幣、兩個地址、同一套底層系統。</strong>交易所支援依平台而異；整合前先查核代幣、網路與官方轉換路徑。整合時要決定支援哪一個（或兩個都支援），並注意流動性正在往 USDS 集中。</p>
 
-    <h2>先分清楚：三種穩定幣模型</h2>
+    <h2 id="zh-section-2">先分清楚：三種穩定幣模型</h2>
     <div class="scroll"><table>
       <thead><tr><th>模型</th><th>憑什麼值 1 美元</th><th>主要風險</th></tr></thead>
       <tbody>
@@ -86,9 +86,9 @@
         <tr><td><strong>演算法型</strong><br>（多已失敗）</td><td>僅靠鑄造／銷毀的誘因，無實質抵押</td><td>死亡螺旋——信心一失就無法回復</td></tr>
       </tbody>
     </table></div>
-    <p>USDS 屬於第二類。<strong>關鍵差異在於：你不需要信任任何公司，只需要相信抵押品的價值與清算機制會運作。</strong>代價是資金效率——要造出 100 美元，得先鎖進超過 100 美元的資產。</p>
+    <p>USDS 屬於第二類。<strong>抵押品可能包含加密資產、穩定幣與 RWA；需評估發行人、託管、流動性及治理。</strong>代價是資金效率——要造出 100 美元，得先鎖進超過 100 美元的資產。</p>
 
-    <h2>金庫（Vault）怎麼運作</h2>
+    <h2 id="zh-section-3">金庫（Vault）怎麼運作</h2>
     <p>使用者開一個金庫，鎖入抵押品，鑄出穩定幣。這是一筆<strong>對自己的貸款</strong>：</p>
 
     <figure>
@@ -127,7 +127,7 @@
       <figcaption>與 <a href="./aave.html">Aave</a> 的關鍵差異：Aave 是<strong>把別人存的錢借給你</strong>（利率由供需決定），Sky 是<strong>憑你的抵押品憑空鑄出新的穩定幣</strong>（穩定費由治理決定）。前者是資金池，後者是貨幣發行。</figcaption>
     </figure>
 
-    <h2>錨定怎麼維持：靠套利，不靠承諾</h2>
+    <h2 id="zh-section-4">錨定怎麼維持：靠套利，不靠承諾</h2>
     <p>沒有人保證 USDS 值 1 美元。維持錨定的是<strong>兩個方向都有利可圖的套利</strong>：</p>
 
     <figure>
@@ -160,13 +160,13 @@
       <figcaption>治理還有一個旋鈕：<strong>調整穩定費</strong>。費率調高 → 借款變貴、有人還債 → 供給減少 → 價格上升；調低則相反。這等同於一個去中心化的利率政策工具。</figcaption>
     </figure>
 
-    <h2>PSM：維持錨定的代價</h2>
+    <h2 id="zh-section-5">PSM：維持錨定的代價</h2>
     <p>套利在理論上足夠，但實務上速度不夠快。於是引入了 <strong>PSM（Peg Stability Module）</strong>：允許任何人用 USDC <strong>1:1 無滑點</strong>換成 USDS，反向亦然。</p>
     <p>效果立竿見影——錨定變得非常穩。但代價必須講清楚：</p>
     <blockquote><p>當大量 USDS 是由 PSM 裡的 USDC 支撐時，<strong>USDS 實際上繼承了 USDC 的中心化風險</strong>。USDC 若被凍結或脫錨，USDS 也會跟著出事。「去中心化穩定幣」這個標籤因此需要加註：它的<strong>機制</strong>是去中心化的，但它的<strong>抵押品構成</strong>可能不是。</p></blockquote>
     <p>2023 年 3 月矽谷銀行事件期間 USDC 短暫脫錨，DAI 同步被拖下水，就是這個結構性依賴的實證。這也是後來系統大幅引入<strong>現實世界資產（RWA）</strong>與多元抵押品的原因之一——但 RWA 又帶來了另一種中心化（託管方、法律管轄）。<strong>這是個尚未解決的取捨，不是已被解決的問題。</strong></p>
 
-    <h2>清算：荷蘭式拍賣</h2>
+    <h2 id="zh-section-6">清算：荷蘭式拍賣</h2>
     <p>當金庫的抵押率跌破門檻，抵押品會被拍賣以償還債務。現行機制是<strong>荷蘭式拍賣</strong>（價格由高往低遞減）：</p>
     <ol>
       <li>任何人可呼叫清算函式，啟動拍賣並獲得一筆獎勵（誘因來源）。</li>
@@ -176,7 +176,7 @@
     </ol>
     <p>荷蘭式拍賣取代了早期的英式拍賣，關鍵理由是<strong>抗價格崩跌</strong>：2020 年 3 月的「黑色星期四」曾出現網路壅塞導致零出價得標、系統產生鉅額壞帳的事故。新機制讓買家能立即成交、並可用<a href="./flash-loan.html">閃電貸</a>即時取得資金。</p>
 
-    <h2>開發者整合注意事項</h2>
+    <h2 id="zh-section-7">開發者整合注意事項</h2>
     <ul>
       <li><strong>先確認是 DAI 還是 USDS</strong>：兩者是不同合約地址、不同流動性。轉換合約可雙向 1:1，但你的介面要講清楚使用者持有哪一種。</li>
       <li><strong>USDS 與 DAI 都是 18 位小數</strong>，但別假設所有穩定幣都是——USDC 是 6 位，混用會差 10¹² 倍。</li>
@@ -200,7 +200,7 @@ uint256 debt = art * rate / 1e27;            <span class="c">// rate 是 27 位�
 require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
     <blockquote><p>三種精度混在一起是這裡最常見的錯誤來源：<strong>wad = 18 位、ray = 27 位、rad = 45 位</strong>。<code>art × rate</code> 的結果是 rad，拿去跟 wad 比較會差 10²⁷ 倍。整合前先確認每個變數的單位。</p></blockquote>
 
-    <h2>使用者風險</h2>
+    <h2 id="zh-section-8">使用者風險</h2>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
       <tbody>
@@ -213,7 +213,13 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
       </tbody>
     </table></div>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-9">把三個產品分開：穩定幣、儲蓄、抵押借款</h2>
+<p>USDS 本身與 yield-bearing savings share 是不同代幣。持 USDS 不自動取得 savings yield；存進 savings 路徑後取得的 shares，須依兌換率換算 underlying。舊 Vault 的抵押、stability fee、auction，是另一層機制；不能把舊版合約名稱當成所有現行產品的 ABI。</p>
+<p>假設 savings share 價格從 1.00 USDS 變為 1.04，100 shares 可代表 104 USDS，並非 shares 的數量必須增加。APR 是年化單利速率，APY 包含複利假設；reward token 的補貼與底層 lending/RWA 收入需分開。例子不是收益承諾。</p>
+<h2 id="zh-section-10">PM／工程師共同驗收</h2>
+<p>列出所選產品的 token、converter、savings/vault 地址、share decimals、preview/max redeem、費用與暫停權。測 small deposit、取整、rate change、退出流動性不足及錯 token。PM 用 depeg、USDC freeze、RWA 延遲、治理調降利率等情境驗證「還能否退出、拿到什麼、誰吸收損失」。<a href="https://docs.sky.money/legal/skybase-international/user-risks">Sky 風險揭露</a>說明這些 backing dependencies。</p>
+
+    <h2 id="zh-section-11">官方來源</h2>
     <ul>
       <li><a href="https://sky.money/">Sky 官方網站</a></li>
       <li><a href="https://docs.sky.money/">Sky 技術文件</a></li>
@@ -224,28 +230,28 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>MakerDAO, Sky, and the Stablecoin</h1>
-    <p class="meta">2026-09-19 · STABLECOINS · CDP · LIQUIDATION AUCTIONS · DEVELOPER GUIDE</p>
+    <p class="meta">2026-09-19 · STABLECOINS · CDP · LIQUIDATION AUCTIONS · DEVELOPER GUIDE</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background: legacy and current products</a></li><li><a href="#en-section-2">First, three stablecoin models</a></li><li><a href="#en-section-3">How a vault works</a></li><li><a href="#en-section-4">Holding the peg: arbitrage, not promises</a></li><li><a href="#en-section-5">The PSM, and what the peg costs</a></li><li><a href="#en-section-6">Liquidation: a Dutch auction</a></li><li><a href="#en-section-7">Integration notes</a></li><li><a href="#en-section-8">User risk</a></li><li><a href="#en-section-9">Separate stablecoin, savings, and collateral borrowing</a></li><li><a href="#en-section-10">Joint PM and developer acceptance</a></li><li><a href="#en-section-11">Official sources</a></li></ol></nav></details>
 
-    <p>DeFi's oldest and most consequential stablecoin system. This note is about <strong>what actually makes it worth a dollar</strong> — not reserves in a bank account, but over-collateralisation, arbitrage incentives and liquidation auctions holding each other in check. And what it has cost to keep the peg.</p>
+    <p>DeFi's oldest and most consequential stablecoin system. This note is about <strong>what actually makes it worth a dollar</strong> — collateral backing, conversion liquidity, arbitrage incentives, and liquidation working together. And what it has cost to keep the peg.</p>
 
     <div class="tldr">
       <span class="tldr-label">In three lines</span>
       <ul>
-        <li><strong>Names first</strong>: MakerDAO has completed its migration to <strong>Sky</strong>; DAI upgrades to <strong>USDS</strong>, and MKR converts to <strong>SKY</strong> at 1:24,000. Both stablecoins circulate, but USDS has overtaken DAI in size.</li>
-        <li>The peg rests on <strong>incentives, not reserves</strong>: above $1 it pays to mint and sell, below $1 it pays to buy back and repay, and arbitrageurs push the price home.</li>
+        <li><strong>Names first</strong>: MakerDAO’s ecosystem is now branded <strong>Sky</strong>; DAI upgrades to <strong>USDS</strong>, and MKR converts to <strong>SKY</strong> at 1:24,000. Both stablecoins circulate, but USDS has overtaken DAI in size.</li>
+        <li>The peg rests on <strong>collateral, conversion liquidity, governance, and arbitrage incentives together</strong>: above $1 it pays to mint and sell, below $1 it pays to buy back and repay, and arbitrageurs push the price home.</li>
         <li>One tension worth naming: the <strong>PSM</strong> that stabilises the peg (1:1 swaps against USDC) makes this "decentralised stablecoin" <strong>heavily dependent on centralised assets in practice</strong>.</li>
       </ul>
       <p class="who"><strong>Where to start:</strong> beginners → "Three stablecoin models" and "How a vault works"; Solidity engineers → liquidation auctions and integration notes; PMs and risk → market background and user risk, especially the PSM section.</p>
     </div>
 
-    <h2>Market background: a migration that just ended</h2>
-    <p>If the tutorial you are reading still says "MakerDAO and DAI", it is probably out of date. The Endgame rebrand began in August 2024 and <strong>the migration wrapped up in August 2026</strong>.</p>
+    <h2 id="en-section-1">Market background: legacy and current products</h2>
+    <p>MakerDAO and DAI tutorials can still explain legacy mechanics; distinguish them from current Sky product integrations. The Endgame rebrand began in August 2024 and <strong>product support must be checked against current official contracts and announcements</strong>.</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure / status</th></tr></thead>
       <tbody>
-        <tr><td>Brand</td><td>MakerDAO → <strong>Sky</strong> (started 2024-08, completed 2026-08)</td></tr>
+        <tr><td>Brand</td><td>MakerDAO → <strong>Sky</strong> (started 2024-08, completion status requires an official announcement)</td></tr>
         <tr><td>Stablecoin</td><td>DAI → <strong>USDS</strong> (1:1 both ways via a converter)</td></tr>
         <tr><td>Governance token</td><td>MKR → <strong>SKY</strong> at 1:24,000</td></tr>
         <tr><td>USDS supply</td><td>~$7.6B–8.7B</td></tr>
@@ -254,10 +260,10 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
         <tr><td>Yield-bearing wrapper</td><td>sUSDS</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate, current as of 2026-09; re-verify before acting on them.</p>
-    <p>What this means for developers: <strong>two tokens, two addresses, one underlying system.</strong> Major exchanges force-converted DAI balances to USDS during April–May 2026, but on-chain both remain swappable through the converter. Decide which you support (or both), and note that liquidity is consolidating into USDS.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
+    <p>What this means for developers: <strong>two tokens, two addresses, one underlying system.</strong> Exchange support is venue-specific; verify the supported token, network, and conversion path before integrating. Decide which you support (or both), and note that liquidity is consolidating into USDS.</p>
 
-    <h2>First, three stablecoin models</h2>
+    <h2 id="en-section-2">First, three stablecoin models</h2>
     <div class="scroll"><table>
       <thead><tr><th>Model</th><th>Why it is worth $1</th><th>Main risk</th></tr></thead>
       <tbody>
@@ -266,9 +272,9 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
         <tr><td><strong>Algorithmic</strong><br>(mostly failed)</td><td>Mint/burn incentives alone, with no real collateral</td><td>Death spiral — once confidence goes it cannot recover</td></tr>
       </tbody>
     </table></div>
-    <p>USDS is the second kind. <strong>The key difference is that you need trust no company, only that the collateral holds value and liquidation works.</strong> The cost is capital efficiency — minting $100 requires locking more than $100.</p>
+    <p>USDS is the second kind. <strong>Its backing can include crypto assets, stablecoins, and real-world exposures, each with different custody, issuer, liquidity, and governance assumptions.</strong> The cost is capital efficiency — minting $100 requires locking more than $100.</p>
 
-    <h2>How a vault works</h2>
+    <h2 id="en-section-3">How a vault works</h2>
     <p>A user opens a vault, locks collateral, and mints stablecoins. It is <strong>a loan to yourself</strong>:</p>
 
     <figure>
@@ -307,7 +313,7 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
       <figcaption>The key difference from <a href="./aave.html">Aave</a>: Aave <strong>lends you other people's deposits</strong> at a supply-and-demand rate; Sky <strong>mints new stablecoins against your collateral</strong> at a governance-set fee. One is a money market, the other is currency issuance.</figcaption>
     </figure>
 
-    <h2>Holding the peg: arbitrage, not promises</h2>
+    <h2 id="en-section-4">Holding the peg: arbitrage, not promises</h2>
     <p>Nobody guarantees USDS is worth a dollar. The peg is held by <strong>arbitrage that pays in both directions</strong>:</p>
 
     <figure>
@@ -340,13 +346,13 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
       <figcaption>Governance holds one more dial: <strong>the stability fee</strong>. Raise it and borrowing gets expensive, people repay, supply shrinks and the price rises; lower it for the opposite. It is effectively a decentralised interest-rate policy.</figcaption>
     </figure>
 
-    <h2>The PSM, and what the peg costs</h2>
+    <h2 id="en-section-5">The PSM, and what the peg costs</h2>
     <p>Arbitrage is sufficient in theory but too slow in practice. Hence the <strong>Peg Stability Module</strong>: anyone may swap USDC for USDS <strong>1:1 with no slippage</strong>, and back again.</p>
     <p>The effect is immediate — the peg becomes very tight. But the cost should be stated plainly:</p>
     <blockquote><p>When a large share of USDS is backed by USDC sitting in the PSM, <strong>USDS effectively inherits USDC's centralisation risk</strong>. If USDC is frozen or depegs, USDS follows. The label "decentralised stablecoin" therefore needs a footnote: the <strong>mechanism</strong> is decentralised, but the <strong>collateral mix</strong> may not be.</p></blockquote>
     <p>When USDC briefly depegged during the Silicon Valley Bank episode in March 2023, DAI was dragged along with it — direct evidence of that structural dependency. It is also part of why the system later moved heavily into <strong>real-world assets</strong> and a broader collateral mix — but RWAs introduce a different centralisation (custodians, legal jurisdiction). <strong>This is an unresolved trade-off, not a solved problem.</strong></p>
 
-    <h2>Liquidation: a Dutch auction</h2>
+    <h2 id="en-section-6">Liquidation: a Dutch auction</h2>
     <p>When a vault falls below its collateral ratio, the collateral is auctioned to repay the debt. The current mechanism is a <strong>Dutch auction</strong>, with the price descending from a high start:</p>
     <ol>
       <li>Anyone may call the liquidation function, starting the auction and earning a reward (the incentive).</li>
@@ -356,7 +362,7 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
     </ol>
     <p>Dutch auctions replaced the earlier English format mainly for <strong>resilience to crashes</strong>: during "Black Thursday" in March 2020, network congestion allowed zero-bid wins and left the system with substantial bad debt. The new design lets buyers fill instantly and fund themselves with a <a href="./flash-loan.html">flash loan</a>.</p>
 
-    <h2>Integration notes</h2>
+    <h2 id="en-section-7">Integration notes</h2>
     <ul>
       <li><strong>Confirm DAI versus USDS</strong>: different contracts, different liquidity. The converter is 1:1 both ways, but your interface should be explicit about which the user holds.</li>
       <li><strong>USDS and DAI both use 18 decimals</strong> — but do not assume all stablecoins do; USDC uses 6, and mixing them is a factor of 10¹².</li>
@@ -380,7 +386,7 @@ uint256 debt = art * rate / 1e27;            <span class="c">// rate has 27 deci
 require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
     <blockquote><p>Mixing the three precisions is the classic bug here: <strong>wad = 18 decimals, ray = 27, rad = 45</strong>. The product <code>art * rate</code> is a rad, and comparing it to a wad is off by 10²⁷. Confirm the unit of every variable before integrating.</p></blockquote>
 
-    <h2>User risk</h2>
+    <h2 id="en-section-8">User risk</h2>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
       <tbody>
@@ -393,7 +399,13 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
       </tbody>
     </table></div>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-9">Separate stablecoin, savings, and collateral borrowing</h2>
+<p>USDS and yield-bearing savings shares are distinct tokens. Holding USDS does not automatically earn the savings rate; savings shares convert to underlying at an exchange rate. Legacy vault collateral, stability fees, and auctions are another mechanism: do not assume legacy contract names describe every current product ABI.</p>
+<p>If an illustrative savings-share price moves from 1.00 to 1.04 USDS, 100 shares represent 104 USDS; the share count need not increase. APR is a simple annualized rate, whereas APY includes compounding assumptions. Separate token subsidies from lending/RWA income. This example is not a return promise.</p>
+<h2 id="en-section-10">Joint PM and developer acceptance</h2>
+<p>Record the selected token, converter, savings/vault addresses, share decimals, preview/max redeem behavior, fees, and pause authority. Test small deposits, rounding, rate changes, constrained exit liquidity, and wrong tokens. Stress depeg, USDC freezes, RWA delays, and governance rate cuts: can users exit, what do they receive, and who absorbs losses? <a href="https://docs.sky.money/legal/skybase-international/user-risks">Sky’s risk disclosures</a> describe these backing dependencies.</p>
+
+    <h2 id="en-section-11">Official sources</h2>
     <ul>
       <li><a href="https://sky.money/">Sky</a></li>
       <li><a href="https://docs.sky.money/">Sky technical documentation</a></li>
@@ -403,7 +415,7 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
     <p class="meta">Content last verified: 2026-09-19</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -415,6 +427,6 @@ require(ink * spot &gt;= art * rate, "vault unsafe");</code></pre>
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261019-enrich"></script>
 </body>
 </html>

@@ -306,3 +306,19 @@ figcaption{margin-top:.95rem; font-size:.85rem; line-height:1.65; color:var(--mu
 /* 市場數據：數字欄等寬對齊 */
 .market td:last-child{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
 .asof{font-family:var(--mono); font-size:.71rem; color:var(--muted); margin:-.85rem 0 1.6rem}
+
+/* Reading paths and optional article navigation. */
+.reader-paths{margin:0 0 4rem; padding:1.6rem 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+.reader-paths h2{font-family:var(--serif); font-size:2rem; font-weight:400; margin:0 0 1rem}
+.reader-grid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:2rem}
+.reader-grid h3{font-size:.9rem; margin:.5rem 0 .8rem}
+.reader-grid p{font-size:.86rem; color:var(--muted); line-height:1.9; margin:0}
+.reading-context{font-size:.82rem; color:var(--muted)}
+.note-toc{margin:1.25rem 0 2rem; padding:.8rem 1rem; border:1px solid var(--line); background:var(--surface)}
+.note-toc summary{cursor:pointer; color:var(--accent); font-size:.85rem}
+.note-toc ol{margin:.8rem 0 0; font-size:.84rem; columns:2; column-gap:2rem}
+.note-toc li{break-inside:avoid}
+@media(max-width:700px){.reader-grid{grid-template-columns:1fr; gap:1.25rem}.note-toc ol{columns:1}}
+
+/* 程式碼區塊上方的說明 */
+.code-cap{font-family:var(--mono); font-size:.72rem; letter-spacing:.03em; color:var(--muted); margin:1.8rem 0 -.85rem}

@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
 </head>
 <body data-title-zh="Aave 借貸協議" data-title-en="Aave: Lending Mechanics">
 <div class="wrap">
@@ -46,21 +46,21 @@
   <!-- ================= 中文 ================= -->
   <div data-l="zh">
     <h1>Aave 借貸協議</h1>
-    <p class="meta">2026-09-19 · DEFI · 借貸 · 清算 · 開發者指南</p>
+    <p class="meta">2026-09-19 · DEFI · 借貸 · 清算 · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">存與借：代幣流</a></li><li><a href="#zh-section-3">利率：由利用率決定</a></li><li><a href="#zh-section-4">健康度與清算</a></li><li><a href="#zh-section-5">整合程式碼</a></li><li><a href="#zh-section-6">V3 的幾個關鍵設定</a></li><li><a href="#zh-section-7">智慧合約安全風險（開發者）</a></li><li><a href="#zh-section-8">使用者投資風險</a></li><li><a href="#zh-section-9">算一次：價格跌多少會觸發清算？</a></li><li><a href="#zh-section-10">整合時：誰付款、誰持有部位？</a></li><li><a href="#zh-section-11">開發驗證與 PM 判斷</a></li><li><a href="#zh-section-12">官方來源</a></li></ol></nav></details>
 
     <p>DeFi 三大支柱之一。這則拆開它的四個核心：<strong>aToken 怎麼計息、利率怎麼決定、健康度怎麼算、清算怎麼發生</strong>——以及整合時最容易算錯的地方。</p>
 
     <div class="tldr">
       <span class="tldr-label">三句話版本</span>
       <ul>
-        <li>Aave 是<strong>超額抵押</strong>的資金池借貸：你存進去的每種資產都能當抵押品，借出的價值必須始終低於抵押品價值乘以其 LTV。</li>
+        <li>Aave 是<strong>超額抵押</strong>的資金池借貸：只有允許且已啟用的資產可作抵押。新借款受 LTV 限制；既有部位是否可清算則由 liquidation threshold 與 health factor 決定。</li>
         <li>利率不是人訂的，而是<strong>由資金利用率自動決定</strong>——一條在「最適利用率」處急轉向上的折線，目的是把資金池推回可提領的狀態。</li>
-        <li>健康度低於 1 就會被清算，而且因為閃電貸讓清算競爭極度高效，<strong>破線幾乎等於立刻被平倉</strong>，沒有寬限期。</li>
+        <li>健康度低於 1 即可被清算，而且因為閃電貸讓清算競爭極度高效，<strong>是否立即執行取決於清算流動性與鏈上條件</strong>，沒有寬限期。</li>
       </ul>
       <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「存與借的代幣流」與「健康度」；Solidity 工程師 → 整合程式碼與清算機制；PM／風控 → 市場背景與使用者投資風險。</p>
     </div>
 
-    <h2>市場背景</h2>
+    <h2 id="zh-section-1">市場背景</h2>
     <p>借貸是 DeFi 裡集中度最高的類別之一，而 Aave 是其中的明確龍頭。</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>指標</th><th>數字</th></tr></thead>
@@ -73,11 +73,11 @@
         <tr><td>V4 方向</td><td>模組化 hub-and-spoke、健康度導向清算</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">數據為約略值，以 2026-09 查得為準；決策前請自行複核。</p>
+    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
     <p>對整合者的實際意義：<strong>V3 就是現在</strong>（96.6%），V2 只剩退場流量，不值得為它寫程式。V4 帶來的是架構改動（模組化的 hub 與 spoke、可自訂風險設定），但 V3 的核心概念——aToken、利用率利率、健康度、清算——都會延續，先學 V3 不會白費。</p>
 
-    <h2>存與借：代幣流</h2>
-    <p>Aave 的帳目全部用代幣表示，這讓部位可組合、也可轉移：</p>
+    <h2 id="zh-section-2">存與借：代幣流</h2>
+    <p>Aave 的帳目全部用代幣表示，aToken 可在健康度等限制下轉移，但 variableDebtToken 不可轉移；代幣化不代表整個借款部位能自由搬移：</p>
 
     <figure>
       <div class="figbox">
@@ -113,7 +113,7 @@
       <figcaption><strong>aToken 與債務代幣都是「會自己長大」的餘額</strong>：不需要領取、不需要複投，<code>balanceOf</code> 每個區塊都在變。整合時最常見的錯誤是<strong>把 aToken 餘額快取起來</strong>——下一個區塊它就不準了，任何比對都要即時讀取。</figcaption>
     </figure>
 
-    <h2>利率：由利用率決定</h2>
+    <h2 id="zh-section-3">利率：由利用率決定</h2>
     <p>利用率 <code>U = 已借出 / 總存入</code>。利率隨 <code>U</code> 上升，並在<strong>最適利用率</strong>（<code>U_optimal</code>）處急轉直上——這個轉折是刻意的，目的是在資金快被借光時<strong>用高利率逼借款人還錢、同時吸引新存款</strong>，好讓存款人始終能提領。</p>
 
     <figure>
@@ -138,7 +138,7 @@
       <figcaption>轉折點之後斜率通常是之前的<strong>十幾倍</strong>。這解釋了兩個現象：借款利率平時很穩，但一旦某資產被大量借走就會瞬間跳到令人不安的數字；以及<strong>存款人偶爾會提不出錢</strong>——當 U 接近 100%，池子裡沒有閒置資金，你必須等借款人還款或新存款進來。</figcaption>
     </figure>
 
-    <h2>健康度與清算</h2>
+    <h2 id="zh-section-4">健康度與清算</h2>
     <p>Aave 用<strong>健康度（Health Factor）</strong>一個數字總結你的部位安全程度：</p>
 <pre><code>Health Factor = Σ(抵押品價值 × 清算門檻) / Σ(借款價值)
 
@@ -188,7 +188,7 @@
       <figcaption>清算人<strong>不需要自有資金</strong>：用閃電貸借穩定幣代償、拿到折扣抵押品、賣掉、還閃電貸、留下價差。這正是<a href="./flash-loan.html">閃電貸</a>的正當用途之一，但對借款人而言結果是——<strong>健康度破線後幾乎沒有反應時間</strong>。</figcaption>
     </figure>
 
-    <h2>整合程式碼</h2>
+    <h2 id="zh-section-5">整合程式碼</h2>
 <pre><code><span class="c">// 存入（先 approve 給 Pool）</span>
 IERC20(asset).approve(address(POOL), amount);
 POOL.supply(asset, amount, onBehalfOf, 0);
@@ -215,7 +215,7 @@ POOL.withdraw(asset, type(uint256).max, to);</code></pre>
 require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
     <blockquote><p>兩個容易踩的坑：<strong>Base 單位不是該資產的單位</strong>——<code>getUserAccountData</code> 回傳的是以基準貨幣（通常 8 位小數的 USD）計價的總額，不要跟代幣數量混用。以及<strong><code>healthFactor</code> 在沒有借款時會回傳 <code>type(uint256).max</code></strong>，直接比大小的判斷要先處理這個情況。</p></blockquote>
 
-    <h2>V3 的幾個關鍵設定</h2>
+    <h2 id="zh-section-6">V3 的幾個關鍵設定</h2>
     <ul>
       <li><strong>E-Mode（效率模式）</strong>：當抵押品與借款資產高度相關（如 ETH 與 wstETH、各種穩定幣之間），可切換到更高的 LTV。代價是該模式下只能借特定類別的資產。</li>
       <li><strong>Isolation Mode（隔離模式）</strong>：風險較高的新資產只能作為<em>唯一</em>抵押品，且有鑄造上限、只能借白名單穩定幣。目的是把壞帳侷限在該資產。</li>
@@ -223,29 +223,38 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
       <li><strong>Supply / Borrow Caps</strong>：每種資產的總量上限，防止單一資產的風險無上限累積。整合時要處理「達到上限而交易失敗」的情況。</li>
     </ul>
 
-    <h2>智慧合約安全風險（開發者）</h2>
+    <h2 id="zh-section-7">智慧合約安全風險（開發者）</h2>
     <ul>
       <li><strong>不要快取 aToken 或債務餘額</strong>：它們每個區塊都在變，快取值會讓你的會計慢慢偏離真實。</li>
-      <li><strong>健康度要留緩衝</strong>：以 1.0 為目標等於立刻被清算。自動化策略應以 1.3–1.5 以上為操作區間，並考慮預言機更新的跳動。</li>
+      <li><strong>健康度要留緩衝</strong>：HF 低於 1 即可被清算。緩衝應依波動、相關性、預言機跳動與反應時間設定，固定 HF 不保證安全。</li>
       <li><strong>處理上限與暫停</strong>：supply/borrow cap 達標、資產被凍結或下架，都會讓交易 revert。整合要有降級路徑。</li>
       <li><strong>預言機依賴</strong>：Aave 用外部預言機定價。若你的策略疊在 Aave 之上，你同時繼承了它的預言機風險。</li>
       <li><strong>E-Mode 切換會改變健康度</strong>：進出 E-Mode 會即時改變 LTV 與清算門檻，自動化流程要重算。</li>
     </ul>
 
-    <h2>使用者投資風險</h2>
+    <h2 id="zh-section-8">使用者投資風險</h2>
     <div class="scroll"><table>
       <thead><tr><th>風險</th><th>說明</th></tr></thead>
       <tbody>
-        <tr><td><strong>清算沒有寬限期</strong></td><td>機器人以毫秒競爭，HF 破 1 通常在同一個區塊內就被清算，並從抵押品扣走清算獎勵。</td></tr>
+        <tr><td><strong>清算沒有寬限期</strong></td><td>機器人以毫秒競爭，HF 破 1 即可被清算，實際執行取決於流動性、收益與鏈上條件，並從抵押品扣走清算獎勵。</td></tr>
         <tr><td><strong>利率會瞬間跳升</strong></td><td>利用率越過轉折點後，借款利率可能在數小時內從個位數跳到數十個百分點。浮動利率借款要持續盯。</td></tr>
         <tr><td><strong>存款未必隨時可提</strong></td><td>當利用率接近 100%，池中沒有閒置資金，提領會失敗——只能等還款或加息吸引新存款。</td></tr>
-        <tr><td><strong>壞帳由存款人承擔</strong></td><td>若價格瞬間崩跌導致清算不及，抵押品不足以覆蓋債務，缺口最終由該資產的存款人分攤。</td></tr>
+        <tr><td><strong>壞帳處置依市場機制</strong></td><td>若價格瞬間崩跌導致清算不及，抵押品不足以覆蓋債務，處置取決於該市場的 deficit accounting、保護機制及治理決策，並非一律自動按比例扣存款。</td></tr>
         <tr><td><strong>預言機風險</strong></td><td>清算依預言機價格而非你看到的市場價。預言機異常或延遲可能觸發非預期清算。</td></tr>
         <tr><td><strong>循環槓桿會放大一切</strong></td><td>存款→借款→再存入的循環操作能把曝險放到數倍，同時把清算距離壓到極薄。</td></tr>
       </tbody>
     </table></div>
 
-    <h2>官方來源</h2>
+    <h2 id="zh-section-9">算一次：價格跌多少會觸發清算？</h2>
+<p>假設抵押 1 ETH、oracle 價格 $2,000、LTV 75%、清算門檻 80%，借 1,000 USDC，且此例把 USDC 視為 $1。最多可新借 $1,500；HF = 2,000 × 0.8 / 1,000 = 1.6。忽略利息時，ETH 跌至 $1,250，HF 才到 1；若債務因利息變成 $1,050，臨界價上移至 $1,312.50。參數僅為示例。</p>
+<p>若 ETH 已跌至 $1,200，HF = 0.96。假設規則允許清算人還 $500、bonus 5%，就會拿走 $525 的 ETH（0.4375 ETH）。剩餘抵押 $675、債務 $500，HF = 1.08。這說明清算可以只平掉一部分，也不保證清算後有充足緩衝；實際 close factor、費用與 eligibility 依部署版本。</p>
+<h2 id="zh-section-10">整合時：誰付款、誰持有部位？</h2>
+<p><code>supply</code> 從 caller 拉 underlying，aToken 記在 onBehalfOf；<code>borrow</code> 把 underlying 送給 caller，但債務記在 onBehalfOf。不同地址借款須有 credit delegation。<code>repay</code> 從 caller 收款以還指定帳戶的債；<code>withdraw</code> 燒 caller 的 aToken，資產送至 to。前端、adapter 與使用者是不同地址時，不能假設資產與部位都在使用者身上。</p>
+<h2 id="zh-section-11">開發驗證與 PM 判斷</h2>
+<p>在固定 fork block 上測存、借、還、提；再測 cap、pause、抵押關閉、錯誤 delegation、代幣 decimals 與健康度不足。不要把無債務時的 max HF 轉成 JavaScript Number。每筆完成後讀 account data 與 receipt，UI 顯示等待、失敗與可執行的修復。</p>
+<p>PM 先比較目標資產的可借深度、利用率尖峰、oracle、退出流動性與治理權，不只看全協議 TVL。用「供應收益 ≈ 借款利率 × 利用率 × (1 − reserve factor)」建立直覺，再加上部署特有的會計、incentives 與費用；它不是保證收益公式。</p>
+
+    <h2 id="zh-section-12">官方來源</h2>
     <ul>
       <li><a href="https://aave.com/docs/aave-v3/smart-contracts/pool">Aave V3 文件：Pool 合約</a></li>
       <li><a href="https://aave.com/docs/aave-v3/guides/flash-loans">Aave V3 文件：Flash Loans</a></li>
@@ -256,23 +265,23 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
   </div>
 
   <!-- ================= English ================= -->
-  <div data-l="en">
+  <p class="meta" data-l="zh">教學補充與修正：2026-10-08；原市場數字未於此次更新中重新查核。</p><div data-l="en">
     <h1>Aave: Lending Mechanics</h1>
-    <p class="meta">2026-09-19 · DEFI · LENDING · LIQUIDATION · DEVELOPER GUIDE</p>
+    <p class="meta">2026-09-19 · DEFI · LENDING · LIQUIDATION · DEVELOPER GUIDE</p><p class="reading-context">Prerequisites: <a href="./web3-foundations.html">accounts, assets, and transactions</a> · Build flow: <a href="./defi-integration.html">integration and recovery</a></p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Market background</a></li><li><a href="#en-section-2">Supplying and borrowing: token flows</a></li><li><a href="#en-section-3">Rates: a function of utilisation</a></li><li><a href="#en-section-4">Health factor and liquidation</a></li><li><a href="#en-section-5">Integration code</a></li><li><a href="#en-section-6">Key V3 configurations</a></li><li><a href="#en-section-7">Smart-contract security (developers)</a></li><li><a href="#en-section-8">User investment risk</a></li><li><a href="#en-section-9">Worked example: the liquidation price</a></li><li><a href="#en-section-10">Integration: who pays and owns the position?</a></li><li><a href="#en-section-11">Development checks and PM decisions</a></li><li><a href="#en-section-12">Official sources</a></li></ol></nav></details>
 
     <p>One of DeFi's three pillars. This note opens up its four core pieces — <strong>how aTokens accrue, how rates are set, how health is computed, how liquidation happens</strong> — and where integrations most often get the maths wrong.</p>
 
     <div class="tldr">
       <span class="tldr-label">In three lines</span>
       <ul>
-        <li>Aave is <strong>over-collateralised</strong> pooled lending: everything you supply can serve as collateral, and borrowed value must stay below collateral value times its LTV.</li>
+        <li>Aave is <strong>over-collateralised</strong> pooled lending: only eligible, enabled assets serve as collateral. LTV limits new borrowing; liquidation thresholds and health factor determine liquidation eligibility.</li>
         <li>Rates are not set by anyone; they are <strong>a function of utilisation</strong> — a kinked curve that turns sharply upward at an "optimal" point, designed to push the pool back to a withdrawable state.</li>
-        <li>Below a health factor of 1 you are liquidated, and because flash loans make liquidation fiercely competitive, <strong>crossing the line means near-instant closure</strong> with no grace period.</li>
+        <li>Below a health factor of 1 you become liquidatable, and because flash loans make liquidation fiercely competitive, <strong>execution depends on profitability, liquidity, and chain conditions</strong> with no grace period.</li>
       </ul>
       <p class="who"><strong>Where to start:</strong> beginners → "Token flows" and "Health factor"; Solidity engineers → the integration code and liquidation mechanics; PMs and risk → market background and user investment risk.</p>
     </div>
 
-    <h2>Market background</h2>
+    <h2 id="en-section-1">Market background</h2>
     <p>Lending is among DeFi's most concentrated categories, and Aave is the clear leader.</p>
     <div class="scroll"><table class="market">
       <thead><tr><th>Metric</th><th>Figure</th></tr></thead>
@@ -285,11 +294,11 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
         <tr><td>V4 direction</td><td>Modular hub-and-spoke, health-targeted liquidation</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Figures are approximate, current as of 2026-09; re-verify before acting on them.</p>
+    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
     <p>What that means for integrators: <strong>V3 is the present</strong> at 96.6%, and V2 is runoff not worth writing code for. V4 changes the architecture (modular hubs and spokes, configurable risk), but V3's core concepts — aTokens, utilisation-driven rates, health factor, liquidation — carry over, so learning V3 is not wasted.</p>
 
-    <h2>Supplying and borrowing: token flows</h2>
-    <p>Aave represents every position as a token, which makes positions composable and transferable:</p>
+    <h2 id="en-section-2">Supplying and borrowing: token flows</h2>
+    <p>Aave represents every position as a token, aTokens can be transferable subject to health checks, but variable debt tokens are nontransferable; tokenization does not make the entire borrowing position transferable:</p>
 
     <figure>
       <div class="figbox">
@@ -325,7 +334,7 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
       <figcaption><strong>aTokens and debt tokens are balances that grow by themselves</strong>: nothing to claim, nothing to compound; <code>balanceOf</code> changes every block. The most common integration bug is <strong>caching an aToken balance</strong> — it is stale one block later, so every comparison must read live.</figcaption>
     </figure>
 
-    <h2>Rates: a function of utilisation</h2>
+    <h2 id="en-section-3">Rates: a function of utilisation</h2>
     <p>Utilisation is <code>U = borrowed / supplied</code>. Rates rise with <code>U</code> and turn sharply upward at the <strong>optimal utilisation</strong> point. That kink is deliberate: when funds are nearly exhausted, <strong>a punishing rate pushes borrowers to repay and attracts new deposits</strong>, so suppliers can still withdraw.</p>
 
     <figure>
@@ -349,7 +358,7 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
       <figcaption>Past the kink the slope is typically <strong>an order of magnitude steeper</strong>. That explains two things: borrow rates are stable until an asset gets heavily borrowed, then jump to alarming numbers; and <strong>suppliers sometimes cannot withdraw</strong> — near 100% utilisation there is no idle liquidity, so you wait for repayments or new deposits.</figcaption>
     </figure>
 
-    <h2>Health factor and liquidation</h2>
+    <h2 id="en-section-4">Health factor and liquidation</h2>
     <p>Aave compresses position safety into one number, the <strong>health factor</strong>:</p>
 <pre><code>Health Factor = Σ(collateral value × liquidation threshold) / Σ(borrow value)
 
@@ -399,7 +408,7 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
       <figcaption>Liquidators need <strong>no capital of their own</strong>: flash-borrow stablecoins, repay the debt, take discounted collateral, sell, repay the loan, keep the spread. This is one of the honest uses of <a href="./flash-loan.html">flash loans</a> — but for the borrower it means <strong>there is effectively no reaction time once health breaks</strong>.</figcaption>
     </figure>
 
-    <h2>Integration code</h2>
+    <h2 id="en-section-5">Integration code</h2>
 <pre><code><span class="c">// Supply (approve the Pool first)</span>
 IERC20(asset).approve(address(POOL), amount);
 POOL.supply(asset, amount, onBehalfOf, 0);
@@ -426,7 +435,7 @@ POOL.withdraw(asset, type(uint256).max, to);</code></pre>
 require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
     <blockquote><p>Two easy traps: <strong>"Base" units are not the asset's units</strong> — <code>getUserAccountData</code> returns totals in the base currency (usually USD with 8 decimals), so never mix them with token amounts. And <strong><code>healthFactor</code> returns <code>type(uint256).max</code> when there is no debt</strong>, so a naive comparison needs that case handled first.</p></blockquote>
 
-    <h2>Key V3 configurations</h2>
+    <h2 id="en-section-6">Key V3 configurations</h2>
     <ul>
       <li><strong>E-Mode</strong>: when collateral and borrowed asset are highly correlated (ETH and wstETH, or stablecoins among themselves), you can switch to a much higher LTV. The trade-off is that you may only borrow assets in that category.</li>
       <li><strong>Isolation mode</strong>: a riskier new asset may only be used as the <em>sole</em> collateral, with a debt ceiling and a stablecoin allowlist. The point is to confine bad debt to that asset.</li>
@@ -434,29 +443,38 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
       <li><strong>Supply / borrow caps</strong>: per-asset ceilings so exposure cannot accumulate without limit. Integrations must handle the "cap reached, transaction reverts" case.</li>
     </ul>
 
-    <h2>Smart-contract security (developers)</h2>
+    <h2 id="en-section-7">Smart-contract security (developers)</h2>
     <ul>
       <li><strong>Never cache aToken or debt balances</strong>: they change every block, and a cached value drifts your accounting away from reality.</li>
-      <li><strong>Keep health-factor headroom</strong>: targeting 1.0 means instant liquidation. Automated strategies should operate at 1.3–1.5 or above, allowing for oracle jumps.</li>
+      <li><strong>Keep health-factor headroom</strong>: HF below 1 makes the position liquidatable. Choose headroom from collateral volatility, correlation, oracle jumps, and response latency; no fixed HF guarantees safety.</li>
       <li><strong>Handle caps and pauses</strong>: hitting a supply/borrow cap, or an asset being frozen or offboarded, reverts transactions. Have a degraded path.</li>
       <li><strong>Oracle dependency</strong>: Aave prices via external oracles. A strategy built on Aave inherits Aave's oracle risk.</li>
       <li><strong>Toggling E-Mode changes health</strong>: entering or leaving E-Mode instantly changes LTV and threshold; recompute in automated flows.</li>
     </ul>
 
-    <h2>User investment risk</h2>
+    <h2 id="en-section-8">User investment risk</h2>
     <div class="scroll"><table>
       <thead><tr><th>Risk</th><th>What it is</th></tr></thead>
       <tbody>
-        <tr><td><strong>No grace period on liquidation</strong></td><td>Bots compete in milliseconds; crossing HF 1 usually means liquidation in the same block, with the bonus taken from your collateral.</td></tr>
+        <tr><td><strong>No grace period on liquidation</strong></td><td>Bots compete in milliseconds; crossing HF 1 makes the position eligible; execution can be delayed by liquidity, profitability, or chain conditions, with the bonus taken from your collateral.</td></tr>
         <tr><td><strong>Rates can spike instantly</strong></td><td>Past the kink, borrow rates can go from single digits to tens of percent within hours. Variable-rate borrowing needs watching.</td></tr>
         <tr><td><strong>Deposits are not always withdrawable</strong></td><td>Near 100% utilisation there is no idle liquidity and withdrawals fail — you wait for repayments or for higher rates to attract deposits.</td></tr>
-        <tr><td><strong>Bad debt falls on suppliers</strong></td><td>If a price gaps down faster than liquidation can clear, collateral may not cover the debt, and the shortfall is ultimately borne by that asset's suppliers.</td></tr>
+        <tr><td><strong>Bad-debt resolution</strong></td><td>If a price gaps down faster than liquidation can clear, collateral may not cover the debt, and resolution depends on the deployed market’s deficit accounting, protection mechanisms, and governance response; do not assume an automatic uniform supplier haircut.</td></tr>
         <tr><td><strong>Oracle risk</strong></td><td>Liquidation uses the oracle price, not the market price you see. An anomaly or lag can trigger unexpected liquidation.</td></tr>
         <tr><td><strong>Looped leverage magnifies everything</strong></td><td>Supply → borrow → re-supply loops multiply exposure while compressing the distance to liquidation to almost nothing.</td></tr>
       </tbody>
     </table></div>
 
-    <h2>Official sources</h2>
+    <h2 id="en-section-9">Worked example: the liquidation price</h2>
+<p>Suppose 1 ETH is worth $2,000, LTV is 75%, the liquidation threshold is 80%, and debt is 1,000 USDC valued at $1. New borrowing is capped at $1,500; HF is 1.6. Ignoring interest, HF reaches 1 at ETH $1,250. If debt accrues to $1,050, the boundary rises to $1,312.50. These are illustrative parameters.</p>
+<p>At ETH $1,200, HF is 0.96. If applicable rules permit repaying $500 with a 5% bonus, the liquidator receives $525 of ETH (0.4375 ETH). Remaining collateral is $675 and debt $500, giving HF 1.08. Liquidation can be partial and does not promise comfortable headroom; deployed close factors, fees, and eligibility still apply.</p>
+<h2 id="en-section-10">Integration: who pays and owns the position?</h2>
+<p><code>supply</code> pulls underlying from the caller and credits aTokens to onBehalfOf. <code>borrow</code> sends underlying to the caller but records debt against onBehalfOf; a different borrower requires credit delegation. <code>repay</code> pulls caller funds to repay the selected account; <code>withdraw</code> burns caller aTokens and sends assets to to. An adapter, frontend user, and position owner are not automatically the same address.</p>
+<h2 id="en-section-11">Development checks and PM decisions</h2>
+<p>At a fixed fork block, exercise supply, borrow, repay, and withdraw; then caps, pauses, disabled collateral, missing delegation, decimals, and insufficient health. Keep max HF and token amounts as big integers. Reconcile receipts and account state, and show pending/failure/remediation explicitly.</p>
+<p>Select by target-asset depth, utilization spikes, oracle assumptions, exit liquidity, and governance authority, not total TVL alone. Supply yield roughly tracks borrow rate × utilization × (1 − reserve factor), before deployment-specific accounting, incentives, and fees; this is intuition, not a guaranteed return.</p>
+
+    <h2 id="en-section-12">Official sources</h2>
     <ul>
       <li><a href="https://aave.com/docs/aave-v3/smart-contracts/pool">Aave V3 docs: the Pool contract</a></li>
       <li><a href="https://aave.com/docs/aave-v3/guides/flash-loans">Aave V3 docs: Flash Loans</a></li>
@@ -466,7 +484,7 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
     <p class="meta">Content last verified: 2026-09-19</p>
   </div>
 
-  </main>
+  <p class="meta" data-l="en">Teaching examples and corrections updated 2026-10-08; original market figures were not reverified in this update.</p></main>
 
   <footer>
     <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
@@ -478,6 +496,6 @@ require(healthFactor &gt; 1.05e18, "too close to liquidation");</code></pre>
   </footer>
 
 </div>
-<script src="../assets/app.js"></script>
+<script src="../assets/app.js?v=20261019-enrich"></script>
 </body>
 </html>
