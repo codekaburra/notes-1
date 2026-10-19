@@ -319,3 +319,6 @@ figcaption{margin-top:.95rem; font-size:.85rem; line-height:1.65; color:var(--mu
 .note-toc ol{margin:.8rem 0 0; font-size:.84rem; columns:2; column-gap:2rem}
 .note-toc li{break-inside:avoid}
 @media(max-width:700px){.reader-grid{grid-template-columns:1fr; gap:1.25rem}.note-toc ol{columns:1}}
+
+/* 程式碼區塊上方的說明 */
+.code-cap{font-family:var(--mono); font-size:.72rem; letter-spacing:.03em; color:var(--muted); margin:1.8rem 0 -.85rem}

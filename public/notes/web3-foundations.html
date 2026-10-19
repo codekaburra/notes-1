@@ -12,7 +12,7 @@
     document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
   } catch(e) {}
 </script>
-<link rel="stylesheet" href="../assets/style.css?v=20261008-content">
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
 </head>
 <body data-title-zh="Web3 入門：帳戶、資產與交易" data-title-en="Web3 Foundations: Accounts, Assets, and Transactions">
 <div class="wrap">
@@ -41,14 +41,147 @@
   <main>
 <a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
 <div data-l="zh"><h1>Web3 入門：帳戶、資產與交易</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">帳戶與資產在哪？</a></li><li><a href="#zh-section-2">連線、簽名、授權、交易：四種不同能力</a></li><li><a href="#zh-section-3">一筆操作的邏輯流</a></li><li><a href="#zh-section-4">初學者最容易混淆的五件事</a></li><li><a href="#zh-section-5">學習與驗收任務</a></li><li><a href="#zh-section-6">參考來源</a></li></ol></nav></details><p>先建立一個心智模型：wallet 是管理權限與簽署請求的工具；資產在鏈上的帳目裡。連 wallet 不代表授權 spender，簽名不代表已完成交易，而 tx hash 不代表資產已到帳。</p>
+    <div class="tldr">
+      <span class="tldr-label">三句話版本</span>
+      <ul>
+        <li><strong>錢包裡沒有資產。</strong>資產是鏈上各合約帳本裡的一筆紀錄，錢包只握有能改動它的鑰匙。</li>
+        <li>連線、簽名、授權、交易是<strong>四種不同等級的權限</strong>。最該小心的是看起來無害的「簽名」——它可能就是一張授權。</li>
+        <li><strong>「已送出」不等於「已完成」</strong>：tx hash 只代表送出，要看 receipt status 與產品需要的 finality。</li>
+      </ul>
+      <p class="who"><strong>誰讀哪裡：</strong>完全新手 → 從頭讀，先看三張圖；PM → 「四種不同能力」那張表與圖；工程師 → 讀取程式碼與最後的驗收任務。</p>
+    </div>
+
 <h2 id="zh-section-1">帳戶與資產在哪？</h2>
 <p>EOA 由私鑰控制；smart account 由合約定義授權，可能有 owner、guardian、session key 與 upgrade admin。多個角色不能簡化成「誰握 private key 就擁有一切」。原生 ETH balance 由鏈維護，ERC-20 的 balanceOf(address) 則由各 token 合約記帳。相同 address 在不同鏈有獨立餘額與權限。</p>
 <p>Token symbol 不是身份。紀錄 chain ID + contract address + decimals，例如 6 位小數的 1.25 token 是 1,250,000 base units。不要用浮點 Number 做金額運算。代理 token 的升級或管理權也能改變風險，地址相同不表示 code 永遠相同。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 850 320" role="img" aria-label="錢包與鏈上狀態的關係：錢包只保管私鑰並簽署請求，資產記錄在鏈上；原生 ETH 由鏈直接記帳，USDC 與 NFT 的餘額則記在各自合約的帳本裡。">
+          <defs><marker id="wfzh1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="24" y="96" width="186" height="98" rx="10"></rect>
+          <text class="svg-nlabel" x="117" y="128" text-anchor="middle">錢包</text>
+          <text class="svg-ncode" x="117" y="150" text-anchor="middle">保管私鑰、簽署請求</text>
+          <text class="svg-mono-a" x="117" y="172" text-anchor="middle">本身不存放資產</text>
+          <line class="svg-flow" x1="210" y1="145" x2="286" y2="145" marker-end="url(#wfzh1)"></line>
+          <text class="svg-flowlabel" x="248" y="136" text-anchor="middle">簽署／送出</text>
+          <rect class="svg-node-dash" x="294" y="16" width="530" height="258" rx="14"></rect>
+          <text class="svg-mono-a" x="312" y="40">鏈上狀態（每條鏈各自一份）</text>
+          <rect class="svg-node" x="312" y="56" width="494" height="60" rx="8"></rect>
+          <text class="svg-nlabel" x="330" y="80">原生 ETH：由鏈直接記帳</text>
+          <text class="svg-ncode" x="330" y="102">balance(你的地址) = 0.8 ETH</text>
+          <rect class="svg-node-a" x="312" y="126" width="494" height="60" rx="8"></rect>
+          <text class="svg-nlabel" x="330" y="150">USDC 合約：自己的帳本</text>
+          <text class="svg-ncode" x="330" y="172">balanceOf[你的地址] = 1,250,000（6 位小數 = 1.25）</text>
+          <rect class="svg-node" x="312" y="196" width="494" height="60" rx="8"></rect>
+          <text class="svg-nlabel" x="330" y="220">NFT 合約：自己的帳本</text>
+          <text class="svg-ncode" x="330" y="242">ownerOf(#42) = 你的地址</text>
+          <text class="svg-step" x="424" y="306" text-anchor="middle">同一個地址在另一條鏈上，是完全獨立的餘額與權限</text>
+        </svg>
+      </div>
+      <figcaption>這張圖解決初學者最常見的誤解：<strong>資產不在錢包裡</strong>。換一個錢包 App、匯入同一組私鑰，看到的是同一批資產，因為資產從來都在鏈上。也因此，<strong>同一個地址在不同鏈是兩回事</strong>——轉錯鏈的資產不會自動出現在你預期的地方。</figcaption>
+    </figure>
+
+    <p class="code-cap">讀取餘額、小數位數與授權額度——token 的身份是 chainId + 合約地址，不是 symbol</p>
+<pre><code>import { erc20Abi, formatUnits, parseUnits } from "viem";
+
+<span class="c">// token 的身份 = chainId + 合約地址；symbol 可以重複，不能當身份</span>
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";   <span class="c">// Ethereum 主網</span>
+
+const [decimals, raw, allowance] = await Promise.all([
+  client.readContract({ address: USDC, abi: erc20Abi, functionName: "decimals" }),
+  client.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [me] }),
+  client.readContract({ address: USDC, abi: erc20Abi, functionName: "allowance", args: [me, spender] }),
+]);
+
+formatUnits(raw, decimals);       <span class="c">// 1250000n, 6  →  "1.25"（顯示用）</span>
+parseUnits("1.25", decimals);     <span class="c">// "1.25", 6   →  1250000n（運算一律用 bigint，不要用浮點數）</span></code></pre>
+
 <h2 id="zh-section-2">連線、簽名、授權、交易：四種不同能力</h2>
 <div class="scroll"><table><thead><tr><th scope="col">動作</th><th scope="col">改變什麼</th><th scope="col">先看哪裡</th></tr></thead><tbody><tr><td>Connect wallet</td><td>提供地址／連線狀態；本身不搬資產</td><td>網站、chain、請求權限</td></tr><tr><td>Sign message / typed data</td><td>通常不立即改鏈上 state，但簽章可被提交以執行 permit／訂單等授權</td><td>domain、chain、spender、amount、expiry、nonce</td></tr><tr><td>approve(spender, amount)</td><td>給特定 spender transferFrom 的額度；approve 不等於已存入協議</td><td>真正會拉款的合約與額度</td></tr><tr><td>Send transaction</td><td>執行 calldata/value 並花 gas；可能成功或 revert</td><td>target、方法、參數、value、fee、simulation</td></tr></tbody></table></div>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 830 270" role="img" aria-label="四種能力依對鏈上狀態的影響由低到高排列：連線只分享地址，簽名在鏈下產生但可被提交為授權，授權在鏈上設定額度，交易直接改變狀態並花費 gas。">
+          <defs><marker id="wfzh2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="112" y="74" text-anchor="middle">① 連線</text>
+          <text class="svg-ncode" x="112" y="100" text-anchor="middle">只分享地址</text>
+          <text class="svg-ncode" x="112" y="122" text-anchor="middle">不動任何資產</text>
+          <rect class="svg-node-a" x="222" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="314" y="74" text-anchor="middle">② 簽名</text>
+          <text class="svg-ncode" x="314" y="100" text-anchor="middle">鏈下簽章</text>
+          <text class="svg-ncode" x="314" y="122" text-anchor="middle">可被提交為授權</text>
+          <rect class="svg-node-a" x="424" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="516" y="74" text-anchor="middle">③ 授權 approve</text>
+          <text class="svg-ncode" x="516" y="100" text-anchor="middle">鏈上設定額度</text>
+          <text class="svg-ncode" x="516" y="122" text-anchor="middle">spender 之後可拉款</text>
+          <rect class="svg-node" x="626" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="718" y="74" text-anchor="middle">④ 交易</text>
+          <text class="svg-ncode" x="718" y="100" text-anchor="middle">直接改變狀態</text>
+          <text class="svg-ncode" x="718" y="122" text-anchor="middle">花 gas，可能 revert</text>
+          <line class="svg-flow-a" x1="20" y1="176" x2="806" y2="176" marker-end="url(#wfzh2)"></line>
+          <text class="svg-mono" x="806" y="198" text-anchor="end">對資產的影響 →</text>
+          <text class="svg-step" x="415" y="244" text-anchor="middle">⚠ 最常被誤判的是 ②：permit、訂單簽名不花 gas，卻能讓別人動用你的資產</text>
+        </svg>
+      </div>
+      <figcaption>四者常在同一個畫面裡發生，但權限完全不同。實務上的守則：<strong>簽任何東西之前，先看 spender、amount、expiry 與 chain</strong>。另外，<strong>授權不會因為你斷開網站而消失</strong>——它留在鏈上，直到你主動撤銷。</figcaption>
+    </figure>
+
 <h2 id="zh-section-3">一筆操作的邏輯流</h2>
 <p>使用者意圖 → 校驗 chain/地址/amount → RPC 讀 state → 模擬 → wallet 顯示並簽署 → submission → mempool/排序 → included receipt → 所需 finality → UI/indexer 更新。RPC 是讀寫入口，不是資產託管方；它可以延遲、錯誤或不一致。</p>
 <p>同鏈單筆交易通常原子完成：內部失敗向外傳播會回滾狀態，但 gas 已花。合約可刻意 catch/recover，batch 也可容許部分失敗，因此先讀該入口的語意。跨鏈則由多筆交易組成，source 成功不保證 destination 成功。</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 840 310" role="img" aria-label="一筆操作從意圖到完成的流程：鏈下依序是意圖、校驗、讀取狀態、模擬、錢包簽署；送出後在鏈上依序經過 mempool、被打包產生收據、達到所需最終性，最後介面與索引器更新。">
+          <defs><marker id="wfzh3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker><marker id="wfzh3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-mono-a" x="20" y="30">鏈下：你的 App 與錢包</text>
+          <text class="svg-mono-a" x="20" y="166">鏈上</text>
+          <rect class="svg-node" x="20" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="68" text-anchor="middle">意圖</text>
+          <text class="svg-ncode" x="95" y="88" text-anchor="middle">使用者要做什麼</text>
+          <line class="svg-flow" x1="170" y1="73" x2="182" y2="73" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node" x="184" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="259" y="68" text-anchor="middle">校驗</text>
+          <text class="svg-ncode" x="259" y="88" text-anchor="middle">chain／地址／數量</text>
+          <line class="svg-flow" x1="334" y1="73" x2="346" y2="73" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node" x="348" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="423" y="68" text-anchor="middle">讀取狀態</text>
+          <text class="svg-ncode" x="423" y="88" text-anchor="middle">透過 RPC</text>
+          <line class="svg-flow" x1="498" y1="73" x2="510" y2="73" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node" x="512" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="587" y="68" text-anchor="middle">模擬</text>
+          <text class="svg-ncode" x="587" y="88" text-anchor="middle">預演一次</text>
+          <line class="svg-flow" x1="662" y1="73" x2="674" y2="73" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node" x="676" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="751" y="68" text-anchor="middle">錢包簽署</text>
+          <text class="svg-ncode" x="751" y="88" text-anchor="middle">使用者確認</text>
+          <rect class="svg-node" x="676" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="751" y="204" text-anchor="middle">送出</text>
+          <text class="svg-ncode" x="751" y="224" text-anchor="middle">取得 tx hash</text>
+          <line class="svg-flow" x1="676" y1="209" x2="664" y2="209" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node" x="512" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="587" y="204" text-anchor="middle">mempool</text>
+          <text class="svg-ncode" x="587" y="224" text-anchor="middle">等待排序</text>
+          <line class="svg-flow" x1="512" y1="209" x2="500" y2="209" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node-a" x="348" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="423" y="204" text-anchor="middle">打包</text>
+          <text class="svg-ncode" x="423" y="224" text-anchor="middle">產生 receipt</text>
+          <line class="svg-flow" x1="348" y1="209" x2="336" y2="209" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node-a" x="184" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="259" y="204" text-anchor="middle">finality</text>
+          <text class="svg-ncode" x="259" y="224" text-anchor="middle">達到所需層級</text>
+          <line class="svg-flow" x1="184" y1="209" x2="172" y2="209" marker-end="url(#wfzh3)"></line>
+          <rect class="svg-node" x="20" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="204" text-anchor="middle">UI 更新</text>
+          <text class="svg-ncode" x="95" y="224" text-anchor="middle">索引器同步</text>
+          <line class="svg-flow-a" x1="751" y1="104" x2="751" y2="176" marker-end="url(#wfzh3a)"></line>
+          <text class="svg-mono" x="587" y="124" text-anchor="middle">模擬失敗：尚未上鏈，零成本</text>
+          <text class="svg-mono" x="423" y="260" text-anchor="middle">revert：狀態回滾，但 gas 已花</text>
+          <text class="svg-step" x="420" y="296" text-anchor="middle">tx hash 只代表「已送出」；完成要看 receipt status 與所需 finality</text>
+        </svg>
+      </div>
+      <figcaption>上排任何一步失敗都<strong>不花錢</strong>，因為還沒有東西上鏈；下排開始才有成本。同鏈單筆交易是原子的（內部失敗會整筆回滾），但 <strong>gas 照樣扣</strong>。跨鏈則是多筆獨立交易，來源鏈成功不保證目的鏈成功。</figcaption>
+    </figure>
+
 <h2 id="zh-section-4">初學者最容易混淆的五件事</h2>
 <p>Receipt status success 只描述該交易，不等於協議後續工作完成；包含多個 UserOp 的 bundle 需逐個看結果。Simulation 是當下 state 的預演，不是未來保證。Confirmations、safe、finalized 是不同層級；L2 wallet 的綠勾常只是 sequencer 確認。</p>
 <p>Approval 留在鏈上，斷開網站不會撤銷；撤 delegation 也不自動撤 token allowance。Bridged token 與 native token 即使名稱相同，也有不同 backing/exit。APY、TVL 與 auditor 名稱不等於可提款或安全。</p>
@@ -57,14 +190,147 @@
 <p>接著讀 <a href="./evm-gas.html">gas</a>、<a href="./uniswap-v3-v4.html">AMM</a>、<a href="./aave.html">借貸</a>、<a href="./defi-integration.html">整合流程</a>。PM 要先回答資產在哪、誰能動、收益哪來、失敗怎麼退出；工程師把同樣四題變成可測的 invariant。</p>
 <h2 id="zh-section-6">參考來源</h2><ul><li><a href="https://ethereum.org/developers/docs/transactions/">Ethereum transactions</a></li><li><a href="https://ethereum.org/developers/docs/standards/tokens/erc-20/">ERC-20 overview</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-712">EIP-712 typed data</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-2612">ERC-2612 permit</a></li></ul></div>
 <div data-l="en"><h1>Web3 Foundations: Accounts, Assets, and Transactions</h1><p class="meta">2026-10-08 · FOUNDATIONS · DEVELOPMENT · PRODUCT · RISK</p><details class="note-toc"><summary>In this note</summary><nav aria-label="Article sections"><ol><li><a href="#en-section-1">Where do accounts and assets live?</a></li><li><a href="#en-section-2">Connection, signature, approval, and transaction</a></li><li><a href="#en-section-3">One operation’s logic flow</a></li><li><a href="#en-section-4">Five common misconceptions</a></li><li><a href="#en-section-5">Learning and acceptance exercise</a></li><li><a href="#en-section-6">References</a></li></ol></nav></details><p>A wallet manages authority and signing requests; assets live in on-chain accounting. Connecting does not grant spending authority, a signature does not mean execution, and a transaction hash does not mean funds arrived.</p>
+    <div class="tldr">
+      <span class="tldr-label">In three lines</span>
+      <ul>
+        <li><strong>Your wallet holds no assets.</strong> Assets are entries in on-chain ledgers; the wallet only holds the keys that can change them.</li>
+        <li>Connecting, signing, approving and transacting are <strong>four different levels of authority</strong>. The one to fear is the harmless-looking signature — it may itself be an authorisation.</li>
+        <li><strong>Submitted is not done</strong>: a tx hash only means sent; completion needs the receipt status and the finality your product requires.</li>
+      </ul>
+      <p class="who"><strong>Where to start:</strong> complete beginners → read top to bottom, starting with the three diagrams; PMs → the four-capabilities table and diagram; engineers → the read code and the acceptance exercise.</p>
+    </div>
+
 <h2 id="en-section-1">Where do accounts and assets live?</h2>
 <p>An EOA is key-controlled; a smart account defines authority in code and may have owners, guardians, session keys, and upgrade admins. These powers cannot always be reduced to one private key. The chain tracks native ETH balances; each ERC-20 contract tracks balanceOf(address). The same address on another chain has independent balances and authority.</p>
 <p>A symbol is not identity. Record chain ID, contract address, and decimals: 1.25 tokens at six decimals equals 1,250,000 base units. Use integers, not floating-point Number. Proxy upgrades and token admin powers matter even when the token address stays unchanged.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 850 320" role="img" aria-label="Wallet versus on-chain state: the wallet only holds keys and signs requests while assets live on-chain; native ETH is tracked by the chain itself, while USDC and NFT balances live in each contract's own ledger.">
+          <defs><marker id="wfen1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="24" y="96" width="186" height="98" rx="10"></rect>
+          <text class="svg-nlabel" x="117" y="128" text-anchor="middle">Wallet</text>
+          <text class="svg-ncode" x="117" y="150" text-anchor="middle">holds keys, signs requests</text>
+          <text class="svg-mono-a" x="117" y="172" text-anchor="middle">stores no assets itself</text>
+          <line class="svg-flow" x1="210" y1="145" x2="286" y2="145" marker-end="url(#wfen1)"></line>
+          <text class="svg-flowlabel" x="248" y="136" text-anchor="middle">sign / send</text>
+          <rect class="svg-node-dash" x="294" y="16" width="530" height="258" rx="14"></rect>
+          <text class="svg-mono-a" x="312" y="40">On-chain state (one copy per chain)</text>
+          <rect class="svg-node" x="312" y="56" width="494" height="60" rx="8"></rect>
+          <text class="svg-nlabel" x="330" y="80">Native ETH: tracked by the chain</text>
+          <text class="svg-ncode" x="330" y="102">balance(your address) = 0.8 ETH</text>
+          <rect class="svg-node-a" x="312" y="126" width="494" height="60" rx="8"></rect>
+          <text class="svg-nlabel" x="330" y="150">USDC contract: its own ledger</text>
+          <text class="svg-ncode" x="330" y="172">balanceOf[your address] = 1,250,000 (6 dp = 1.25)</text>
+          <rect class="svg-node" x="312" y="196" width="494" height="60" rx="8"></rect>
+          <text class="svg-nlabel" x="330" y="220">NFT contract: its own ledger</text>
+          <text class="svg-ncode" x="330" y="242">ownerOf(#42) = your address</text>
+          <text class="svg-step" x="424" y="306" text-anchor="middle">The same address on another chain has entirely separate balances and permissions</text>
+        </svg>
+      </div>
+      <figcaption>This clears up the most common beginner misconception: <strong>assets are not in the wallet</strong>. Import the same key into a different wallet app and you see the same assets, because they were always on-chain. It also means <strong>the same address on two chains is two different things</strong> — assets sent to the wrong chain do not show up where you expect.</figcaption>
+    </figure>
+
+    <p class="code-cap">Reading balance, decimals and allowance — a token's identity is chainId + contract address, never its symbol</p>
+<pre><code>import { erc20Abi, formatUnits, parseUnits } from "viem";
+
+<span class="c">// a token's identity = chainId + contract address; symbols repeat and are not identity</span>
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";   <span class="c">// Ethereum mainnet</span>
+
+const [decimals, raw, allowance] = await Promise.all([
+  client.readContract({ address: USDC, abi: erc20Abi, functionName: "decimals" }),
+  client.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [me] }),
+  client.readContract({ address: USDC, abi: erc20Abi, functionName: "allowance", args: [me, spender] }),
+]);
+
+formatUnits(raw, decimals);       <span class="c">// 1250000n, 6  →  "1.25" (for display)</span>
+parseUnits("1.25", decimals);     <span class="c">// "1.25", 6   →  1250000n (always compute in bigint, never floats)</span></code></pre>
+
 <h2 id="en-section-2">Connection, signature, approval, and transaction</h2>
 <div class="scroll"><table><thead><tr><th scope="col">Action</th><th scope="col">What changes</th><th scope="col">What to inspect</th></tr></thead><tbody><tr><td>Connect wallet</td><td>Exposes an address/connection; does not itself move funds</td><td>Website, chain, requested permissions</td></tr><tr><td>Sign message / typed data</td><td>Often no immediate state change; may authorize later permits/orders</td><td>Domain, chain, spender, amount, expiry, nonce</td></tr><tr><td>approve(spender, amount)</td><td>Creates transferFrom allowance; does not deposit into a protocol</td><td>Actual pulling contract and allowance</td></tr><tr><td>Send transaction</td><td>Executes calldata/value and consumes gas; can succeed or revert</td><td>Target, method, parameters, value, fee, simulation</td></tr></tbody></table></div>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 830 270" role="img" aria-label="The four capabilities ordered by impact on on-chain state: connecting only shares an address, signing happens off-chain but can be submitted as an authorisation, approving sets an on-chain allowance, and a transaction changes state directly and costs gas.">
+          <defs><marker id="wfen2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <rect class="svg-node" x="20" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="112" y="74" text-anchor="middle">① Connect</text>
+          <text class="svg-ncode" x="112" y="100" text-anchor="middle">shares an address</text>
+          <text class="svg-ncode" x="112" y="122" text-anchor="middle">moves nothing</text>
+          <rect class="svg-node-a" x="222" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="314" y="74" text-anchor="middle">② Sign</text>
+          <text class="svg-ncode" x="314" y="100" text-anchor="middle">off-chain signature</text>
+          <text class="svg-ncode" x="314" y="122" text-anchor="middle">can become an authorisation</text>
+          <rect class="svg-node-a" x="424" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="516" y="74" text-anchor="middle">③ Approve</text>
+          <text class="svg-ncode" x="516" y="100" text-anchor="middle">on-chain allowance</text>
+          <text class="svg-ncode" x="516" y="122" text-anchor="middle">spender may pull later</text>
+          <rect class="svg-node" x="626" y="40" width="184" height="104" rx="10"></rect>
+          <text class="svg-nlabel" x="718" y="74" text-anchor="middle">④ Transaction</text>
+          <text class="svg-ncode" x="718" y="100" text-anchor="middle">changes state</text>
+          <text class="svg-ncode" x="718" y="122" text-anchor="middle">costs gas, may revert</text>
+          <line class="svg-flow-a" x1="20" y1="176" x2="806" y2="176" marker-end="url(#wfen2)"></line>
+          <text class="svg-mono" x="806" y="198" text-anchor="end">impact on your assets →</text>
+          <text class="svg-step" x="415" y="244" text-anchor="middle">⚠ ② is the most misjudged: permits and order signatures cost no gas yet let others move your assets</text>
+        </svg>
+      </div>
+      <figcaption>All four often appear on the same screen, with very different authority. The working rule: <strong>before signing anything, read the spender, amount, expiry and chain</strong>. And <strong>an approval does not vanish when you disconnect the site</strong> — it stays on-chain until you revoke it.</figcaption>
+    </figure>
+
 <h2 id="en-section-3">One operation’s logic flow</h2>
 <p>Intent → validate chain/address/amount → RPC state read → simulation → wallet review/signature → submission → mempool/ordering → included receipt → required finality → UI/indexer reconciliation. RPCs provide access, not asset custody; responses can lag, fail, or disagree.</p>
 <p>A same-chain transaction typically rolls state back when an uncaught failure propagates, while gas remains spent. Contracts may catch failures and batches may allow partial execution: read the actual entrypoint semantics. Cross-chain actions use multiple transactions; source success does not guarantee destination success.</p>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 840 310" role="img" aria-label="One operation from intent to completion: off-chain it moves through intent, validation, reading state, simulation and wallet signature; after submission it goes on-chain through the mempool, inclusion with a receipt, required finality, and finally a UI and indexer update.">
+          <defs><marker id="wfen3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-ah" d="M0,0 L10,5 L0,10 z"></path></marker><marker id="wfen3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="svg-aha" d="M0,0 L10,5 L0,10 z"></path></marker></defs>
+          <text class="svg-mono-a" x="20" y="30">Off-chain: your app and wallet</text>
+          <text class="svg-mono-a" x="20" y="166">On-chain</text>
+          <rect class="svg-node" x="20" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="68" text-anchor="middle">Intent</text>
+          <text class="svg-ncode" x="95" y="88" text-anchor="middle">what the user wants</text>
+          <line class="svg-flow" x1="170" y1="73" x2="182" y2="73" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node" x="184" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="259" y="68" text-anchor="middle">Validate</text>
+          <text class="svg-ncode" x="259" y="88" text-anchor="middle">chain / address / amount</text>
+          <line class="svg-flow" x1="334" y1="73" x2="346" y2="73" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node" x="348" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="423" y="68" text-anchor="middle">Read state</text>
+          <text class="svg-ncode" x="423" y="88" text-anchor="middle">via RPC</text>
+          <line class="svg-flow" x1="498" y1="73" x2="510" y2="73" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node" x="512" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="587" y="68" text-anchor="middle">Simulate</text>
+          <text class="svg-ncode" x="587" y="88" text-anchor="middle">a dry run</text>
+          <line class="svg-flow" x1="662" y1="73" x2="674" y2="73" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node" x="676" y="42" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="751" y="68" text-anchor="middle">Wallet sign</text>
+          <text class="svg-ncode" x="751" y="88" text-anchor="middle">user confirms</text>
+          <rect class="svg-node" x="676" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="751" y="204" text-anchor="middle">Submit</text>
+          <text class="svg-ncode" x="751" y="224" text-anchor="middle">get a tx hash</text>
+          <line class="svg-flow" x1="676" y1="209" x2="664" y2="209" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node" x="512" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="587" y="204" text-anchor="middle">Mempool</text>
+          <text class="svg-ncode" x="587" y="224" text-anchor="middle">awaiting ordering</text>
+          <line class="svg-flow" x1="512" y1="209" x2="500" y2="209" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node-a" x="348" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="423" y="204" text-anchor="middle">Included</text>
+          <text class="svg-ncode" x="423" y="224" text-anchor="middle">receipt produced</text>
+          <line class="svg-flow" x1="348" y1="209" x2="336" y2="209" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node-a" x="184" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="259" y="204" text-anchor="middle">Finality</text>
+          <text class="svg-ncode" x="259" y="224" text-anchor="middle">reach required level</text>
+          <line class="svg-flow" x1="184" y1="209" x2="172" y2="209" marker-end="url(#wfen3)"></line>
+          <rect class="svg-node" x="20" y="178" width="150" height="62" rx="10"></rect>
+          <text class="svg-nlabel" x="95" y="204" text-anchor="middle">UI update</text>
+          <text class="svg-ncode" x="95" y="224" text-anchor="middle">indexer syncs</text>
+          <line class="svg-flow-a" x1="751" y1="104" x2="751" y2="176" marker-end="url(#wfen3a)"></line>
+          <text class="svg-mono" x="587" y="124" text-anchor="middle">simulation fails: nothing on-chain, no cost</text>
+          <text class="svg-mono" x="423" y="260" text-anchor="middle">revert: state rolls back, gas is spent</text>
+          <text class="svg-step" x="420" y="296" text-anchor="middle">a tx hash only means sent; completion needs the receipt status and required finality</text>
+        </svg>
+      </div>
+      <figcaption>Any failure on the top row <strong>costs nothing</strong>, because nothing is on-chain yet; cost begins on the bottom row. A single same-chain transaction is atomic (an inner failure reverts the whole thing), but <strong>gas is still charged</strong>. Cross-chain is several independent transactions, and source success does not guarantee destination success.</figcaption>
+    </figure>
+
 <h2 id="en-section-4">Five common misconceptions</h2>
 <p>Receipt success describes that transaction, not every downstream job; a UserOp bundle requires per-operation results. Simulation previews current state rather than guaranteeing future execution. Confirmations, safe, and finalized differ; an L2 wallet checkmark may only be sequencer confirmation.</p>
 <p>Disconnecting a website does not revoke allowances. Clearing delegation does not revoke token approvals. Native and bridged tokens with the same name can have different backing and exits. APY, TVL, and auditor names do not prove withdrawal liquidity or safety.</p>
@@ -84,6 +350,6 @@
   </footer>
 
 </div>
-<script src="../assets/app.js?v=20261008-content"></script>
+<script src="../assets/app.js?v=20261019-enrich"></script>
 </body>
 </html>
