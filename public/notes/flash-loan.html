@@ -48,7 +48,7 @@
     <h1>閃電貸</h1>
     <p class="meta">2026-09-19 · DEFI · 原子性 · AAVE · 開發者指南</p><p class="reading-context">先備知識：<a href="./web3-foundations.html">帳戶、資產與交易</a> · 實作流程：<a href="./defi-integration.html">整合與復原</a></p><details class="note-toc"><summary>本篇導覽</summary><nav aria-label="文章章節"><ol><li><a href="#zh-section-1">市場背景</a></li><li><a href="#zh-section-2">為什麼可以不用抵押</a></li><li><a href="#zh-section-3">實作：Aave V3</a></li><li><a href="#zh-section-4">正當用途：抵押品置換</a></li><li><a href="#zh-section-5">它如何改變威脅模型</a></li><li><a href="#zh-section-6">開發者安全清單</a></li><li><a href="#zh-section-7">使用者風險</a></li><li><a href="#zh-section-8">先算損益，再寫 callback</a></li><li><a href="#zh-section-9">測試：正常 caller 也可能濫用入口</a></li><li><a href="#zh-section-10">官方來源</a></li></ol></nav></details>
 
-    <p>無需抵押、金額不限、費用極低——條件只有一個：<strong>在同一筆交易結束前還清</strong>。這則講它為什麼能成立、怎麼寫、以及為什麼它同時是最有用的工具與最危險的攻擊載體。</p>
+    <p>無需抵押、金額以池中可借的流動性為上限、費用由治理設定——條件只有一個：<strong>在同一筆交易結束前還清</strong>。這則講它為什麼能成立、怎麼寫、以及為什麼它同時是最有用的工具與最危險的攻擊載體。</p>
 
     <div class="tldr">
       <span class="tldr-label">三句話版本</span>

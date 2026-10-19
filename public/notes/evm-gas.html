@@ -57,7 +57,7 @@
         <li><strong>London 之後</strong>費用拆成兩塊：<strong>base fee</strong> 由協議依區塊擁擠度自動定價並<strong>銷毀</strong>，<strong>priority fee</strong> 是你給驗證者的小費。你只需設一個能接受的上限。</li>
         <li>重點澄清：EIP-1559 <strong>沒有讓 gas 變便宜</strong>，它讓價格<strong>可預測</strong>。真正讓費用下降的是 L2 與 EIP-4844 的 blob。</li>
       </ul>
-      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「兩個時代的對照」與「一筆交易的費用怎麼算」；工程師 → 參數設定與 gas 優化；PM → 市場背景與「為什麼費用仍會暴漲」。</p>
+      <p class="who"><strong>誰讀哪裡：</strong>初學者 → 「兩個時代的對照」與「一筆交易的費用怎麼算」；工程師 → 參數設定與 gas 優化；PM → 市場背景、「base fee 怎麼自動調整」（費用為何仍會暴漲）與「算一次費用與失敗成本」。</p>
     </div>
 
     <h2 id="zh-section-1">市場背景</h2>
@@ -275,7 +275,7 @@ await walletClient.sendTransaction({
         <li><strong>After London</strong> the fee splits in two: a <strong>base fee</strong> priced by the protocol from congestion and then <strong>burned</strong>, plus a <strong>priority fee</strong> tip to the validator. You only set a ceiling you can live with.</li>
         <li>An important correction: EIP-1559 <strong>did not make gas cheaper</strong>, it made the price <strong>predictable</strong>. What actually lowered fees was L2s and EIP-4844 blobs.</li>
       </ul>
-      <p class="who"><strong>Where to start:</strong> beginners → "The two eras" and "How a fee is computed"; engineers → parameters and gas optimisation; PMs → market background and "why fees still spike".</p>
+      <p class="who"><strong>Where to start:</strong> beginners → "The two eras" and "How a fee is computed"; engineers → parameters and gas optimisation; PMs → market background, "How the base fee adjusts" (why fees still spike) and "A fee example, including failure".</p>
     </div>
 
     <h2 id="en-section-1">Market background</h2>
