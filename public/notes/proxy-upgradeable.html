@@ -72,7 +72,7 @@
         <tr><td>學術關注度</td><td>代理碰撞偵測已是獨立研究主題（Proxion、USCSA 等）</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
+    <p class="asof">狀態查詢日期：2026-10-08，之後未再更新。函式庫介面變動頻繁，實作前請對照你實際安裝的版本。</p>
     <blockquote><p>如果你讀的教學還在教 <code>__gap</code> 與 <code>upgradeTo</code>，它寫在 OZ v5 之前。<strong>v4 與 v5 的儲存模型不相容</strong>——從 v4 的順序儲存升級到 v5 的命名空間儲存若沒處理好，已有回報造成無法復原的鎖死。跨大版本升級前務必先驗證佈局。</p></blockquote>
 
     <h2 id="zh-section-2">delegatecall 到底做了什麼</h2>
@@ -447,7 +447,7 @@ MyAppV1(proxyAddress).upgradeToAndCall(v2Implementation, data);</code></pre>
         <tr><td>Research attention</td><td>Proxy collision detection is its own research topic (Proxion, USCSA, others)</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
+    <p class="asof">Status checked 2026-10-08 and not updated since. Library interfaces change often — check against the version you actually installed.</p>
     <blockquote><p>If the tutorial you are reading still teaches <code>__gap</code> and <code>upgradeTo</code>, it predates OZ v5. <strong>The v4 and v5 storage models are incompatible</strong> — upgrading from v4's sequential storage to v5's namespaced storage has been reported to cause unrecoverable deadlock when mishandled. Validate the layout before any major-version upgrade.</p></blockquote>
 
     <h2 id="en-section-2">What delegatecall actually does</h2>

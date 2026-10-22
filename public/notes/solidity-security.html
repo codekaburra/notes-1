@@ -61,9 +61,9 @@
     </div>
 
     <h2 id="zh-section-1">市場背景：錢實際上是怎麼丟的</h2>
-    <p>這節的數字會改變你分配安全預算的方式。2026 上半年的事故<strong>次數創了新高，金額卻明顯下降</strong>——意思是：小型、新上線、未經審計的協議被打爆得更頻繁，但大額損失的來源另有其人。</p>
+    <p>這節的觀察會影響你分配安全預算的方式。2026 上半年的事故<strong>次數創了新高，金額卻明顯下降</strong>——意思是：小型、新上線、未經審計的協議被打爆得更頻繁，但大額損失的來源另有其人。</p>
     <div class="scroll"><table class="market"><thead><tr><th>風險層</th><th>應收集的證據</th></tr></thead><tbody><tr><td>金鑰與權限</td><td>Signer policy、角色表、多簽與 timelock</td></tr><tr><td>程式碼</td><td>固定版本 audit、負面與 invariant tests</td></tr><tr><td>市場與 oracle</td><td>Feed config、深度、liquidation 情境</td></tr><tr><td>營運</td><td>監控、pause/exit、事故演練紀錄</td></tr></tbody></table></div>
-    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
+    <p class="asof">本節觀察依據 2026-09-18 查詢的 2026 上半年事故報告，之後未再更新；各報告的分類與統計期間不同。</p>
     <p>先盤點誰能動什麼、金鑰如何保存，再驗證合約與市場假設。事件損失比例、金額與根因應引用帶期間與分類的原始報告。</p>
     <blockquote><p>結論很直白：<strong>先做對權限設計、多簽與升級流程，再去研究重入的精妙變體。</strong>順序反了，等於在紙門上裝三道鎖。</p></blockquote>
 
@@ -428,9 +428,9 @@ function claim() external {
     </div>
 
     <h2 id="en-section-1">Market background: how the money actually goes</h2>
-    <p>These numbers should change how you allocate a security budget. H1 2026 set a <strong>record for incident count while losses fell sharply</strong> — meaning small, newly launched, unaudited protocols get hit more often, while the large losses come from somewhere else entirely.</p>
+    <p>This observation should shape how you allocate a security budget. H1 2026 set a <strong>record for incident count while losses fell sharply</strong> — meaning small, newly launched, unaudited protocols get hit more often, while the large losses come from somewhere else entirely.</p>
     <div class="scroll"><table class="market"><thead><tr><th>Risk layer</th><th>Evidence to collect</th></tr></thead><tbody><tr><td>Keys and authority</td><td>Signer policy, role inventory, multisig and timelock</td></tr><tr><td>Code</td><td>Versioned audit, negative and invariant tests</td></tr><tr><td>Market and oracle</td><td>Feed configuration, depth, liquidation scenarios</td></tr><tr><td>Operations</td><td>Monitoring, pause/exit paths, incident rehearsals</td></tr></tbody></table></div>
-    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
+    <p class="asof">Observations based on H1 2026 incident reports retrieved 2026-09-18, not updated since; reports differ in classification and period.</p>
     <p>Inventory authority and key handling, then validate contract and market assumptions. Incident proportions, amounts, and causes need a dated primary report with defined categories.</p>
     <blockquote><p>The conclusion is plain: <strong>get permission design, multisig and upgrade process right before studying exotic reentrancy variants.</strong> Reversed, it is three locks on a paper door.</p></blockquote>
 

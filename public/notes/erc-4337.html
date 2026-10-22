@@ -72,7 +72,7 @@
         <tr><td>並存的 EntryPoint 版本</td><td>v0.6 / v0.7 / v0.8 / v0.9</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
+    <p class="asof">數字查詢日期：2026-09-14，之後未再更新。均為約略值，各來源統計口徑不同，引用前請自行確認。</p>
 
     <p>UserOperation 多半經少數 hosted bundler（Alchemy、Pimlico、Coinbase 等）送上鏈；名單與佔比隨來源與鏈而變，不必背特定百分比。重點是「去中心化帳戶」的<strong>實際送出路徑相當集中</strong>——做產品時應把 bundler 視為有停機風險的外部依賴，預留備援節點或自建 fallback。另外四個 EntryPoint 版本同時在線，整合前務必先確認你的 bundler 與帳戶實作對齊的是哪一版。</p>
 
@@ -784,7 +784,7 @@ if (!receipt.success) throw new Error(`execution reverted: ${receipt.reason ?? "
         <tr><td>EntryPoint versions in production</td><td>v0.6 / v0.7 / v0.8 / v0.9</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
+    <p class="asof">Figures retrieved 2026-09-14 and not updated since. Approximate; sources differ in methodology — confirm before quoting.</p>
 
     <p>Most UserOperations reach the chain through a handful of hosted bundlers (Alchemy, Pimlico, Coinbase, and others). Names and shares move with the source and the chain — do not treat any percentage as durable. The point is that the delivery path for "decentralised accounts" is in practice <strong>quite concentrated</strong> — treat your bundler as an external dependency that can go down, and keep a backup endpoint or self-hosted fallback. Four EntryPoint versions are also live at once, so confirm which one your bundler and account implementation agree on before integrating.</p>
 

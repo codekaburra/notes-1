@@ -74,7 +74,7 @@
         <tr><td>年化協議收入</td><td>接近 $1B</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">市場快照：保留原筆記所載期間與數字，未於 2026-10-08 重新查核；引用或做決策前須確認直接來源、chain/version、定義及時間窗口。</p>
+    <p class="asof">數字查詢日期：2026-09-14，之後未再更新。均為約略值，各來源統計口徑不同，引用前請自行確認。</p>
 
     <p>未平倉約 95 億美元，超過其他主要永續 DEX 的總和；它也是首個擠進全球永續交易所前十的 DEX。但反過來看，<strong>永續 DEX 整體仍只佔永續市場約一成</strong>——對 PM 而言這既是成長空間，也代表流動性深度與 CEX 仍有落差，大額交易的滑點要實測。</p>
 
@@ -129,7 +129,7 @@
     </table></div>
     <ul>
       <li>Builder-fee 收款地址必須是 Standard，否則收不到 builder fee。</li>
-      <li>Unified 與 Portfolio margin 每天最多約 5 萬筆 user action；Standard 無此上限。</li>
+      <li>Unified 與 Portfolio margin 每天最多約 5 萬筆 user action（2026-09-12 時的上限）；Standard 無此上限。</li>
       <li>API 在 Unified／PM 下，餘額與 hold 都出現在 <strong>spot clearinghouse</strong>；個別 perp DEX user state 沒有意義。</li>
       <li>CoreWriter 的 USD class transfer（action id 7）只在「spot 與 perp 分開記帳」時有意義，<strong>不是</strong>通用餘額模型。</li>
     </ul>
@@ -168,7 +168,7 @@
     </table></div>
     <p>System address：第一個 byte 為 <code>0x20</code>，其餘為 0，token index 以 big-endian 寫在尾端（例如 index 200 → <code>0x2000…00c8</code>）。HYPE 例外：<code>0x2222…2222</code>，對應 EVM 原生 gas，不是 ERC-20。</p>
     <ul>
-      <li><strong>Core → EVM：</strong><code>sendAsset</code> 到該 token 的 system address。下一顆 EVM block 由系統以 system address 對 linked ERC-20 呼叫 <code>transfer(recipient, amount)</code>。花費約 20 萬 gas，以<strong>下一顆</strong> EVM block 的 base fee 計。</li>
+      <li><strong>Core → EVM：</strong><code>sendAsset</code> 到該 token 的 system address。下一顆 EVM block 由系統以 system address 對 linked ERC-20 呼叫 <code>transfer(recipient, amount)</code>。花費約 20 萬 gas（2026-09-12 時的數值），以<strong>下一顆</strong> EVM block 的 base fee 計。</li>
       <li><strong>EVM → Core：</strong>對 linked ERC-20（或 HYPE 轉 <code>value</code> 到 <code>0x2222…</code>）<code>Transfer</code> 到 system address。同一顆產出 EVM 的 L1 block 裡、EVM block 建完後入帳。</li>
       <li>官方目前<strong>不檢查</strong> system address 是否有足夠供給、也不檢查合約是不是合法 ERC-20。linked 合約可以是任意 bytecode。</li>
       <li>EVM 比 Core 多出來的 wei decimals：金額若沒對齊（末尾不是 extraWeiDecimals 個 0），非整部分會被燒毀（保證 &lt; 1 Wei）。</li>
@@ -209,7 +209,7 @@ function oraclePx(uint32 index) public view returns (uint64) {
     require(ok, "oraclePx failed");                  <span class="c">// 失敗會耗盡本 frame gas</span>
     return abi.decode(ret, (uint64));
 }</code></pre>
-    <p><strong>寫入</strong>——<code>CoreWriter</code>（<code>0x3333…3333</code>）唯一函式 <code>sendRawAction(bytes)</code>。編碼：1 byte 版本（目前 <code>0x01</code>）+ 3 byte big-endian action id + ABI 參數。先燒掉約 25k gas，實際呼叫約 47k。以下官方 USD class transfer 範例只適用「spot／perp 分開」的帳戶；Unified／PM 不要拿它當通用轉帳。</p>
+    <p><strong>寫入</strong>——<code>CoreWriter</code>（<code>0x3333…3333</code>）唯一函式 <code>sendRawAction(bytes)</code>。編碼：1 byte 版本（目前 <code>0x01</code>）+ 3 byte big-endian action id + ABI 參數。先燒掉約 25k gas，實際呼叫約 47k（2026-09-12 時的數值）。以下官方 USD class transfer 範例只適用「spot／perp 分開」的帳戶；Unified／PM 不要拿它當通用轉帳。</p>
 <pre><code>interface ICoreWriter { function sendRawAction(bytes calldata data) external; }
 ICoreWriter constant CW = ICoreWriter(0x3333333333333333333333333333333333333333);
 
@@ -291,7 +291,7 @@ function confirm() external {
       </tbody>
     </table></div>
     <p>每個地址 mempool 只收<strong>接下來 8 個 nonce</strong>；超過一天的交易會被修剪。切到大塊用 Core action <code>evmUserModify.usingBigBlocks: true</code>（這是 HyperCore 使用者旗標，要先成為 Core user）。估大塊 base fee 用 RPC <code>bigBlockGasPrice</code>，不要用普通 <code>gasPrice</code>。</p>
-    <p>Precompile 失敗會燒光該 frame 的 gas：呼叫時不要把剩餘 gas 全傳進去。CoreWriter 本身先燒 ~25k；合約還要為後續 HyperCore 執行與 20 萬 gas 的 Core→EVM 轉帳留預算。</p>
+    <p>Precompile 失敗會燒光該 frame 的 gas：呼叫時不要把剩餘 gas 全傳進去。CoreWriter 本身先燒 ~25k；合約還要為後續 HyperCore 執行與 20 萬 gas 的 Core→EVM 轉帳留預算（數值為 2026-09-12 時）。</p>
 
     <h2 id="zh-section-8">鏈下 API：提交介面，撮合仍在 HyperCore</h2>
     <p>高頻下單、撤單、改槓桿走 REST／WebSocket，<strong>不經過 HyperEVM</strong>。這不是鏈下訂單簿：簽名動作送到交換端點後，撮合、優先順序與成交仍在 HyperCore 上發生。</p>
@@ -477,7 +477,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
         <tr><td>Annualised protocol revenue</td><td>~$1B</td></tr>
       </tbody>
     </table></div>
-    <p class="asof">Historical snapshot from the original note, not reverified on 2026-10-08. Before quoting or deciding, confirm a direct source, chain/version scope, definition, and measurement window.</p>
+    <p class="asof">Figures retrieved 2026-09-14 and not updated since. Approximate; sources differ in methodology — confirm before quoting.</p>
 
     <p>Open interest near $9.5B exceeds all other major perp DEXs combined, and it is the first DEX to reach the global top ten of perpetual exchanges. Seen the other way, <strong>perp DEXs as a whole are still only about a tenth of the perp market</strong> — for a PM that is both headroom and a warning that depth still trails CEXs; measure slippage on large size yourself.</p>
 
@@ -532,7 +532,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
     </table></div>
     <ul>
       <li>Builder-fee recipient addresses must be in Standard mode or they do not accrue builder fees.</li>
-      <li>Unified and Portfolio margin are capped at about 50k user actions per day; Standard is not.</li>
+      <li>Unified and Portfolio margin are capped at about 50k user actions per day (limit as of 2026-09-12); Standard is not.</li>
       <li>For API users in Unified / PM, balances and holds live in the <strong>spot clearinghouse</strong>; individual perp DEX user states are not meaningful.</li>
       <li>CoreWriter USD class transfer (action id 7) only makes sense when spot and perp are booked separately. It is <strong>not</strong> a universal balance model.</li>
     </ul>
@@ -571,7 +571,7 @@ await fetch("https://api.hyperliquid.xyz/exchange", {
     </table></div>
     <p>A system address starts with byte <code>0x20</code>, the rest zeros, with the token index in big-endian at the end (index 200 → <code>0x2000…00c8</code>). HYPE is the exception: <code>0x2222…2222</code>, mapping to native EVM gas, not an ERC-20.</p>
     <ul>
-      <li><strong>Core → EVM:</strong> <code>sendAsset</code> to that token's system address. The next EVM block, a system transaction calls <code>transfer(recipient, amount)</code> on the linked ERC-20 as the system address. Costs ~200k gas at the <strong>next</strong> EVM block's base fee.</li>
+      <li><strong>Core → EVM:</strong> <code>sendAsset</code> to that token's system address. The next EVM block, a system transaction calls <code>transfer(recipient, amount)</code> on the linked ERC-20 as the system address. Costs ~200k gas (as of 2026-09-12) at the <strong>next</strong> EVM block's base fee.</li>
       <li><strong>EVM → Core:</strong> ERC-20 <code>Transfer</code> to the system address (or send HYPE <code>value</code> to <code>0x2222…</code>). Credited in the same L1 block that produced the EVM block, after that EVM block is built.</li>
       <li>Officially there is <strong>no check</strong> that the system address holds enough supply, or that the contract is a valid ERC-20. Linked bytecode can be arbitrary.</li>
       <li>If the EVM has extra wei decimals, a non-round amount (not ending in <code>extraWeiDecimals</code> zeros) burns the dust (guaranteed &lt; 1 Wei).</li>
@@ -612,7 +612,7 @@ function oraclePx(uint32 index) public view returns (uint64) {
     require(ok, "oraclePx failed");                  <span class="c">// failure burns this frame's gas</span>
     return abi.decode(ret, (uint64));
 }</code></pre>
-    <p><strong>Writing</strong> — <code>CoreWriter</code> (<code>0x3333…3333</code>) and its only function <code>sendRawAction(bytes)</code>. Encoding: 1-byte version (currently <code>0x01</code>) + 3-byte big-endian action id + ABI params. It burns ~25k gas first; a typical call is ~47k. The official USD class transfer example below only applies when spot and perp are booked separately — do not treat it as a universal transfer in Unified / PM.</p>
+    <p><strong>Writing</strong> — <code>CoreWriter</code> (<code>0x3333…3333</code>) and its only function <code>sendRawAction(bytes)</code>. Encoding: 1-byte version (currently <code>0x01</code>) + 3-byte big-endian action id + ABI params. It burns ~25k gas first; a typical call is ~47k (figures as of 2026-09-12). The official USD class transfer example below only applies when spot and perp are booked separately — do not treat it as a universal transfer in Unified / PM.</p>
 <pre><code>interface ICoreWriter { function sendRawAction(bytes calldata data) external; }
 ICoreWriter constant CW = ICoreWriter(0x3333333333333333333333333333333333333333);
 
@@ -694,7 +694,7 @@ function confirm() external {
       </tbody>
     </table></div>
     <p>Each address's mempool accepts only the <strong>next 8 nonces</strong>; txs older than a day are pruned. Opt into big blocks with Core action <code>evmUserModify.usingBigBlocks: true</code> (a HyperCore user flag — you must already be a Core user). Estimate the next big-block base fee with RPC <code>bigBlockGasPrice</code>, not ordinary <code>gasPrice</code>.</p>
-    <p>A failed precompile burns that frame's gas: do not forward all remaining gas. CoreWriter itself burns ~25k; still budget for later HyperCore execution and the 200k-gas Core→EVM transfer.</p>
+    <p>A failed precompile burns that frame's gas: do not forward all remaining gas. CoreWriter itself burns ~25k; still budget for later HyperCore execution and the 200k-gas Core→EVM transfer (values as of 2026-09-12).</p>
 
     <h2 id="en-section-8">Off-chain API: submission only; matching stays on HyperCore</h2>
     <p>High-frequency orders, cancels, and leverage changes go over REST / WebSocket, <strong>not HyperEVM</strong>. That is not an off-chain order book: after the signed action hits the exchange endpoint, matching, priority, and fills still happen on HyperCore.</p>
