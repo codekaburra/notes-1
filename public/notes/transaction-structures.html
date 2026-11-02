@@ -40,7 +40,7 @@
 
   <main>
 <a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
-<div data-l="zh"><h1>跨鏈交易結構（一）：Ethereum</h1><p class="meta">2026-11-02 · ETHEREUM · TRANSACTIONS · DEVELOPMENT</p><details class="note-toc"><summary>本篇導覽</summary><nav><ol><li><a href="#zh-section-1">範圍與核心概念</a></li><li><a href="#zh-section-2">先看三層：內容、簽章、結果</a></li><li><a href="#zh-section-3">Type 2 欄位逐一拆解</a></li><li><a href="#zh-section-4">具體例子：ETH 轉帳與 ERC-20 transfer</a></li><li><a href="#zh-section-5">從欄位到 wire format</a></li><li><a href="#zh-section-6">Receipt、logs 與執行失敗</a></li><li><a href="#zh-section-7">新手開發驗收與 PM 風險</a></li><li><a href="#zh-section-8">官方來源與後續篇章</a></li></ol></nav></details><h2 id="zh-section-1">範圍與核心概念</h2><p>本系列比較 Ethereum、Cosmos 與 Solana 的交易結構。本篇先完成 <strong>Ethereum 的一般 EOA 交易，以 EIP-1559 type 2 為主</strong>；<a href="./solana-transactions-token2022.html">Solana 與 Token-2022 見第二篇</a>；<a href="./cosmos-transactions-ibc.html">Cosmos 與 IBC 見第三篇</a>。先讀 <a href="./ecdsa-vs-ed25519.html#zh-eth-rsv">簽章與 r、s、v</a>。</p><p>交易是帳戶簽署的一份執行請求。發送 ETH、approve、swap 都可以是交易；合約執行時再發出的 CALL 則不是另一筆由 EOA 簽署的頂層交易。區塊瀏覽器的 internal transactions 通常是執行 trace，不是多一份簽章交易。</p><h2 id="zh-section-2">先看三層：內容、簽章、結果</h2><pre><code>交易內容：chainId / nonce / to / value / data / gas / fees
+<div data-l="zh"><h1>跨鏈交易結構（一）：Ethereum</h1><p class="meta">2026-11-02 · ETHEREUM · TRANSACTIONS · DEVELOPMENT</p><details class="note-toc"><summary>本篇導覽</summary><nav><ol><li><a href="#zh-section-1">範圍與核心概念</a></li><li><a href="#zh-section-2">先看三層：內容、簽章、結果</a></li><li><a href="#zh-section-3">Type 2 欄位逐一拆解</a></li><li><a href="#zh-section-4">具體例子：ETH 轉帳與 ERC-20 transfer</a></li><li><a href="#zh-ethereum-json">Ethereum 交易 JSON 範例</a></li><li><a href="#zh-section-5">從欄位到 wire format</a></li><li><a href="#zh-section-6">Receipt、logs 與執行失敗</a></li><li><a href="#zh-section-7">新手開發驗收與 PM 風險</a></li><li><a href="#zh-section-8">官方來源與後續篇章</a></li></ol></nav></details><h2 id="zh-section-1">範圍與核心概念</h2><p>本系列比較 Ethereum、Cosmos 與 Solana 的交易結構。本篇先完成 <strong>Ethereum 的一般 EOA 交易，以 EIP-1559 type 2 為主</strong>；<a href="./solana-transactions-token2022.html">Solana 與 Token-2022 見第二篇</a>；<a href="./cosmos-transactions-ibc.html">Cosmos 與 IBC 見第三篇</a>。先讀 <a href="./ecdsa-vs-ed25519.html#zh-eth-rsv">簽章與 r、s、v</a>。</p><p>交易是帳戶簽署的一份執行請求。發送 ETH、approve、swap 都可以是交易；合約執行時再發出的 CALL 則不是另一筆由 EOA 簽署的頂層交易。區塊瀏覽器的 internal transactions 通常是執行 trace，不是多一份簽章交易。</p><h2 id="zh-section-2">先看三層：內容、簽章、結果</h2><pre><code>交易內容：chainId / nonce / to / value / data / gas / fees
    ↓ 依 type 編碼並 hash，錢包簽署
 已簽署交易：內容 + yParity / r / s
    ↓ 廣播、節點檢查、區塊收錄、EVM 執行
@@ -69,7 +69,43 @@
   value: 10_000_000_000_000_000n,     // 0.01 ETH
   data: "0x",
   accessList: []
-}</code></pre><p>這是對無程式碼接收者的簡單轉帳示意；若接收者執行程式碼，不能假設 21,000 gas 足夠。不要用這個示意地址做真實轉帳。</p><p><strong>ERC-20 transfer：</strong>to 改成 token 合約地址，value 通常為 0，data 為 transfer(address,uint256) 的 selector 加 ABI 編碼 recipient 與 amount。使用 ABI encoder，不手動拼字串；token amount 以該 token decimals 換成最小單位。ERC-20 approve 同樣是呼叫 token 合約，spender 在 calldata 中。</p><h2 id="zh-section-5">從欄位到 wire format</h2><pre><code>unsigned = 0x02 || RLP([
+}</code></pre><p>這是對無程式碼接收者的簡單轉帳示意；若接收者執行程式碼，不能假設 21,000 gas 足夠。不要用這個示意地址做真實轉帳。</p><p><strong>ERC-20 transfer：</strong>to 改成 token 合約地址，value 通常為 0，data 為 transfer(address,uint256) 的 selector 加 ABI 編碼 recipient 與 amount。使用 ABI encoder，不手動拼字串；token amount 以該 token decimals 換成最小單位。ERC-20 approve 同樣是呼叫 token 合約，spender 在 calldata 中。</p><h3 id="zh-ethereum-json">Type 2 交易的 JSON 長怎樣？</h3>
+<p>以下是<strong>教學用的 JSON-RPC 風格物件</strong>，假地址與簽章值不能廣播。簽名前，錢包／SDK 可能先建立這種交易請求；十六進位 quantity 以 <code>0x</code> 表示整數，<code>data</code> 是 bytes：</p>
+<pre><code>{
+  "from": "0x2222222222222222222222222222222222222222",
+  "to": "0x1111111111111111111111111111111111111111",
+  "value": "0x2386f26fc10000",
+  "data": "0x",
+  "nonce": "0x7",
+  "gas": "0x5208",
+  "maxPriorityFeePerGas": "0x77359400",
+  "maxFeePerGas": "0x6fc23ac00",
+  "chainId": "0x1",
+  "type": "0x2",
+  "accessList": []
+}</code></pre>
+<p>這裡 <code>value</code> 是 0.01 ETH（wei）、<code>gas</code> 是 21,000、priority fee cap 為 2 gwei、total fee cap 為 30 gwei。<code>from</code> 是錢包要使用哪個帳戶的請求提示；交易的有效 sender 仍由簽章恢復。真實 sender 必須和該私鑰對應。此 21,000 gas 只適用於不執行接收者程式碼的簡單轉帳示意。</p>
+<p>簽署並被 RPC 查詢時，交易物件可能長這樣（省略部分節點欄位）：</p>
+<pre><code>{
+  "hash": "0xEXAMPLE_TRANSACTION_HASH",
+  "from": "0x2222222222222222222222222222222222222222",
+  "to": "0x1111111111111111111111111111111111111111",
+  "value": "0x2386f26fc10000",
+  "input": "0x",
+  "nonce": "0x7",
+  "gas": "0x5208",
+  "maxPriorityFeePerGas": "0x77359400",
+  "maxFeePerGas": "0x6fc23ac00",
+  "chainId": "0x1",
+  "type": "0x2",
+  "accessList": [],
+  "r": "0xEXAMPLE_R",
+  "s": "0xEXAMPLE_S",
+  "v": "0x0"
+}</code></pre>
+<p>此處 <code>hash</code>、<code>r</code>、<code>s</code> 是明顯的占位文字，不是合法 hex。type 2 的 recovery 欄位依規格叫 <code>signature_y_parity</code>（0／1）；RPC 可能標為 <code>v</code>。<code>input</code> 對應請求中的 <code>data</code>。實際廣播的是 <code>0x02 || RLP(...)</code> 的 signed raw bytes，並非把上方 JSON 做 <code>JSON.stringify</code>。<code>hash</code> 是完整 signed raw transaction 的 Keccak-256。執行結果要另查 receipt 的 <code>status</code>、<code>gasUsed</code> 與 <code>logs</code>。</p>
+<p>參考 <a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559</a> 與 <a href="https://ethereum.org/developers/docs/apis/json-rpc/">Ethereum JSON-RPC</a>。</p>
+<h2 id="zh-section-5">從欄位到 wire format</h2><pre><code>unsigned = 0x02 || RLP([
   chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
   gasLimit, to, value, data, accessList
 ])
@@ -79,9 +115,45 @@ signedRaw = 0x02 || RLP([
   chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
   gasLimit, to, value, data, accessList, yParity, r, s
 ])
-transactionHash = keccak256(signedRaw)</code></pre><p>JSON 是方便人與 RPC 操作的表示法，不是 type 2 在網路上的交易編碼。from、hash、blockNumber、transactionIndex 等 RPC 欄位不都屬於上述 signed payload。簽後 SDK 應能解析 raw bytes 並恢復 sender；不要拿 JSON.stringify 的 hash 當 signing digest。</p><p>legacy type 0 使用不同欄位與 v 編碼；type 1 引入 access list；type 3 是 blob 交易；type 4 帶 authorization list。它們不能全部當成 type 2 解碼，本篇不展開其完整格式。</p><h2 id="zh-section-6">Receipt、logs 與執行失敗</h2><div class="scroll"><table><thead><tr><th>資料</th><th>回答什麼</th></tr></thead><tbody><tr><td>交易</td><td>誰授權，要求呼叫誰、帶多少 ETH 與什麼 calldata</td></tr><tr><td>receipt.status</td><td>頂層執行成功或失敗；不是每次內部呼叫都成功的保證</td></tr><tr><td>gasUsed / effectiveGasPrice</td><td>該筆實際使用 gas 與適用費率</td></tr><tr><td>logs</td><td>成功保留的事件輸出；須按 emitting address 與 ABI 解碼</td></tr><tr><td>trace</td><td>更詳細的呼叫與執行路徑，通常由特定 RPC 提供</td></tr></tbody></table></div><p>被收錄但頂層 revert 的交易通常仍消耗 nonce 並支付 gas；其執行狀態改動與 logs 回滾。內部呼叫失敗若被捕捉，頂層仍可能 status = 1。Receipt 也不是一般函式 return value；前端若需要結果，可結合事件、狀態讀取或適當模擬。</p><p>例：gasUsed = 21,000，base fee = 20 gwei，tip 上限 2 gwei，max fee 30 gwei，則有效費率為 22 gwei，執行 gas 費為 0.000462 ETH。這裡只計 Ethereum type 2 執行 gas；L2 或其他交易型別可能有額外費用。</p><h2 id="zh-section-7">新手開發驗收與 PM 風險</h2><ol><li>建立交易前核對 chainId、帳戶、token 地址、decimals 與 ABI；清楚顯示 value 和 calldata 代表的操作。</li><li>模擬並估 gas，但不把模擬成功當成未來保證；狀態、價格與授權可能改變。</li><li>簽署後解析 raw transaction，比對 sender、to、value、data、nonce、gas 與費率。</li><li>廣播 timeout 時先查 hash、帳戶 nonce 與 pending 狀態；不要直接用新 nonce 重做業務動作。同 nonce replacement 需重新簽署，且費率規則依節點處理。</li><li>收錄後查 receipt、預期事件與最終狀態；依資產風險等待足夠確認，處理 reorg。</li></ol><p>PM 應把使用者看到的「簽署、送出、收錄、執行、最終確認」分開。常見市場風險包括 pending 期間價格變動、MEV、滑點和過期報價；交易結構中的 calldata 必須包含協議需要的保護，例如 minOut 與 deadline，交易本身不會自動提供。</p><h2 id="zh-section-8">官方來源與後續篇章</h2><ul><li><a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559：type 2 欄位與簽署</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-2718">EIP-2718：typed transaction envelope</a></li><li><a href="https://ethereum.org/en/developers/docs/transactions/">Ethereum transactions</a></li><li><a href="https://ethereum.org/en/developers/docs/apis/json-rpc/">JSON-RPC：交易與 receipt</a></li></ul><p><a href="./solana-transactions-token2022.html">已新增 Solana 與 Token-2022</a>。<a href="./cosmos-transactions-ibc.html">Cosmos 交易與 IBC 見第三篇</a>。簽章格式的初步比較見 <a href="./ecdsa-vs-ed25519.html#zh-chain-signatures">跨鏈簽章筆記</a>。</p></div><div data-l="en"><h1>Transaction Structures, Part I: Ethereum</h1><p class="meta">2026-11-02 · ETHEREUM · TRANSACTIONS · DEVELOPMENT</p><details class="note-toc"><summary>In this note</summary><nav><ol><li><a href="#en-section-1">Scope and mental model</a></li><li><a href="#en-section-2">Content, signature, outcome</a></li><li><a href="#en-section-3">Type 2 fields</a></li><li><a href="#en-section-4">ETH transfer versus ERC-20 transfer</a></li><li><a href="#en-section-5">Wire encoding and hashes</a></li><li><a href="#en-section-6">Receipts, logs, failure and fees</a></li><li><a href="#en-section-7">Development and product acceptance</a></li><li><a href="#en-section-8">Sources and next parts</a></li></ol></nav></details><h2 id="en-section-1">Scope and mental model</h2><p>This series covers Ethereum, Cosmos and Solana transaction structures. Part I covers ordinary Ethereum EOA transactions, focusing on EIP-1559 type 2. <a href="./solana-transactions-token2022.html">Solana and Token-2022 are in Part II</a>; <a href="./cosmos-transactions-ibc.html">Cosmos and IBC are in Part III</a>. Read <a href="./ecdsa-vs-ed25519.html#en-eth-rsv">r, s, v</a> first.</p><p>A transaction is a signed execution request. Contract CALLs during execution are not additional EOA-signed top-level transactions; explorer internal transactions usually describe traces.</p><h2 id="en-section-2">Content, signature, outcome</h2><pre><code>Fields → type-specific encoding and signing digest
+transactionHash = keccak256(signedRaw)</code></pre><p>JSON 是方便人與 RPC 操作的表示法，不是 type 2 在網路上的交易編碼。from、hash、blockNumber、transactionIndex 等 RPC 欄位不都屬於上述 signed payload。簽後 SDK 應能解析 raw bytes 並恢復 sender；不要拿 JSON.stringify 的 hash 當 signing digest。</p><p>legacy type 0 使用不同欄位與 v 編碼；type 1 引入 access list；type 3 是 blob 交易；type 4 帶 authorization list。它們不能全部當成 type 2 解碼，本篇不展開其完整格式。</p><h2 id="zh-section-6">Receipt、logs 與執行失敗</h2><div class="scroll"><table><thead><tr><th>資料</th><th>回答什麼</th></tr></thead><tbody><tr><td>交易</td><td>誰授權，要求呼叫誰、帶多少 ETH 與什麼 calldata</td></tr><tr><td>receipt.status</td><td>頂層執行成功或失敗；不是每次內部呼叫都成功的保證</td></tr><tr><td>gasUsed / effectiveGasPrice</td><td>該筆實際使用 gas 與適用費率</td></tr><tr><td>logs</td><td>成功保留的事件輸出；須按 emitting address 與 ABI 解碼</td></tr><tr><td>trace</td><td>更詳細的呼叫與執行路徑，通常由特定 RPC 提供</td></tr></tbody></table></div><p>被收錄但頂層 revert 的交易通常仍消耗 nonce 並支付 gas；其執行狀態改動與 logs 回滾。內部呼叫失敗若被捕捉，頂層仍可能 status = 1。Receipt 也不是一般函式 return value；前端若需要結果，可結合事件、狀態讀取或適當模擬。</p><p>例：gasUsed = 21,000，base fee = 20 gwei，tip 上限 2 gwei，max fee 30 gwei，則有效費率為 22 gwei，執行 gas 費為 0.000462 ETH。這裡只計 Ethereum type 2 執行 gas；L2 或其他交易型別可能有額外費用。</p><h2 id="zh-section-7">新手開發驗收與 PM 風險</h2><ol><li>建立交易前核對 chainId、帳戶、token 地址、decimals 與 ABI；清楚顯示 value 和 calldata 代表的操作。</li><li>模擬並估 gas，但不把模擬成功當成未來保證；狀態、價格與授權可能改變。</li><li>簽署後解析 raw transaction，比對 sender、to、value、data、nonce、gas 與費率。</li><li>廣播 timeout 時先查 hash、帳戶 nonce 與 pending 狀態；不要直接用新 nonce 重做業務動作。同 nonce replacement 需重新簽署，且費率規則依節點處理。</li><li>收錄後查 receipt、預期事件與最終狀態；依資產風險等待足夠確認，處理 reorg。</li></ol><p>PM 應把使用者看到的「簽署、送出、收錄、執行、最終確認」分開。常見市場風險包括 pending 期間價格變動、MEV、滑點和過期報價；交易結構中的 calldata 必須包含協議需要的保護，例如 minOut 與 deadline，交易本身不會自動提供。</p><h2 id="zh-section-8">官方來源與後續篇章</h2><ul><li><a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559：type 2 欄位與簽署</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-2718">EIP-2718：typed transaction envelope</a></li><li><a href="https://ethereum.org/en/developers/docs/transactions/">Ethereum transactions</a></li><li><a href="https://ethereum.org/en/developers/docs/apis/json-rpc/">JSON-RPC：交易與 receipt</a></li></ul><p><a href="./solana-transactions-token2022.html">已新增 Solana 與 Token-2022</a>。<a href="./cosmos-transactions-ibc.html">Cosmos 交易與 IBC 見第三篇</a>。簽章格式的初步比較見 <a href="./ecdsa-vs-ed25519.html#zh-chain-signatures">跨鏈簽章筆記</a>。</p></div><div data-l="en"><h1>Transaction Structures, Part I: Ethereum</h1><p class="meta">2026-11-02 · ETHEREUM · TRANSACTIONS · DEVELOPMENT</p><details class="note-toc"><summary>In this note</summary><nav><ol><li><a href="#en-section-1">Scope and mental model</a></li><li><a href="#en-section-2">Content, signature, outcome</a></li><li><a href="#en-section-3">Type 2 fields</a></li><li><a href="#en-section-4">ETH transfer versus ERC-20 transfer</a></li><li><a href="#en-ethereum-json">Ethereum transaction JSON example</a></li><li><a href="#en-section-5">Wire encoding and hashes</a></li><li><a href="#en-section-6">Receipts, logs, failure and fees</a></li><li><a href="#en-section-7">Development and product acceptance</a></li><li><a href="#en-section-8">Sources and next parts</a></li></ol></nav></details><h2 id="en-section-1">Scope and mental model</h2><p>This series covers Ethereum, Cosmos and Solana transaction structures. Part I covers ordinary Ethereum EOA transactions, focusing on EIP-1559 type 2. <a href="./solana-transactions-token2022.html">Solana and Token-2022 are in Part II</a>; <a href="./cosmos-transactions-ibc.html">Cosmos and IBC are in Part III</a>. Read <a href="./ecdsa-vs-ed25519.html#en-eth-rsv">r, s, v</a> first.</p><p>A transaction is a signed execution request. Contract CALLs during execution are not additional EOA-signed top-level transactions; explorer internal transactions usually describe traces.</p><h2 id="en-section-2">Content, signature, outcome</h2><pre><code>Fields → type-specific encoding and signing digest
   → signed transaction → broadcast and inclusion
-  → EVM execution → receipt, status, gasUsed, logs</code></pre><p>A transaction hash is not proof of successful execution. Distinguish signing, submission, inclusion, execution status and finality.</p><h2 id="en-section-3">Type 2 fields</h2><div class="scroll"><table><thead><tr><th>Field</th><th>Meaning / caution</th></tr></thead><tbody><tr><td>type</td><td>0x02 envelope prefix, not a function selector</td></tr><tr><td>chainId</td><td>Signed chain identity; check wallet and RPC network</td></tr><tr><td>nonce</td><td>Sender transaction sequence, not secret ECDSA k</td></tr><tr><td>maxPriorityFeePerGas</td><td>Tip cap per gas</td></tr><tr><td>maxFeePerGas</td><td>Total fee cap per gas, not guaranteed actual price</td></tr><tr><td>gasLimit</td><td>Gas budget including intrinsic costs, not actual gas used</td></tr><tr><td>to</td><td>Destination; empty for ordinary contract creation, not the zero address</td></tr><tr><td>value</td><td>Native ETH in wei; not an ERC-20 amount</td></tr><tr><td>data / input</td><td>Call bytes, or initcode for deployment</td></tr><tr><td>accessList</td><td>Addresses and storage keys; not an authorization allowlist or guaranteed gas saving</td></tr><tr><td>yParity, r, s</td><td>Signature; type 2 parity is 0 or 1</td></tr></tbody></table></div><p>RPC quantities often use hex: 0x5208 means 21,000. Parse bytes and quantities according to their schema.</p><h2 id="en-section-4">ETH transfer versus ERC-20 transfer</h2><p>A simple example uses chainId 1, nonce 7, 2 gwei priority cap, 30 gwei total cap, gasLimit 21,000, value 0.01 ETH, empty data and access list. The 21,000 budget assumes a simple transfer to a recipient with no executing code; do not apply it blindly to contracts.</p><p>An ERC-20 transfer instead targets the token contract, normally sends zero native value, and encodes transfer(address,uint256) with recipient and token amount in calldata. Use an ABI encoder and the token decimals. An approve likewise targets the token contract, with spender in calldata.</p><h2 id="en-section-5">Wire encoding and hashes</h2><pre><code>unsigned = 0x02 || RLP([
+  → EVM execution → receipt, status, gasUsed, logs</code></pre><p>A transaction hash is not proof of successful execution. Distinguish signing, submission, inclusion, execution status and finality.</p><h2 id="en-section-3">Type 2 fields</h2><div class="scroll"><table><thead><tr><th>Field</th><th>Meaning / caution</th></tr></thead><tbody><tr><td>type</td><td>0x02 envelope prefix, not a function selector</td></tr><tr><td>chainId</td><td>Signed chain identity; check wallet and RPC network</td></tr><tr><td>nonce</td><td>Sender transaction sequence, not secret ECDSA k</td></tr><tr><td>maxPriorityFeePerGas</td><td>Tip cap per gas</td></tr><tr><td>maxFeePerGas</td><td>Total fee cap per gas, not guaranteed actual price</td></tr><tr><td>gasLimit</td><td>Gas budget including intrinsic costs, not actual gas used</td></tr><tr><td>to</td><td>Destination; empty for ordinary contract creation, not the zero address</td></tr><tr><td>value</td><td>Native ETH in wei; not an ERC-20 amount</td></tr><tr><td>data / input</td><td>Call bytes, or initcode for deployment</td></tr><tr><td>accessList</td><td>Addresses and storage keys; not an authorization allowlist or guaranteed gas saving</td></tr><tr><td>yParity, r, s</td><td>Signature; type 2 parity is 0 or 1</td></tr></tbody></table></div><p>RPC quantities often use hex: 0x5208 means 21,000. Parse bytes and quantities according to their schema.</p><h2 id="en-section-4">ETH transfer versus ERC-20 transfer</h2><p>A simple example uses chainId 1, nonce 7, 2 gwei priority cap, 30 gwei total cap, gasLimit 21,000, value 0.01 ETH, empty data and access list. The 21,000 budget assumes a simple transfer to a recipient with no executing code; do not apply it blindly to contracts.</p><p>An ERC-20 transfer instead targets the token contract, normally sends zero native value, and encodes transfer(address,uint256) with recipient and token amount in calldata. Use an ABI encoder and the token decimals. An approve likewise targets the token contract, with spender in calldata.</p><h3 id="en-ethereum-json">What does a type 2 transaction JSON object look like?</h3>
+<p>These are illustrative JSON-RPC-style objects. Placeholder addresses and signature fields cannot be broadcast. A wallet or SDK may start with an unsigned request:</p>
+<pre><code>{
+  "from": "0x2222222222222222222222222222222222222222",
+  "to": "0x1111111111111111111111111111111111111111",
+  "value": "0x2386f26fc10000",
+  "data": "0x",
+  "nonce": "0x7",
+  "gas": "0x5208",
+  "maxPriorityFeePerGas": "0x77359400",
+  "maxFeePerGas": "0x6fc23ac00",
+  "chainId": "0x1",
+  "type": "0x2",
+  "accessList": []
+}</code></pre>
+<p>The value is 0.01 ETH in wei; gas is 21,000; priority and total fee caps are 2 and 30 gwei per gas. <code>from</code> tells the wallet which account to use; the valid sender is recovered from the signature. A 21,000 gas budget only illustrates a simple transfer to a recipient that executes no code.</p>
+<p>A signed transaction returned by an RPC query may look like this, with some node fields omitted:</p>
+<pre><code>{
+  "hash": "0xEXAMPLE_TRANSACTION_HASH",
+  "from": "0x2222222222222222222222222222222222222222",
+  "to": "0x1111111111111111111111111111111111111111",
+  "value": "0x2386f26fc10000",
+  "input": "0x",
+  "nonce": "0x7",
+  "gas": "0x5208",
+  "maxPriorityFeePerGas": "0x77359400",
+  "maxFeePerGas": "0x6fc23ac00",
+  "chainId": "0x1",
+  "type": "0x2",
+  "accessList": [],
+  "r": "0xEXAMPLE_R",
+  "s": "0xEXAMPLE_S",
+  "v": "0x0"
+}</code></pre>
+<p>Hash, r and s are conspicuous placeholders, not valid hex. The type 2 specification calls the recovery field <code>signature_y_parity</code> (0/1); RPC may label it <code>v</code>. Query <code>input</code> corresponds to request <code>data</code>. The broadcast artifact is signed <code>0x02 || RLP(...)</code> bytes, not JSON.stringify output. The hash is Keccak-256 of those signed bytes. Query a separate receipt for status, gasUsed and logs.</p>
+<p>See <a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559</a> and <a href="https://ethereum.org/developers/docs/apis/json-rpc/">Ethereum JSON-RPC</a>.</p>
+<h2 id="en-section-5">Wire encoding and hashes</h2><pre><code>unsigned = 0x02 || RLP([
   chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
   gasLimit, to, value, data, accessList
 ])
