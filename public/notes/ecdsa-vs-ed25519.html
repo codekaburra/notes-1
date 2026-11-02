@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECDSA vs Ed25519：簽章、驗證與開發陷阱</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
+</head>
+<body data-title-zh="ECDSA vs Ed25519：簽章、驗證與開發陷阱" data-title-en="ECDSA vs Ed25519: Signatures, Verification, and Pitfalls">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+<a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
+<div data-l="zh"><h1>ECDSA vs Ed25519：簽章、驗證與開發陷阱</h1><p class="meta">2026-11-02 · CRYPTOGRAPHY · DEVELOPMENT · SECURITY</p><details class="note-toc"><summary>本篇導覽</summary><nav><ol><li><a href="#zh-section-1">先分清楚：演算法、曲線、編碼</a></li><li><a href="#zh-section-2">快速比較</a></li><li><a href="#zh-bitcoin">Bitcoin：ECDSA 與 Schnorr</a></li><li><a href="#zh-section-3">邏輯流程：驗簽成功之後還有什麼</a></li><li><a href="#zh-section-4">開發方式：Ethereum 與 Solana</a></li><li><a href="#zh-eth-rsv">ETH 交易：r、s、v</a></li><li><a href="#zh-chain-signatures">Cosmos／Solana 的交易簽章</a></li><li><a href="#zh-section-5">新手最容易踩的安全坑</a></li><li><a href="#zh-section-6">可執行範例與驗收</a></li><li><a href="#zh-section-7">PM 與市場：先選生態，再評估成本</a></li><li><a href="#zh-section-8">官方來源</a></li></ol></nav></details><h2 id="zh-section-1">先分清楚：演算法、曲線、編碼</h2><p><strong>ECDSA 是橢圓曲線數位簽章演算法；Ed25519 是 EdDSA 家族中的具體方案。</strong>以下主要比較 Ethereum 常用的 ECDSA + secp256k1 與 Ed25519。P-256 / secp256r1 也能搭配 ECDSA，但不是 secp256k1；公鑰和簽章不能混用。Ed25519 也不是用來做金鑰交換的 X25519。</p><p>簽章不是加密。私鑰簽訊息、公鑰驗證，訊息不因此保密。有效簽章證明金鑰對這組 bytes 的授權，不能單獨證明人的真實身分、交易安全或已經上鏈。</p><h2 id="zh-section-2">快速比較</h2><div class="scroll"><table><thead><tr><th>項目</th><th>ECDSA + secp256k1</th><th>Ed25519</th></tr></thead><tbody><tr><td>典型 Web3 用途</td><td>Ethereum EOA 簽章、EVM 訊息授權</td><td>Solana 交易簽章</td></tr><tr><td>公鑰</td><td>SEC1 壓縮 33 bytes；未壓縮 65 bytes（含前綴）</td><td>32 bytes</td></tr><tr><td>簽章</td><td>raw r || s 為 64 bytes；Ethereum 常另帶 recovery 資訊成 65 bytes；DER 長度可變</td><td>64 bytes 的 R || S</td></tr><tr><td>每次簽章的秘密值</td><td>k 需安全產生，可用 RFC 6979 確定性導出</td><td>標準流程由秘密材料和訊息確定性導出</td></tr><tr><td>公鑰恢復</td><td>Ethereum 可透過 digest、r、s、v 恢復地址</td><td>標準驗證明確傳入公鑰，不採 Ethereum 的 recovery 介面</td></tr><tr><td>選型依據</td><td colspan="2">鏈、錢包、硬體與 verifier 的相容性；不能只看簽章長度判斷安全或成本</td></tr></tbody></table></div><p>Ed25519 私鑰的「32 bytes」通常指 seed；某些 SDK 用 64 bytes 表示 seed + public key，另有 expanded secret 格式。匯入前先讀 SDK 定義，不能只看長度。Ethereum 地址也不是完整公鑰：一般由未壓縮公鑰的 x || y 做 Keccak-256，再取末 20 bytes。</p><h3 id="zh-bitcoin">Bitcoin 用哪一種？ECDSA 與 Taproot Schnorr</h3>
+<p><strong>Bitcoin 並非使用 Ed25519。</strong>傳統與 SegWit v0 的簽章驗證使用 ECDSA + secp256k1；Taproot 則採用 BIP-340 Schnorr + secp256k1。判斷依據是正在花費的 UTXO 類型與 spending path，不是錢包品牌。一筆交易也可以同時花費不同類型的輸出。</p>
+<div class="scroll"><table><thead><tr><th>場景</th><th>簽章方案</th><th>曲線／格式</th></tr></thead><tbody><tr><td>Bitcoin 傳統、SegWit v0 的簽章</td><td>ECDSA</td><td>secp256k1；交易中常見 DER 簽章加 sighash type byte</td></tr><tr><td>Bitcoin Taproot</td><td>Schnorr（BIP-340）</td><td>secp256k1；32-byte x-only 公鑰，64-byte 簽章</td></tr><tr><td>Ethereum EOA</td><td>ECDSA</td><td>secp256k1；digest 與 recovery 規則依 Ethereum 格式</td></tr><tr><td>Solana 交易</td><td>Ed25519</td><td>Edwards25519；32-byte 公鑰、64-byte 簽章</td></tr></tbody></table></div>
+<p>Taproot 使用預設 sighash 時簽章為 64 bytes；指定受允許的非預設 sighash 時會再附 1 byte。不能只憑「64 bytes」判斷它是 Ed25519。Schnorr 與 Ed25519 有相關的數學結構，但曲線、雜湊、編碼與驗證規則不同，不能互換。</p>
+<p><strong>開發防踩坑：</strong>BTC 與 ETH 同用 secp256k1，不代表能直接共用簽章。Bitcoin 需依輸出與花費路徑建立正確 sighash；Taproot key-path 還涉及輸出金鑰的 tweak。使用支援對應腳本類型的成熟 Bitcoin 函式庫，對照標準測試向量，不要把下方 Node SHA-256 範例當成 BTC 交易簽署器。</p>
+<p>參考 <a href="https://bips.dev/340/">BIP-340：Schnorr 簽章</a>、<a href="https://bips.dev/341/">BIP-341：Taproot 花費規則</a>。Taproot 並未把既有輸出的 ECDSA 規則全部替換。</p>
+<h2 id="zh-section-3">邏輯流程：驗簽成功之後還有什麼</h2><pre><code>使用者意圖 → 明確編碼訊息 → 錢包簽署
+  → verifier 重建相同 bytes / digest → 驗證簽章
+  → 檢查 signer 是否有權、domain、deadline、nonce
+  → 消耗 nonce 並執行授權操作</code></pre><p>例如提款授權需綁定 action、signer、recipient、token、amount、chain、verifying contract、nonce 與 deadline。簽「我同意提款」卻未綁定收款人，攻擊者可能替換 recipient，而完全不需要偽造簽章。伺服器流程也必須原子消耗 nonce，避免兩個並行請求都成功。</p><p>密碼學 nonce（ECDSA 的 k）與應用 nonce 是不同東西：前者避免私鑰外洩，後者避免同一授權重複執行。改用 Ed25519 不會自動解決 replay。</p><h2 id="zh-section-4">開發方式：Ethereum 與 Solana</h2><p><strong>Ethereum：</strong>前端與合約必須約定 EIP-191 或 EIP-712 等確切簽署格式。EIP-712 可表達具型別的授權與 domain，但仍需自己檢查、消耗 nonce 和 deadline；不要把原始 JSON 字串直接 hash 當成 EIP-712。合約可使用 OpenZeppelin ECDSA；若支援合約錢包，依需求使用 SignatureChecker / ERC-1271，不應假設所有地址都能透過 ECDSA recover 驗證。</p><p><strong>Solana：</strong>一般交易簽章是 Ed25519。若程式驗證離鏈訊息，使用受支援的驗簽路徑，檢查預期 precompile、實際訊息、公鑰與 instruction offsets；「交易中出現 Ed25519 instruction」不足以證明這次操作已被授權。公鑰、地址、PDA 也不能一概視為有可用私鑰的 signer。</p><p><strong>跨鏈：</strong>Ethereum 的 ecrecover 不驗 Ed25519。要在另一條鏈驗證，需確認目標鏈的 precompile、程式庫、成本和邊界規則。不要把 Solana 簽章改成 hex 就當成 Ethereum 簽章。</p><h3 id="zh-eth-rsv">ETH 交易簽名前後：r、s、v 從哪裡來？</h3>
+<p>以下以一般 EOA 簽署交易為例。<strong>簽名前只有交易內容；簽名後才有有效的 r、s 與 recovery 資訊。</strong>某些工具會用零值表示未簽署欄位，那只是 placeholder，不是可用簽章。r、s、v 都可以公開；它們不是私鑰。</p>
+<div class="scroll"><table><thead><tr><th>欄位</th><th>意義</th><th>容易誤解的地方</th></tr></thead><tbody><tr><td>r</td><td>ECDSA 簽署時，臨時曲線點 R = kG 的 x 座標對曲線階 n 取模</td><td>不是收款地址或公鑰</td></tr><tr><td>s</td><td>由訊息 digest、私鑰與秘密 k 計算的簽章 scalar</td><td>不是私鑰，也不是單純的訊息 hash</td></tr><tr><td>v / yParity</td><td>幫助從 digest 與 r、s 恢復簽署公鑰的資訊；編碼依交易類型不同</td><td>不是一律 27／28，也不是交易成功狀態</td></tr></tbody></table></div>
+<h4>從未簽署交易到廣播</h4>
+<pre><code>1. 組交易：chainId、nonce、to、value、data、gas 與費率
+2. 按交易類型序列化 unsigned payload
+3. Keccak-256 → signing digest（待簽署雜湊）
+4. 私鑰執行 ECDSA → r、s、yParity
+5. 編碼成 signed raw transaction
+6. Keccak-256(signed raw transaction) → transaction hash
+7. 廣播 → 節點驗簽、恢復 sender 並檢查交易有效性
+8. 等待收錄與 receipt；執行仍可能 revert</code></pre>
+<p><strong>signing digest 與 transaction hash 是不同東西。</strong>前者給私鑰簽，後者識別完整已簽署交易。一般交易 envelope 不需要額外帶一個可信的 from 欄位：節點依簽章恢復 sender。RPC 回傳的 from 是解析後結果；它不允許你隨便填別人的地址來花他的 ETH。</p>
+<h4>v 為什麼有時是 27，有時是 37，有時是 0？</h4>
+<ul><li><strong>舊式 legacy：</strong>未使用 EIP-155 保護時，v = 27 + yParity，也就是 27 或 28。</li><li><strong>EIP-155 legacy：</strong>v = 35 + 2 × chainId + yParity。Ethereum mainnet 的 chainId = 1，所以 v 是 37 或 38；chainId 同時納入待簽內容以提供跨鏈重放保護。</li><li><strong>EIP-1559 type 2：</strong>chainId 獨立編碼，簽章欄位使用 yParity = 0 或 1，不套用上述 legacy 公式。SDK／RPC 可能仍將此資訊命名為 v，必須看格式定義。</li></ul>
+<p>type 2 的 signing digest 為下式；完整交易則在同一欄位列表後加入 yParity、r、s，再加上相同的 0x02 type prefix：</p>
+<pre><code>keccak256(0x02 || RLP([
+  chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
+  gasLimit, to, value, data, accessList
+]))</code></pre>
+<h4>開發時如何避免簽錯？</h4>
+<ul><li>讓成熟 SDK 做交易序列化、簽署與解析；不要自行把 r || s || v 字串接在交易後面。RLP 的整數編碼也不等於固定寬度 65-byte 訊息簽章。</li><li>簽署後解析 raw transaction，核對 chainId、恢復的 sender、to、value、data、nonce、gas 和費率，再廣播。提高 gas 費率也改變待簽內容，replacement 交易需重新簽署。</li><li>Ethereum 交易要求 low-s。若底層程式庫把 s 正規化成 n − s，必須同步處理 recovery parity；交由 SDK 處理，不手改 s。</li><li>合約的 ecrecover 常用 27／28；不能直接把 EIP-155 的 37／38 當參數。合約通常驗證協議定義的訊息 digest，不是直接拿 RPC 的 transaction hash 驗簽。</li><li>signTransaction 與 signMessage／signTypedData 不是同一流程；不要給交易 hash 加 personal-sign prefix 後就當成有效交易簽章。</li></ul>
+<p>驗收至少包括：簽後恢復地址等於預期 signer、解析欄位等於使用者確認內容，以及改動任一受簽欄位後原簽章不再代表預期 signer 對新內容的授權。參考 <a href="https://eips.ethereum.org/EIPS/eip-155">EIP-155</a> 與 <a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559</a>。</p>
+<h3 id="zh-chain-signatures">Cosmos、Solana 交易也有 r、s、v 嗎？</h3>
+<p>都有簽章，但<strong>不能把所有鏈的簽章當成 Ethereum 的 r、s、v</strong>。ECDSA 的簽章本體是兩個數值 r、s；v 是 Ethereum 用於公鑰恢復等用途的額外編碼，不是 ECDSA 本身必備的欄位。Ed25519 的 R、S 名稱相似，卻是不同方案中的曲線點與數值，不能直接互換。</p>
+<div class="scroll"><table><thead><tr><th>交易／帳戶</th><th>常用方案</th><th>簽章格式</th><th>如何辨識 signer</th></tr></thead><tbody>
+<tr><td>Ethereum EOA</td><td>ECDSA + secp256k1</td><td>r、s 與 recovery 資訊；v／yParity 依交易類型編碼</td><td>由 signing digest 與簽章恢復公鑰，再導出地址</td></tr>
+<tr><td>Cosmos SDK 一般 secp256k1 帳戶</td><td>ECDSA + secp256k1</td><td>64 bytes：r || s，通常不帶 v</td><td>使用提供或已知的帳戶公鑰驗證，不依賴 Ethereum 式 recovery</td></tr>
+<tr><td>Solana 交易 signer</td><td>Ed25519</td><td>64 bytes：encode(R) || encode(S)，沒有 v</td><td>使用 transaction message 中對應 signer 的公鑰驗證</td></tr>
+</tbody></table></div>
+<h4>簽名前與簽名後怎麼看？</h4>
+<pre><code>Cosmos SDK（一般 secp256k1 帳戶）
+  依 sign mode 建立 sign bytes → ECDSA 簽署 → 64-byte r || s
+  → 以帳戶公鑰驗證，並檢查鏈與帳戶的交易授權規則
+
+Solana
+  序列化 transaction message → 各 signer 做 Ed25519 簽署
+  → 收集 signatures，與 message 中對應 signer 公鑰配對驗證</code></pre>
+<p>Cosmos 的簽章即使在 API 中呈現為 Base64，解碼後仍是該帳戶類型定義的簽章 bytes；Solana RPC 常見的 Base58 signature 字串，也不是多出一個 v。Base64、Base58、hex 是顯示／傳輸編碼，不是簽章演算法。</p>
+<p><strong>開發注意：</strong>Cosmos 是多鏈生態，帳戶類型與 sign mode 必須依目標鏈確認；Cosmos EVM 的 Ethereum 格式交易不能直接套用一般 Cosmos SDK 的描述。跨鏈共用 secp256k1 也不代表共用 sign bytes、地址導出或重放防護。Solana 的一般交易簽章則不要混同程式額外驗證的 secp256k1 precompile 簽章。</p>
+<p>因此驗收應分成兩層：先確認「格式、訊息、公鑰與簽章是否匹配」，再確認「這個 signer 是否有權執行這次操作，交易是否符合鏈上有效性與重放規則」。參考 <a href="https://cosmos.github.io/cosmjs/latest/amino/functions/encodeSecp256k1Signature.html">CosmJS secp256k1 編碼</a> 與 <a href="https://solana.com/docs/core/transactions">Solana transaction signatures</a>。</p>
+<h2 id="zh-section-5">新手最容易踩的安全坑</h2><ul><li><strong>ECDSA 的 k 重複或洩漏：</strong>可能洩漏私鑰。使用成熟函式庫與安全金鑰產生；deterministic signing 仍不能防止所有 side-channel 或實作錯誤。</li><li><strong>把 signature 當唯一請求 ID：</strong>ECDSA 有 malleability；EIP-2 的交易 low-s 規則不代表 ecrecover 自動拒絕 high-s。用嚴格函式庫，並以業務 nonce / digest 管理重放。</li><li><strong>bytes 與字串搞混：</strong>hex 字串的 UTF-8 bytes 不等於其解碼內容；SHA-256 不等於 Keccak-256；重複 hash、錯誤 prefix 或不同 JSON 編碼會導致不同訊息。</li><li><strong>Ed25519 變體搞混：</strong>Ed25519、Ed25519ctx、Ed25519ph 不能隨意互換；先 hash 再跑一般 Ed25519 不等於 Ed25519ph。不同 verifier 對邊界編碼的接受規則需用測試確認。</li><li><strong>只驗簽、不驗授權：</strong>必須比對預期 signer、domain、動作、金額、接收者、期限並防重放。不能把呼叫者提供的任意公鑰驗成功就當成管理員。</li><li><strong>把私鑰放進前端或 log：</strong>範例只用臨時金鑰；正式環境需金鑰管理、權限與輪替。兩者都不是後量子簽章。</li></ul><h2 id="zh-section-6">可執行範例與驗收</h2><p><a href="../examples/signatures-demo.mjs">下載 Node.js 範例</a>，無外部 npm 套件。它使用內建 crypto 產生臨時金鑰，比較簽署、驗證、訊息竄改和錯誤公鑰。從 repo 根目錄執行：</p><pre><code>node public/examples/signatures-demo.mjs
+
+# 預期輸出
+ecdsa-secp256k1: bytes=64; valid=true; tampered=false; wrongKey=false
+ed25519: bytes=64; valid=true; tampered=false; wrongKey=false</code></pre><p><strong>範例範圍：</strong>ECDSA 使用 SHA-256 與 P1363 的 r || s；不是 Ethereum 的交易 hash、簽章格式或 recovery 流程。Ed25519 的 Node API 使用 null algorithm，由方案處理訊息。兩者輸出剛好都是 64 bytes 也不表示格式可以互換。這個範例未實作鏈上交易、nonce 儲存或完整授權。</p><p>產品驗收另外測：錯鏈、錯合約、改金額、改 recipient、過期、重複提交、並行提交，以及合約錢包的動態授權。加入標準測試向量與畸形輸入，確保前後端 verifier 對同一組 bytes 有一致結果。</p><h2 id="zh-section-7">PM 與市場：先選生態，再評估成本</h2><p>選型通常受既有鏈與錢包支援約束。比較簽署 UX、硬體／託管服務、金鑰恢復、鏈上驗證成本與跨鏈整合，而不是宣稱某演算法一定比較便宜或安全。benchmark 必須固定平台、函式庫版本、單筆／批次與驗證路徑。</p><p>DeFi 的 permit、離鏈訂單與 intents，風險常來自授權範圍、可取消性與過期策略。無 gas 的簽章仍可能授權資產移轉；錢包畫面應顯示動作、資產、金額、對象、有效期。簽署成功不等於成交或 finality，仍需追蹤提交與執行結果。</p><h2 id="zh-section-8">官方來源</h2><ul><li><a href="https://www.rfc-editor.org/rfc/rfc8032">RFC 8032：EdDSA / Ed25519</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc6979">RFC 6979：deterministic ECDSA</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-2">EIP-2：low-s 與 ecrecover</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-712">EIP-712：typed structured data</a></li><li><a href="https://docs.openzeppelin.com/contracts/5.x/api/utils/cryptography">OpenZeppelin：ECDSA / SignatureChecker</a></li><li><a href="https://solana.com/docs/core/transactions">Solana transactions</a> · <a href="https://solana.com/docs/core/programs/precompiles">Signature precompiles</a></li><li><a href="https://nodejs.org/api/crypto.html">Node.js crypto API</a></li></ul></div><div data-l="en"><h1>ECDSA vs Ed25519: Signatures, Verification, and Pitfalls</h1><p class="meta">2026-11-02 · CRYPTOGRAPHY · DEVELOPMENT · SECURITY</p><details class="note-toc"><summary>In this note</summary><nav><ol><li><a href="#en-section-1">Separate algorithm, curve, and encoding</a></li><li><a href="#en-section-2">Comparison</a></li><li><a href="#en-bitcoin">Bitcoin: ECDSA and Schnorr</a></li><li><a href="#en-section-3">Authorization flow</a></li><li><a href="#en-section-4">Ethereum, Solana, and cross-chain development</a></li><li><a href="#en-eth-rsv">Ethereum transactions: r, s, v</a></li><li><a href="#en-chain-signatures">Cosmos / Solana transaction signatures</a></li><li><a href="#en-section-5">Security pitfalls</a></li><li><a href="#en-section-6">Runnable demo and acceptance tests</a></li><li><a href="#en-section-7">Product and ecosystem considerations</a></li><li><a href="#en-section-8">Primary sources</a></li></ol></nav></details><h2 id="en-section-1">Separate algorithm, curve, and encoding</h2><p>ECDSA is a signature algorithm family; Ed25519 is a specific EdDSA scheme. Here we compare ECDSA with secp256k1, as commonly used by Ethereum, with Ed25519. ECDSA with P-256 / secp256r1 is another combination, not an interchangeable key type. Ed25519 is not X25519 key exchange.</p><p>Signatures authenticate exact bytes; they do not encrypt messages, prove a person's identity, or prove execution on-chain.</p><h2 id="en-section-2">Comparison</h2><div class="scroll"><table><thead><tr><th>Property</th><th>ECDSA + secp256k1</th><th>Ed25519</th></tr></thead><tbody><tr><td>Typical use</td><td>Ethereum EOA signatures</td><td>Solana transaction signatures</td></tr><tr><td>Public key</td><td>33-byte compressed / 65-byte uncompressed SEC1</td><td>32 bytes</td></tr><tr><td>Signature</td><td>64-byte raw r || s; commonly 65 bytes with Ethereum recovery information; variable DER</td><td>64-byte R || S</td></tr><tr><td>Signing secret per message</td><td>Secure k; RFC 6979 permits deterministic derivation</td><td>Deterministically derived in the standard scheme</td></tr><tr><td>Recovery</td><td>Ethereum can recover an address using digest and recovery information</td><td>Standard verification takes an explicit public key</td></tr></tbody></table></div><p>Ed25519 secret-key formats vary: a 32-byte seed, a seed plus public key, and expanded secrets are distinct representations. Read the SDK format. Ethereum addresses are not full public keys: the usual derivation takes the last 20 bytes of Keccak-256 over uncompressed x || y.</p><h3 id="en-bitcoin">Bitcoin: ECDSA and Taproot Schnorr</h3>
+<p>Bitcoin does not use Ed25519 for these spending rules. Legacy and SegWit v0 signature checks use ECDSA over secp256k1; Taproot uses BIP-340 Schnorr over the same curve. The spent UTXO and spending path determine the rules, not the wallet brand. A transaction can spend multiple output types.</p>
+<div class="scroll"><table><thead><tr><th>Use</th><th>Scheme</th><th>Curve / format</th></tr></thead><tbody><tr><td>Bitcoin legacy / SegWit v0 signatures</td><td>ECDSA</td><td>secp256k1; commonly DER plus a sighash type byte</td></tr><tr><td>Bitcoin Taproot</td><td>BIP-340 Schnorr</td><td>secp256k1; 32-byte x-only key, 64-byte signature</td></tr><tr><td>Ethereum EOA</td><td>ECDSA</td><td>secp256k1; Ethereum digest and recovery conventions</td></tr><tr><td>Solana transactions</td><td>Ed25519</td><td>Edwards25519; 32-byte key, 64-byte signature</td></tr></tbody></table></div>
+<p>Taproot uses a 64-byte signature for the default sighash; a permitted non-default sighash adds one byte. Length alone does not identify Ed25519. Related mathematical structure does not make Schnorr and Ed25519 interchangeable.</p>
+<p>Sharing secp256k1 does not make Bitcoin and Ethereum signatures portable. Build the correct Bitcoin sighash for the output and spending path; Taproot key-path signing also involves the output-key tweak. Use a mature Bitcoin library and standard vectors. The Node demo below is not a Bitcoin transaction signer.</p>
+<p>See <a href="https://bips.dev/340/">BIP-340</a> and <a href="https://bips.dev/341/">BIP-341</a>. Taproot did not replace the existing ECDSA spending rules.</p>
+<h2 id="en-section-3">Authorization flow</h2><pre><code>Intent → canonical message bytes → signature
+  → reconstruct exact bytes / digest → verify
+  → enforce signer authority, domain, expiry, nonce
+  → consume nonce and execute</code></pre><p>Bind action, signer, recipient, token, amount, chain, verifying contract, nonce and deadline as appropriate. A signed withdrawal without its recipient may authorize substitution without any forgery. Consume application nonces atomically, including on a server. ECDSA's secret signing nonce k and the application's replay-protection nonce serve different purposes; Ed25519 does not remove the latter requirement.</p><h2 id="en-section-4">Ethereum, Solana, and cross-chain development</h2><p>Ethereum clients and contracts must agree on the signing format, such as EIP-191 or EIP-712. Typed-data hashing is not a hash of arbitrary JSON. EIP-712 still requires application replay and expiry enforcement. Use reviewed ECDSA helpers; support contract-wallet signers through an appropriate ERC-1271 / SignatureChecker path rather than assuming every address is recoverable.</p><p>Solana transaction signatures use Ed25519. For off-chain authorization, check the expected verification program, actual public key and message, and instruction offsets. Merely finding an Ed25519 instruction is insufficient. Not every address is a private-key signer; PDAs need separate reasoning.</p><p>Ethereum ecrecover does not verify Ed25519. A cross-chain verifier needs explicit support, costs and acceptance rules on the destination chain. Re-encoding a signature in hex does not change its algorithm.</p><h3 id="en-eth-rsv">Ethereum before and after signing: r, s, v</h3>
+<p>For an ordinary EOA transaction, the unsigned transaction contains the intended operation, not a valid signature. Signing produces r, s and recovery information. Zero-valued unsigned placeholders are not signatures. These fields are public, not private-key material.</p>
+<div class="scroll"><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td>r</td><td>The x coordinate of the ephemeral point R = kG, reduced modulo the curve order n</td></tr><tr><td>s</td><td>An ECDSA scalar computed from the digest, signing key and secret k</td></tr><tr><td>v / yParity</td><td>Recovery information whose encoding depends on the transaction type; not execution status</td></tr></tbody></table></div>
+<pre><code>Build transaction fields
+  → serialize unsigned payload for its type
+  → Keccak-256 signing digest
+  → ECDSA signing: r, s, yParity
+  → encode signed raw transaction
+  → Keccak-256 of signed bytes: transaction hash
+  → broadcast, recover sender and validate
+  → inclusion and receipt; execution may still revert</code></pre>
+<p>The signing digest differs from the transaction hash. The transaction envelope need not carry a trusted from field: the sender is recovered from the signature. RPC from is a derived result, not permission to spend from an arbitrary address.</p>
+<h4>Why v can be 27, 37, or 0</h4>
+<ul><li>Unprotected legacy: v = 27 + yParity, giving 27 or 28.</li><li>EIP-155 legacy: v = 35 + 2 × chainId + yParity. Mainnet gives 37 or 38. The chain ID also enters the signing payload.</li><li>EIP-1559 type 2: chainId is separate and the signature stores yParity as 0 or 1. Do not apply the legacy formula. Some APIs still label this information v.</li></ul>
+<pre><code>// Type 2 signing digest
+keccak256(0x02 || RLP([
+  chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
+  gasLimit, to, value, data, accessList
+]))</code></pre>
+<p>The signed type 2 envelope appends yParity, r and s to that field list and keeps the 0x02 prefix.</p>
+<h4>Development checks</h4>
+<ul><li>Use a reviewed SDK for signing and serialization. Appending a 65-byte r || s || v string is not transaction encoding; RLP integers have their own rules.</li><li>Parse signed bytes and compare chain, recovered sender, recipient, value, calldata, nonce, gas and fees before broadcasting. Fee replacements change the signing payload and require a new signature.</li><li>Ethereum transactions require low-s. Normalizing s also requires handling recovery parity correctly; use the SDK.</li><li>Contract ecrecover commonly takes 27/28, not EIP-155 values such as 37/38. Contracts verify the specified message digest, not automatically an RPC transaction hash.</li><li>Transaction signing differs from personal-message and typed-data signing. A personal-sign prefix does not produce a valid transaction signature.</li></ul>
+<p>Test recovered signer, parsed fields, and altered-payload cases: the old signature must not authorize the changed operation as the expected signer. See <a href="https://eips.ethereum.org/EIPS/eip-155">EIP-155</a> and <a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559</a>.</p>
+<h3 id="en-chain-signatures">Do Cosmos and Solana transactions have r, s, v?</h3>
+<p>They have signatures, but not necessarily Ethereum's representation. ECDSA itself produces r and s; Ethereum recovery information is additional. Ed25519's R and S belong to a different scheme and are not interchangeable with ECDSA scalars.</p>
+<div class="scroll"><table><thead><tr><th>Transaction / account</th><th>Scheme</th><th>Signature</th><th>Signer identification</th></tr></thead><tbody>
+<tr><td>Ethereum EOA</td><td>ECDSA + secp256k1</td><td>r, s and recovery information; transaction-specific v / yParity encoding</td><td>Recover public key from signing digest and signature, then derive address</td></tr>
+<tr><td>Ordinary Cosmos SDK secp256k1 account</td><td>ECDSA + secp256k1</td><td>64-byte r || s, normally no v</td><td>Verify against the provided or known account public key</td></tr>
+<tr><td>Solana transaction signer</td><td>Ed25519</td><td>64-byte encoded R || S, no v</td><td>Verify against the corresponding signer public key in the message</td></tr>
+</tbody></table></div>
+<pre><code>Cosmos SDK secp256k1 account:
+  sign-mode-specific bytes → ECDSA → 64-byte r || s
+  → public-key verification and chain authorization checks
+
+Solana:
+  serialized transaction message → Ed25519 per signer
+  → collect signatures and verify against corresponding signer keys</code></pre>
+<p>Base64, Base58 and hex are encodings, not signature schemes. A Base64 Cosmos signature or Base58 Solana signature does not imply an extra recovery byte.</p>
+<p>Cosmos chains can choose different account types and signing modes. Ethereum-format transactions on Cosmos EVM chains require their own Ethereum rules. Sharing secp256k1 does not make sign bytes, address derivation or replay rules portable. Solana's normal transaction signatures also differ from additional secp256k1 precompile checks requested by a program.</p>
+<p>Check both cryptographic validity and authority to perform the exact operation. See <a href="https://cosmos.github.io/cosmjs/latest/amino/functions/encodeSecp256k1Signature.html">CosmJS signature encoding</a> and <a href="https://solana.com/docs/core/transactions">Solana transactions</a>.</p>
+<h2 id="en-section-5">Security pitfalls</h2><ul><li>Repeated or leaked ECDSA k can reveal the private key. Use reviewed libraries and secure key generation; deterministic signing is not a complete side-channel defense.</li><li>Do not deduplicate by signature bytes. ECDSA malleability exists; EIP-2 low-s transaction rules did not make ecrecover reject high-s signatures. Use strict verification and application nonces or authorization digests.</li><li>UTF-8 hex text differs from decoded bytes. SHA-256 differs from Keccak-256. Prefixing, double hashing and serialization must match.</li><li>Ed25519, Ed25519ctx and Ed25519ph are not interchangeable. Hashing first and using plain Ed25519 is not Ed25519ph. Test boundary encodings across verifiers.</li><li>Verify expected authority, not just any caller-supplied public key. Enforce scope and replay rules.</li><li>Keep secrets out of frontend bundles and logs. Plan custody and rotation. Neither scheme is post-quantum.</li></ul><h2 id="en-section-6">Runnable demo and acceptance tests</h2><p><a href="../examples/signatures-demo.mjs">Node.js demo</a> uses built-in crypto, temporary keys and no npm dependencies. Run from the repository root:</p><pre><code>node public/examples/signatures-demo.mjs
+
+ecdsa-secp256k1: bytes=64; valid=true; tampered=false; wrongKey=false
+ed25519: bytes=64; valid=true; tampered=false; wrongKey=false</code></pre><p>The ECDSA example uses SHA-256 and P1363 encoding, not Ethereum transaction hashing, recovery or wire format. Node's Ed25519 API takes null as its algorithm parameter. Equal signature length does not imply interchangeable formats. This demo has no on-chain submission, nonce database or full authorization system.</p><p>Also test wrong chain, wrong contract, modified amount and recipient, expiry, replay, concurrent submission and contract-wallet authorization changes. Add standard vectors and malformed inputs to align verifier behavior.</p><h2 id="en-section-7">Product and ecosystem considerations</h2><p>Choose for chain, wallet, hardware and custody compatibility. Compare recovery UX, verification costs and integration burden; do not claim universal speed, security or gas advantages. Benchmarks must specify hardware, library versions, batch size and verification path.</p><p>For permits, off-chain orders and intents, authorization scope, cancellation and expiry often dominate product risk. A gasless signature may authorize asset movement. Show action, asset, amount, counterparty and validity; signing success is not settlement or finality.</p><h2 id="en-section-8">Primary sources</h2><ul><li><a href="https://www.rfc-editor.org/rfc/rfc8032">RFC 8032: EdDSA / Ed25519</a></li><li><a href="https://www.rfc-editor.org/rfc/rfc6979">RFC 6979: deterministic ECDSA</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-2">EIP-2: low-s and ecrecover</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-712">EIP-712: typed structured data</a></li><li><a href="https://docs.openzeppelin.com/contracts/5.x/api/utils/cryptography">OpenZeppelin: ECDSA / SignatureChecker</a></li><li><a href="https://solana.com/docs/core/transactions">Solana transactions</a> · <a href="https://solana.com/docs/core/programs/precompiles">Signature precompiles</a></li><li><a href="https://nodejs.org/api/crypto.html">Node.js crypto API</a></li><li><a href="https://bips.dev/340/">BIP-340: Schnorr signatures</a> · <a href="https://bips.dev/341/">BIP-341: Taproot</a></li><li><a href="https://eips.ethereum.org/EIPS/eip-155">EIP-155: replay protection</a> · <a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559: type 2 transactions</a></li><li><a href="https://cosmos.github.io/cosmjs/latest/amino/functions/encodeSecp256k1Signature.html">CosmJS: secp256k1 signature encoding</a></li></ul></div></main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js?v=20261019-enrich"></script>
+</body>
+</html>
