@@ -16,8 +16,8 @@
       b.setAttribute('aria-pressed', String(b.dataset.langBtn === lang));
     });
 
-    // Keep an article section link on its corresponding language section.
-    var section = location.hash.match(/^#(?:zh|en)(-section-\d+)$/);
+    // Keep a bilingual anchor (#zh-… / #en-…) on its corresponding language section.
+    var section = location.hash.match(/^#(?:zh|en)(-[\w-]+)$/);
     if (section) {
       var target = document.getElementById(lang + section[1]);
       if (target) {

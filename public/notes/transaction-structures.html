@@ -101,9 +101,10 @@
   "accessList": [],
   "r": "0xEXAMPLE_R",
   "s": "0xEXAMPLE_S",
+  "yParity": "0x0",
   "v": "0x0"
 }</code></pre>
-<p>此處 <code>hash</code>、<code>r</code>、<code>s</code> 是明顯的占位文字，不是合法 hex。type 2 的 recovery 欄位依規格叫 <code>signature_y_parity</code>（0／1）；RPC 可能標為 <code>v</code>。<code>input</code> 對應請求中的 <code>data</code>。實際廣播的是 <code>0x02 || RLP(...)</code> 的 signed raw bytes，並非把上方 JSON 做 <code>JSON.stringify</code>。<code>hash</code> 是完整 signed raw transaction 的 Keccak-256。執行結果要另查 receipt 的 <code>status</code>、<code>gasUsed</code> 與 <code>logs</code>。</p>
+<p>此處 <code>hash</code>、<code>r</code>、<code>s</code> 是明顯的占位文字，不是合法 hex。type 2 的 recovery 欄位依規格叫 <code>signature_y_parity</code>（0／1）；JSON-RPC 以 <code>yParity</code> 回傳，部分節點另附已棄用、值相同的 <code>v</code>。<code>input</code> 對應請求中的 <code>data</code>。實際廣播的是 <code>0x02 || RLP(...)</code> 的 signed raw bytes，並非把上方 JSON 做 <code>JSON.stringify</code>。<code>hash</code> 是完整 signed raw transaction 的 Keccak-256。執行結果要另查 receipt 的 <code>status</code>、<code>gasUsed</code> 與 <code>logs</code>。</p>
 <p>參考 <a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559</a> 與 <a href="https://ethereum.org/developers/docs/apis/json-rpc/">Ethereum JSON-RPC</a>。</p>
 <h2 id="zh-section-5">從欄位到 wire format</h2><pre><code>unsigned = 0x02 || RLP([
   chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
@@ -149,9 +150,10 @@ transactionHash = keccak256(signedRaw)</code></pre><p>JSON 是方便人與 RPC �
   "accessList": [],
   "r": "0xEXAMPLE_R",
   "s": "0xEXAMPLE_S",
+  "yParity": "0x0",
   "v": "0x0"
 }</code></pre>
-<p>Hash, r and s are conspicuous placeholders, not valid hex. The type 2 specification calls the recovery field <code>signature_y_parity</code> (0/1); RPC may label it <code>v</code>. Query <code>input</code> corresponds to request <code>data</code>. The broadcast artifact is signed <code>0x02 || RLP(...)</code> bytes, not JSON.stringify output. The hash is Keccak-256 of those signed bytes. Query a separate receipt for status, gasUsed and logs.</p>
+<p>Hash, r and s are conspicuous placeholders, not valid hex. The type 2 specification calls the recovery field <code>signature_y_parity</code> (0/1); JSON-RPC returns it as <code>yParity</code>; some nodes also include a deprecated <code>v</code> with the same value. Query <code>input</code> corresponds to request <code>data</code>. The broadcast artifact is signed <code>0x02 || RLP(...)</code> bytes, not JSON.stringify output. The hash is Keccak-256 of those signed bytes. Query a separate receipt for status, gasUsed and logs.</p>
 <p>See <a href="https://eips.ethereum.org/EIPS/eip-1559">EIP-1559</a> and <a href="https://ethereum.org/developers/docs/apis/json-rpc/">Ethereum JSON-RPC</a>.</p>
 <h2 id="en-section-5">Wire encoding and hashes</h2><pre><code>unsigned = 0x02 || RLP([
   chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
