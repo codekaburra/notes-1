@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>跨鏈交易結構（三）：Cosmos 與 IBC</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
+</head>
+<body data-title-zh="跨鏈交易結構（三）：Cosmos 與 IBC" data-title-en="Transaction Structures, Part III: Cosmos and IBC">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+<a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
+<div data-l="zh"><h1>跨鏈交易結構（三）：Cosmos 與 IBC</h1><p class="meta">2026-11-02 · COSMOS · IBC · TRANSACTIONS</p><details class="note-toc"><summary>本篇導覽</summary><nav><ol><li><a href="#zh-section-1">交易與跨鏈封包是兩個層次</a></li><li><a href="#zh-section-2">Cosmos 交易：TxBody、AuthInfo、SignDoc、TxRaw</a></li><li><a href="#zh-cosmos-json">IBC 轉帳 JSON 範例</a></li><li><a href="#zh-section-3">從簽署到結果：不要只看 tx hash</a></li><li><a href="#zh-section-4">IBC 如何建立可信的跨鏈通道</a></li><li><a href="#zh-section-5">ICS-20 轉帳：來源、目的、確認</a></li><li><a href="#zh-section-6">Timeout、退款與 pending：最容易誤判的地方</a></li><li><a href="#zh-section-7">整合與安全驗收</a></li><li><a href="#zh-section-8">官方來源</a></li></ol></nav></details><h2 id="zh-section-1">交易與跨鏈封包是兩個層次</h2><p>接續 <a href="./transaction-structures.html">Ethereum</a> 與 <a href="./solana-transactions-token2022.html">Solana</a>。本篇以一般 Cosmos SDK 帳戶、Protobuf <code>SIGN_MODE_DIRECT</code> 和 IBC classic 的 ICS-20 代幣轉帳為例。Cosmos 是多鏈生態：實際 chain ID、denom、簽署模式、費用與 IBC 版本必須對目標鏈核對。</p><p>使用者先在來源鏈送出一筆 Cosmos 交易，裡面有 <code>MsgTransfer</code>。IBC 模組產生 packet；relayer 之後在目的鏈送另一筆交易提交證明，接著再把 acknowledgement 或 timeout 證明送回來源鏈。<strong>來源鏈交易成功，只代表跨鏈流程開始。</strong></p><h2 id="zh-section-2">Cosmos 交易：TxBody、AuthInfo、SignDoc、TxRaw</h2><pre><code>TxBody
+├─ messages[]：例如 MsgSend、MsgDelegate、MsgTransfer
+├─ memo
+└─ timeout_height（交易層高度限制，與 IBC packet timeout 分開）
+
+AuthInfo
+├─ signer_infos[]：公鑰、sign mode、sequence
+└─ fee：amount、gas_limit、payer / granter（依設定）
+
+SignDoc (SIGN_MODE_DIRECT)
+├─ body_bytes
+├─ auth_info_bytes
+├─ chain_id
+└─ account_number
+        ↓ 簽章
+TxRaw = body_bytes + auth_info_bytes + signatures[]</code></pre><p>Protobuf <code>Any</code> 承載各種 <code>Msg</code>。直接簽署模式簽的是由確切 body/auth bytes 與 chain ID、account number 組成的 <code>SignDoc</code>；廣播的是序列化的 <code>TxRaw</code>。簽完後改 memo、fee、gas limit、sequence 或任一 message，都要重簽。SignerInfos 與 signatures 的順序必須符合該交易的 signer 規則。</p><p>一般 secp256k1 帳戶的簽章常為 64-byte <code>r || s</code>，不帶 Ethereum 的 <code>v</code>；驗證使用對應公鑰。帳戶類型、multisig、sign mode 與 Cosmos EVM Ethereum-format 交易可不同，不能硬套單一解碼器。詳見 <a href="./ecdsa-vs-ed25519.html#zh-chain-signatures">簽章對照</a>。</p><h3 id="zh-cosmos-json">一筆 IBC 轉帳的 JSON 長怎樣？</h3>
+<p>下方是<strong>教學用、已解碼的 Protobuf JSON 形狀</strong>，地址、channel、數額和 timeout 都是示意，不能直接廣播。這裡有三個層次：人類可讀的 <code>Tx</code>、簽署時的 <code>SignDoc</code>，以及實際廣播的 <code>TxRaw</code>。不要把這份 JSON 文字直接當成要簽的 bytes。</p>
+<pre><code>{
+  "body": {
+    "messages": [{
+      "@type": "/ibc.applications.transfer.v1.MsgTransfer",
+      "source_port": "transfer",
+      "source_channel": "channel-7",
+      "token": { "denom": "uatom", "amount": "1000000" },
+      "sender": "cosmos1...example",
+      "receiver": "osmo1...example",
+      "timeout_height": { "revision_number": "0", "revision_height": "0" },
+      "timeout_timestamp": "1790000000000000000",
+      "memo": ""
+    }],
+    "memo": "IBC transfer example",
+    "timeout_height": "0"
+  },
+  "auth_info": {
+    "signer_infos": [{
+      "mode_info": { "single": { "mode": "SIGN_MODE_DIRECT" } },
+      "sequence": "12"
+    }],
+    "fee": {
+      "amount": [{ "denom": "uatom", "amount": "5000" }],
+      "gas_limit": "200000"
+    }
+  },
+  "signatures": ["BASE64_SIGNATURE_BYTES"]
+}</code></pre>
+<p><code>token.amount</code> 是最小單位的字串；若該 denom 有 6 decimals，<code>1000000</code> 可顯示為 1 顆，但 decimals 與 denom trace 要依來源鏈查證。<code>auth_info.fee.amount</code> 是來源交易費，與跨鏈 token amount 分開。<code>sequence</code> 是來源帳戶交易序號。外層 <code>body.timeout_height</code> 是交易限制；訊息內 <code>timeout_height</code>／<code>timeout_timestamp</code> 是 IBC packet 限制。上例以 timestamp 指定 packet timeout，零高度表示未以高度設限；timestamp 是 Unix nanoseconds，正式值要依目的鏈情況設定。</p>
+<p><code>body.memo</code> 是來源交易備註；<code>MsgTransfer.memo</code> 是 IBC transfer 訊息內的備註，可能供 middleware 使用。兩者不同，不應把任意 memo 內容當成可信指令。<code>source_channel</code> 需在來源鏈查；不能用目的鏈自己的 channel ID 替代。<code>receiver</code> 要用目的鏈正確的地址格式。</p>
+<p>上方 <code>signatures</code> 的值只是占位文字，且省略了可選公鑰與預設欄位。實際 <code>TxRaw</code> 先把 body、auth_info 編成 Protobuf bytes；JSON 中的 bytes 通常顯示為 Base64，再連同真正簽章編碼：</p>
+<pre><code>SignDoc {
+  body_bytes:      protobuf(TxBody),
+  auth_info_bytes: protobuf(AuthInfo),
+  chain_id:        "source-chain-id",
+  account_number: "42"
+}
+
+TxRaw {
+  body_bytes:      同一份 body bytes,
+  auth_info_bytes: 同一份 auth info bytes,
+  signatures:     [實際簽章 bytes]
+}</code></pre>
+<p>這是結構示意，<strong>不是 JSON literal 或可簽署的範例資料</strong>。<code>SignDoc</code> 的 chain ID 與 account number 參與簽署，但不以同名頂層欄位出現在上述 <code>TxRaw</code>。SDK 要以確切的 Protobuf bytes 組合並簽署；修改 fee、memo、sequence 或 MsgTransfer 後，都必須重簽。</p>
+<h2 id="zh-section-3">從簽署到結果：不要只看 tx hash</h2><ol><li>查 chain ID、account number、sequence 與 spendable balance；建立 Msg 和 fee。</li><li>模擬 gas，再依鏈的 fee token 與 gas price 決定 fee；確認 signer 授權。</li><li>依支援的 sign mode 編碼並簽署；廣播 TxRaw。</li><li>檢查交易是否收錄、<code>code</code> 是否成功、events 與實際餘額。RPC 接受或拿到 hash 不是執行成功。</li></ol><p>sequence 是帳戶防重放的一部分，與 ECDSA 的秘密 k 不同。並行送單、逾時重試與替換費用時要重新讀鏈上狀態。<code>gas_wanted</code> 是要求上限，<code>gas_used</code> 是實際消耗；具體扣費與失敗處理按鏈的應用規則。跨鏈前還需確認發送者有來源鏈的 fee denom，不要只看要轉出的 token。</p><h2 id="zh-section-4">IBC 如何建立可信的跨鏈通道</h2><p>IBC 的核心物件包括 client、connection、channel、packet。client 讓一條鏈驗證另一條鏈的共識狀態；connection 與 channel 連接應用端點；packet 承載資料與來源／目的 port、channel、sequence、timeout。Relayer 負責傳遞 header、packet 與證明，但不應靠 relayer 自稱「已到帳」作為真相；接收鏈驗證證明與通道狀態。</p><p>IBC 的安全取決於 client 對遠端鏈狀態的驗證和相關信任假設；活性還取決於 relayer、channel 與鏈本身的可用性。不同 IBC client 或 middleware 的風險不應一概視為相同。</p><h2 id="zh-section-5">ICS-20 轉帳：來源、目的、確認</h2><pre><code>來源鏈 A：使用者 MsgTransfer
+  → 若 A 是資產源鏈方向：鎖定／escrow 原生資產
+  → 若 voucher 正沿返回路徑：銷毀 voucher
+  → 寫入 packet commitment（含 sequence 與 timeout）
+        ↓ relayer 提交 packet 與證明
+目的鏈 B：驗證 client／channel／proof，執行 OnRecvPacket
+  → 依 denom trace 發行 voucher 或解鎖原資產
+  → 寫入 acknowledgement（成功或應用錯誤）
+        ↓ relayer 回傳 acknowledgement 與證明
+來源鏈 A：處理 acknowledgement，清理 packet commitment
+  → 成功：流程結束；錯誤：依 ICS-20 規則退款</code></pre><p><strong>denom trace 決定資產來源與回程行為。</strong>使用者介面常顯示 <code>ibc/...</code> hash，但只看 ticker 或畫面顯示名稱無法確認底層來源。需要核對 path、base denom、channel 與真正可回程的路徑。錯 channel 可能產生另一種 voucher，流動性與可退出性不同。</p><p>概念例：Alice 在 A 把 10 個 A 原生 token 經正確 channel 送到 B。A 鎖定 10，B 發行對應 voucher；回原路時可在 B 銷毀 voucher、於 A 解鎖原資產。這不是 B 上出現了額外 10 個無抵押的 A 原生 token。</p><h2 id="zh-section-6">Timeout、退款與 pending：最容易誤判的地方</h2><div class="scroll"><table><thead><tr><th>觀察</th><th>代表什麼</th><th>下一步</th></tr></thead><tbody><tr><td>來源鏈 tx 成功、SendPacket event</td><td>packet 已發出</td><td>記錄 port／channel／sequence／timeout，追蹤目的鏈</td></tr><tr><td>目的鏈 RecvPacket 成功且 ack 成功</td><td>目的鏈應用已接受</td><td>核對接收者資產與來源鏈 ack</td></tr><tr><td>目的鏈 ack 為錯誤</td><td>目的鏈應用拒絕</td><td>等待錯誤 ack 回到來源鏈後的退款處理</td></tr><tr><td>packet timeout 到期</td><td>可能可提交 timeout 證明</td><td>確認目的鏈未接收，提交／追蹤來源鏈 timeout；不能只看時鐘認定已退款</td></tr><tr><td>Relayer 暫停</td><td>封包可能仍 pending</td><td>查 commitment、receipt／ack、client 和 channel 狀態；避免直接重送新轉帳</td></tr></tbody></table></div><p>Timeout 是協議邊界，不是「時間到自動返還」的產品保證。退款由目的鏈錯誤 acknowledgement 或已證明的 timeout 在來源鏈觸發；流程可能需要 relayer 提交交易。若目的鏈已成功接收，不能再合法地把同一 packet 當未接收退款。產品需要獨立追蹤每個 packet，而非只存來源交易 hash。</p><h2 id="zh-section-7">整合與安全驗收</h2><ul><li>對每一條路徑固定並驗證 source／destination chain ID、port、channel、receiver 編碼、base denom 與 denom trace。</li><li>分別測來源交易失敗、目的鏈拒絕、ack 遺失或延後、timeout、relayer 中斷、client 過期或凍結、channel 關閉。</li><li>用 port／channel／sequence 定位 packet；避免因 UI timeout 而重送另一筆新轉帳。重試 relayer 提交與重做使用者轉帳是不同操作。</li><li>在接收鏈核對實際到帳 denom 和 amount，再允許下游 swap／存款；來源鏈扣款不等於目的鏈可用餘額。</li><li>監控 ack 與 timeout 的資金責任，設計客服可查的 pending、成功、退款狀態及證據。</li></ul><p>PM 應把跨鏈延遲、費用、relayer／client／channel 可用性、voucher 流動性與退出路徑列入市場風險。路由可達不代表該資產可安全當抵押品，也不代表任何時間都有回程流動性。</p><h2 id="zh-section-8">官方來源</h2><ul><li><a href="https://github.com/cosmos/cosmos-sdk-docs/blob/main/docs/learn/advanced/01-transactions.md">Cosmos SDK transaction structure</a></li><li><a href="https://github.com/cosmos/cosmos-sdk/blob/main/proto/cosmos/tx/v1beta1/tx.proto">Cosmos SDK tx.proto</a></li><li><a href="https://github.com/cosmos/ibc/blob/main/spec/core/ics-004-channel-and-packet-semantics/README.md">IBC packet semantics</a></li><li><a href="https://github.com/cosmos/ibc/blob/main/spec/app/ics-020-fungible-token-transfer/README.md">ICS-20 token transfers</a></li><li><a href="https://github.com/cosmos/ibc/blob/main/spec/relayer/ics-018-relayer-algorithms/README.md">Relayer algorithms</a></li></ul></div><div data-l="en"><h1>Transaction Structures, Part III: Cosmos and IBC</h1><p class="meta">2026-11-02 · COSMOS · IBC · TRANSACTIONS</p><details class="note-toc"><summary>In this note</summary><nav><ol><li><a href="#en-section-1">Transaction versus packet</a></li><li><a href="#en-section-2">TxBody, AuthInfo, SignDoc, TxRaw</a></li><li><a href="#en-cosmos-json">IBC transfer JSON example</a></li><li><a href="#en-section-3">Signing and execution</a></li><li><a href="#en-section-4">IBC trust and routing</a></li><li><a href="#en-section-5">ICS-20 lifecycle</a></li><li><a href="#en-section-6">Timeouts, refunds, and pending state</a></li><li><a href="#en-section-7">Developer and product acceptance</a></li><li><a href="#en-section-8">Primary sources</a></li></ol></nav></details><h2 id="en-section-1">Transaction versus packet</h2><p>Following <a href="./transaction-structures.html">Ethereum</a> and <a href="./solana-transactions-token2022.html">Solana</a>, this note uses a conventional Cosmos SDK account, Protobuf SIGN_MODE_DIRECT and classic IBC ICS-20 transfers. Confirm chain-specific fees, denominations, signing support and IBC version.</p><p>The user submits a source-chain transaction containing MsgTransfer. A relayer later submits a separate destination-chain transaction with a packet proof, then relays acknowledgement or timeout evidence back. Source transaction success starts the cross-chain process.</p><h2 id="en-section-2">TxBody, AuthInfo, SignDoc, TxRaw</h2><pre><code>TxBody: messages[], memo, transaction timeout_height
+AuthInfo: signer_infos[] (key, sign mode, sequence), fee
+SignDoc DIRECT: body_bytes, auth_info_bytes,
+                chain_id, account_number
+TxRaw: body_bytes, auth_info_bytes, signatures[]</code></pre><p>Messages are encoded as Protobuf Any. The signer signs exact body/auth bytes plus chain and account context; serialized TxRaw is broadcast. Change memo, fee, gas, sequence or message and signatures must be redone. Signature order follows signer rules. Ordinary secp256k1 accounts commonly use 64-byte r || s without Ethereum v; other account types, multisig, sign modes and Cosmos EVM transactions differ. See the <a href="./ecdsa-vs-ed25519.html#en-chain-signatures">signature comparison</a>.</p><h3 id="en-cosmos-json">What does an IBC transfer JSON object look like?</h3>
+<p>This is a teaching example of the <strong>decoded Protobuf JSON shape</strong>. Addresses, channel, amounts and timeout are illustrative and cannot be broadcast. Distinguish readable Tx, the SignDoc to sign, and the TxRaw bytes to broadcast. Do not sign the JSON text.</p>
+<pre><code>{
+  "body": {
+    "messages": [{
+      "@type": "/ibc.applications.transfer.v1.MsgTransfer",
+      "source_port": "transfer",
+      "source_channel": "channel-7",
+      "token": { "denom": "uatom", "amount": "1000000" },
+      "sender": "cosmos1...example",
+      "receiver": "osmo1...example",
+      "timeout_height": { "revision_number": "0", "revision_height": "0" },
+      "timeout_timestamp": "1790000000000000000",
+      "memo": ""
+    }],
+    "memo": "IBC transfer example",
+    "timeout_height": "0"
+  },
+  "auth_info": {
+    "signer_infos": [{
+      "mode_info": { "single": { "mode": "SIGN_MODE_DIRECT" } },
+      "sequence": "12"
+    }],
+    "fee": {
+      "amount": [{ "denom": "uatom", "amount": "5000" }],
+      "gas_limit": "200000"
+    }
+  },
+  "signatures": ["BASE64_SIGNATURE_BYTES"]
+}</code></pre>
+<p>Token amount is an integer string in base units; check denomination and decimals before displaying it. Fee amount pays for the source transaction, separate from transferred tokens. Sequence is the source account transaction sequence. Outer <code>body.timeout_height</code> limits the transaction; the timeout fields inside MsgTransfer limit the IBC packet. Here the packet uses a timestamp and zero height; timestamp units are Unix nanoseconds. Choose real values for the destination chain.</p>
+<p>The outer body memo and MsgTransfer memo serve different purposes. Middleware may interpret the latter, so do not treat arbitrary memo input as trusted instructions. Check the source chain's channel ID and the destination chain's receiver format.</p>
+<p>The signature above is placeholder text; optional public key and default fields are omitted. In practice, serialize TxBody and AuthInfo to Protobuf bytes, then construct:</p>
+<pre><code>SignDoc {
+  body_bytes: protobuf(TxBody),
+  auth_info_bytes: protobuf(AuthInfo),
+  chain_id: "source-chain-id",
+  account_number: "42"
+}
+TxRaw {
+  body_bytes: same exact body bytes,
+  auth_info_bytes: same exact auth info bytes,
+  signatures: [real signature bytes]
+}</code></pre>
+<p>This is a structure sketch, not literal JSON or signable data. SignDoc chain ID and account number are signed but are not identically named top-level fields in TxRaw. SDKs must sign the exact Protobuf bytes; changing fee, memo, sequence or MsgTransfer requires new signatures.</p>
+<h2 id="en-section-3">Signing and execution</h2><ol><li>Fetch chain ID, account number, sequence and spendable balances.</li><li>Build messages, simulate gas and set fees in the chain's supported fee denom.</li><li>Encode with a supported sign mode, sign and broadcast TxRaw.</li><li>Check inclusion, response code, events and actual balances; a hash is not execution success.</li></ol><p>Account sequence prevents transaction replay and is distinct from secret ECDSA k. Concurrent submissions and retries need chain-state checks. Gas wanted and gas used differ; fee behavior follows the application. Cross-chain transfers also need source-chain fee funds.</p><h2 id="en-section-4">IBC trust and routing</h2><p>IBC uses clients, connections, channels and packets. A client verifies another chain's state; connections and channels link application endpoints. Packets carry source and destination ports/channels, sequence, data and timeout. Relayers transmit headers, packets and proofs; destination chains verify proofs rather than trusting a relayer's claim. Safety depends on client assumptions, while liveness also depends on relayers, channels and chains.</p><h2 id="en-section-5">ICS-20 lifecycle</h2><pre><code>A: MsgTransfer → escrow native asset or burn returning voucher
+   → write packet commitment and timeout
+Relayer: submit packet + proof
+B: verify proof → mint voucher or unescrow native asset
+   → write success/error acknowledgement
+Relayer: submit acknowledgement + proof back to A
+A: clear commitment; on error, apply ICS-20 refund rules</code></pre><p>Denom trace identifies origin and return path; an ibc/... display hash or ticker alone does not. A wrong channel can produce a distinct voucher with different liquidity. For an A-native token, sending 10 to B locks 10 on A and creates a corresponding voucher on B. Returning by the valid path burns the voucher and unlocks the original asset.</p><h2 id="en-section-6">Timeouts, refunds, and pending state</h2><p>A successful source transaction and SendPacket event mean the packet was sent. Destination RecvPacket and successful acknowledgement establish destination acceptance. An application error acknowledgement can trigger a source refund when relayed. Expired timeout makes a timeout proof possible; it does not itself guarantee an automatic refund at a wall-clock instant. A relayer may need to submit the timeout transaction. If the destination already accepted the packet, the same packet cannot validly be refunded as unreceived.</p><p>Track port/channel/sequence, commitment, destination receipt and acknowledgement or timeout. A user-facing timeout is not grounds to create another transfer blindly.</p><h2 id="en-section-7">Developer and product acceptance</h2><ul><li>Validate source and destination chains, ports/channels, receiver encoding and denomination trace.</li><li>Test source failure, destination rejection, delayed acknowledgement, timeout, relayer outage, expired/frozen client and closed channel.</li><li>Identify packets by port/channel/sequence; distinguish relayer retry from a new user transfer.</li><li>Check actual destination denomination and balance before downstream swaps or deposits.</li><li>Expose pending, success and refund states with evidence for support and operations.</li></ul><p>PM risk includes delays, fees, relayer/client/channel liveness, voucher liquidity and exits. Route availability does not imply collateral suitability or guaranteed return liquidity.</p><h2 id="en-section-8">Primary sources</h2><ul><li><a href="https://github.com/cosmos/cosmos-sdk-docs/blob/main/docs/learn/advanced/01-transactions.md">Cosmos SDK transaction structure</a></li><li><a href="https://github.com/cosmos/cosmos-sdk/blob/main/proto/cosmos/tx/v1beta1/tx.proto">Cosmos SDK tx.proto</a></li><li><a href="https://github.com/cosmos/ibc/blob/main/spec/core/ics-004-channel-and-packet-semantics/README.md">IBC packet semantics</a></li><li><a href="https://github.com/cosmos/ibc/blob/main/spec/app/ics-020-fungible-token-transfer/README.md">ICS-20 token transfers</a></li><li><a href="https://github.com/cosmos/ibc/blob/main/spec/relayer/ics-018-relayer-algorithms/README.md">Relayer algorithms</a></li></ul></div></main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js?v=20261019-enrich"></script>
+</body>
+</html>

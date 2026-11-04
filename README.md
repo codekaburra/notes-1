@@ -136,5 +136,7 @@ The home page offers separate routes for Web3 beginners, DeFi PMs, and contract 
 - [Oracles and market integrity](public/notes/oracles.html)
 - [ERC-4626 vaults and yield](public/notes/erc-4626-vaults.html)
 - [Integration and recovery](public/notes/defi-integration.html)
+- [ECDSA, Ed25519, Bitcoin, and transaction signatures](public/notes/ecdsa-vs-ed25519.html)
+- Transaction structures: [Ethereum](public/notes/transaction-structures.html) → [Solana and Token-2022](public/notes/solana-transactions-token2022.html) → [Cosmos and IBC](public/notes/cosmos-transactions-ibc.html)
 
-Article section anchors use `zh-section-N` and `en-section-N`; keep the order of equivalent sections aligned between languages. Distinguish mechanism/example updates from dated market snapshots. The initial content review and follow-up scope are in [NOTES_REVIEW.md](NOTES_REVIEW.md).
+Article section anchors use `zh-section-N` and `en-section-N`; other bilingual anchors use matching `zh-…` / `en-…` ids so language switching keeps the reader on the same section. Keep the order of equivalent sections aligned between languages. Distinguish mechanism/example updates from dated market snapshots. The initial content review and follow-up scope are in [NOTES_REVIEW.md](NOTES_REVIEW.md).

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>跨鏈交易結構（二）：Solana 與 Token-2022</title>
+<script>
+  try {
+    var l = localStorage.getItem('notes-lang');
+    if (l !== 'zh' && l !== 'en') l = (navigator.language||'').toLowerCase().indexOf('zh')===0 ? 'zh' : 'en';
+    document.documentElement.dataset.lang = l;
+    document.documentElement.lang = l === 'zh' ? 'zh-Hant' : 'en';
+  } catch(e) {}
+</script>
+<link rel="stylesheet" href="../assets/style.css?v=20261019-enrich">
+</head>
+<body data-title-zh="跨鏈交易結構（二）：Solana 與 Token-2022" data-title-en="Transaction Structures, Part II: Solana and Token-2022">
+<div class="wrap">
+
+  <header class="top">
+    <a class="brand" href="../index.html">
+      <span class="brand-mark">N</span>
+      <span class="brand-copy">
+        <span data-l="zh">筆記</span><span data-l="en">Notes</span>
+        <small data-l="zh">獨立研究與技術寫作</small>
+        <small data-l="en">Independent research &amp; writing</small>
+      </span>
+    </a>
+    <div class="top-actions">
+      <nav class="nav" aria-label="Primary">
+        <a href="../index.html#notes" data-l="zh">文章</a><a href="../index.html#notes" data-l="en">Journal</a>
+        <a href="../index.html#about" data-l="zh">關於</a><a href="../index.html#about" data-l="en">About</a>
+      </nav>
+      <div class="langbar">
+        <button type="button" data-lang-btn="zh" aria-pressed="true">中文</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+<a class="back" href="../index.html"><span data-l="zh">← 返回列表</span><span data-l="en">← All notes</span></a>
+<div data-l="zh"><h1>跨鏈交易結構（二）：Solana 與 Token-2022</h1><p class="meta">2026-11-02 · SOLANA · TRANSACTIONS · TOKEN EXTENSIONS</p><details class="note-toc"><summary>本篇導覽</summary><nav><ol><li><a href="#zh-section-1">先換一個模型：帳戶、程式與指令</a></li><li><a href="#zh-section-2">交易結構與簽署範圍</a></li><li><a href="#zh-solana-json">Solana 交易 JSON 範例</a></li><li><a href="#zh-section-3">簽署、費用與送出後的狀態</a></li><li><a href="#zh-section-4">Token 模型：Mint、Token Account、ATA</a></li><li><a href="#zh-section-5">Token-2022 是什麼，為什麼不能當普通 token</a></li><li><a href="#zh-section-6">完整例子：Alice 轉 100 顆 Token-2022 給 Bob</a></li><li><a href="#zh-section-7">開發驗收與 PM 市場風險</a></li><li><a href="#zh-section-8">官方來源</a></li></ol></nav></details><h2 id="zh-section-1">先換一個模型：帳戶、程式與指令</h2><p>接續 <a href="./transaction-structures.html">Ethereum 交易結構</a>；<a href="./cosmos-transactions-ibc.html">Cosmos 與 IBC 見第三篇</a>。本篇以常見 legacy／v0 message 模型說明 Solana；其他版本應依目標叢集與 SDK 規格解析。<strong>Solana 交易把 signatures 與 message 分開；message 包含帳戶清單和一組 instructions。</strong>Token-2022 則是處理 token 的程式，不是新的交易簽章演算法或 envelope。</p><p>程式執行邏輯，accounts 存狀態。每個 instruction 指定 program、需要的 accounts 與 data；可以在一筆交易依序做多個操作。程式再呼叫另一程式是 CPI。與 Ethereum 對照：program ID 類似呼叫目標，instruction data 類似 calldata，但不能把 Ethereum 的單一 to／value 直接套過來。</p><h2 id="zh-section-2">交易結構與簽署範圍</h2><pre><code>Transaction
+├─ signatures[]          每份 Ed25519 簽章為 64 bytes
+└─ message
+   ├─ header            signer 與 read-only 數量
+   ├─ accountKeys[]     共用的帳戶／program 地址
+   ├─ recentBlockhash   交易有效期相關的近期 blockhash
+   └─ instructions[]
+      ├─ programIdIndex
+      ├─ accounts[]     指向帳戶清單的索引
+      └─ data           由目標程式定義的 bytes
+
+v0 message 另外包含 addressTableLookups[]</code></pre><p>legacy／v0 的 signer 是 static account keys 前方由 header 指定的帳戶，簽章依順序對應；fee payer 位於第一個帳戶並簽署，其第一份簽章也是常用 transaction ID。這不像 Ethereum 以完整 signed bytes 的 Keccak hash 當交易 ID。所有 signer 簽同一份序列化 message；改 blockhash、指令或帳戶後，相關既有簽章都需重做。</p><p>v0 的 ALT 用查表引用減少地址在 message 中的空間，不會自動增加權限；從表載入的地址不能作為交易 signer。解碼 instruction 索引時要解析完整帳戶集合，不能只看 static keys。ALTs、可用容量與費用限制應依版本與叢集核對，不能假設任何版本都相同。</p><h3 id="zh-solana-json">Solana 交易的 JSON 長怎樣？</h3>
+<p>以下是<strong>getTransaction 類型的簡化 RPC JSON 視圖</strong>，以 legacy message、單一 System Program instruction 示意。簽章、blockhash 和兩個使用者地址都是占位文字；<code>data</code> 也不是可執行的編碼。此物件不能直接送給 <code>sendTransaction</code>，該方法送的是已簽署交易的序列化 bytes 編碼。</p>
+<pre><code>{
+  "slot": 123456789,
+  "transaction": {
+    "signatures": ["EXAMPLE_BASE58_SIGNATURE"],
+    "message": {
+      "header": {
+        "numRequiredSignatures": 1,
+        "numReadonlySignedAccounts": 0,
+        "numReadonlyUnsignedAccounts": 1
+      },
+      "accountKeys": [
+        "EXAMPLE_ALICE_PUBLIC_KEY",
+        "EXAMPLE_BOB_PUBLIC_KEY",
+        "11111111111111111111111111111111"
+      ],
+      "recentBlockhash": "EXAMPLE_RECENT_BLOCKHASH",
+      "instructions": [{
+        "programIdIndex": 2,
+        "accounts": [0, 1],
+        "data": "EXAMPLE_BASE58_INSTRUCTION_DATA"
+      }]
+    }
+  },
+  "meta": {
+    "err": null,
+    "fee": 5000,
+    "preBalances": [1000000000, 0, 1],
+    "postBalances": [999995000, 0, 1],
+    "logMessages": ["EXAMPLE_PROGRAM_LOG"]
+  },
+  "version": "legacy"
+}</code></pre>
+<p><code>accountKeys[0]</code> 是 Alice／fee payer／唯一 signer，<code>accountKeys[1]</code> 是 Bob，<code>accountKeys[2]</code> 是 System Program。Instruction 的 <code>programIdIndex: 2</code> 指向 System Program，<code>accounts: [0,1]</code> 指向 Alice 與 Bob。上方 balances 只示範付了 5,000 lamports 的 fee，<strong>沒有示範實際轉帳</strong>；完整 SOL transfer 需真實指令 data 與轉帳後的餘額。這避免把占位指令誤認為可執行轉帳。</p>
+<p>在真實 RPC <code>json</code> 回應裡，<code>meta.err: null</code> 表示執行無錯；仍須核對實際 balance 變化。<code>preBalances</code>／<code>postBalances</code> 的索引對應 account keys，單位 lamports。<code>jsonParsed</code> 編碼會顯示不同的 parsed instruction 形狀；v0 message 還可能有 <code>addressTableLookups</code> 與 <code>meta.loadedAddresses</code>。不能把一種 RPC 視圖當成所有交易的 wire format。</p>
+<p>Token-2022 轉帳也用相同的交易外框：換成 Token-2022 program ID、相關 mint／token accounts 與 extension 所需帳戶及 instruction data；成功後查看 <code>preTokenBalances</code>、<code>postTokenBalances</code>、logs 和實際淨入帳。參考 <a href="https://solana.com/docs/rpc/json-structures">Solana RPC JSON structures</a>。</p>
+<h2 id="zh-section-3">簽署、費用與送出後的狀態</h2><ol><li>建立 instructions，標示 signer／writable，設定 fee payer。</li><li>取得 blockhash 與 lastValidBlockHeight；必要時設定 Compute Budget 指令的 CU limit／price。</li><li>模擬、核對帳戶與資產變化，再收集所有 signer 的簽章。</li><li>送出相同 signed bytes，追蹤 signature status、meta.err 與 commitment；RPC 接受不等於執行成功。</li><li>若 blockhash 過期，要先確認舊交易是否已執行，再重建並重新簽署。Durable nonce 是另一條流程，不直接套用一般過期判斷。</li></ol><p>Solana 不以每個使用者的 Ethereum 式連續 nonce 作一般交易模型。不要用固定幾秒推算是否過期，應追蹤取得的有效高度。交易通常原子執行：失敗時業務狀態回滾，但仍可能支付費用；不要把費用扣款誤判為 token 轉帳成功。</p><p>Priority fee 與所要求的 CU limit、CU price 有關，不應只看實際消耗。建立 ATA 所需的 rent-exempt 資金也不同於交易 fee。結果需查看 meta.err、logs、innerInstructions、pre/post balances 與 token balances；確認真實經濟效果。</p><h2 id="zh-section-4">Token 模型：Mint、Token Account、ATA</h2><div class="scroll"><table><thead><tr><th>物件</th><th>用途</th><th>容易混淆</th></tr></thead><tbody><tr><td>Mint</td><td>定義 token、decimals、供給與 authorities／extensions</td><td>ticker 與 metadata 不是 token 身分</td></tr><tr><td>Token account</td><td>持有某一 mint 的餘額，記錄持有人 authority</td><td>一個使用者可有多個同 mint 的 token accounts</td></tr><tr><td>ATA</td><td>依 wallet authority、token program ID 與 mint 推導的慣例 token account</td><td>不是一般 SOL wallet 地址，也不是唯一可能持幣帳戶</td></tr><tr><td>Program owner</td><td>account 外層 owner，表示管理其資料的程式</td><td>不同於 token account 資料裡的 owner／authority</td></tr></tbody></table></div><p>原生 SOL 常透過 System Program 轉移 lamports；SPL token 則透過對應 Token Program，移動 source／destination token accounts 的餘額。資產識別應確認 cluster、mint 與 mint 的 program owner；不能只看名稱。</p><h2 id="zh-section-5">Token-2022 是什麼，為什麼不能當普通 token</h2><p>Token-2022 是不同地址上的 Token Extensions Program，保留基本 token 功能並擴充行為。<strong>不是所有 Token-2022 token 都有費用或 hook；要讀每個 mint 與 account 的實際 extensions。</strong>同一 ATA Program 支援兩種 token programs，但 ATA 推導需使用正確 token program ID。</p><div class="scroll"><table><thead><tr><th>Extension</th><th>行為／整合風險</th><th>防線</th></tr></thead><tbody><tr><td>TransferFeeConfig</td><td>收款者可用淨額低於發送額；另有 withheld fee 記錄</td><td>讀當期配置、cap 與 authority；按淨入帳算存款／minOut</td></tr><tr><td>TransferHook</td><td>轉帳觸發外部程式 CPI，可能需額外 accounts 或拒絕轉帳</td><td>使用支援 hook 的 builder；驗證 hook、額外 accounts 與升級權限</td></tr><tr><td>PermanentDelegate</td><td>特定 authority 可對該 mint 的 token accounts 行使轉移／銷毀權限</td><td>揭露與評估其權限，不假設只有持有人可動幣</td></tr><tr><td>NonTransferable／DefaultAccountState</td><td>可能限制轉移或讓新帳戶預設 frozen</td><td>確認交易與退出是否可用，評估 freeze／thaw authority</td></tr><tr><td>MemoTransfer／CpiGuard</td><td>帳戶可能要求 memo，或限制特定 CPI 操作</td><td>讀 account extensions，測直接操作與 CPI 路徑</td></tr><tr><td>InterestBearing／Scaled UI Amount</td><td>顯示數量可有額外換算語意</td><td>區分 raw amount 與 UI；不能把顯示增長當成新增底層資產收益</td></tr></tbody></table></div><p>有些 extensions 不相容，且不少配置需在 mint／account 初始化前規劃。資料長度可變，應用支援 extensions 的 decoder，不硬寫固定 account size，也不假設之後可任意補上功能。</p><h2 id="zh-section-6">完整例子：Alice 轉 100 顆 Token-2022 給 Bob</h2><pre><code>讀 mint → 確認 Token-2022 owner、decimals、extensions
+  → 找 Alice source 與 Bob destination token account
+  → 必要時建立 Bob ATA（由 payer 支付所需資金）
+  → 組 TransferChecked 或適用的 extension-aware 指令
+  → 加入 memo／hook 額外 accounts（若需要）
+  → 模擬、簽署、送出 → 核對 meta.err 與淨餘額</code></pre><p>假設當期 transfer fee = 1%，cap 不影響本例，且數量無取整歧義：Alice 的 token amount 扣 100，Bob 可用餘額增加 99，1 顆記為 withheld fee。這不是 network SOL fee，也不表示費用立即進入某個 fee wallet。實際需使用官方整數與取整規則。</p><p>若協議收到 99 卻按 100 發 shares，會產生會計缺口；若多跳 swap 每段都有 fee，淨輸出需逐段計算。對不支援的 extensions 明確拒絕，比盲目換 program ID 更安全。此流程為設計示意，未附可直接廣播的完整 SDK 專案。</p><h2 id="zh-section-7">開發驗收與 PM 市場風險</h2><ul><li>測錯 mint／program owner、缺 signer、read-only 帳戶、錯誤 ATA 推導、過期 blockhash與多簽收集後改 message。</li><li>測 fee 的零值、cap、取整與配置切換；以實際淨入帳記帳並檢查 withheld fee。</li><li>測 hook 缺 accounts、拒絕、配置更新，以及可升級程式的 authority；不能只在無 extensions 的 mint 上測成功。</li><li>測凍結、delegate、memo、CPI 限制、ATA 不存在與資金不足；追蹤重送和 timeout，避免業務重複。</li><li>PM 建立 extension 支援矩陣：wallet、DEX、借貸、託管、橋與退出路徑分別驗證。支援 Token-2022 不代表支援其每個 extension。</li></ul><p>流動性與可退出性會受轉帳政策、管理權限、fee 與 hook 可用性影響。上架前讀配置與 authority，持續監控可變設定；不要只因 token 可顯示就認定能成交或安全作抵押。</p><h2 id="zh-section-8">官方來源</h2><ul><li><a href="https://solana.com/docs/core/transactions">Transactions</a> · <a href="https://solana.com/docs/rpc/json-structures">RPC structures</a></li><li><a href="https://solana.com/docs/tokens">Tokens and accounts</a></li><li><a href="https://www.solana-program.com/docs/token-2022">Token-2022 program</a></li><li><a href="https://solana.com/docs/tokens/extensions">Extensions</a></li><li><a href="https://solana.com/docs/tokens/extensions/transfer-hook">Transfer hooks</a></li></ul></div><div data-l="en"><h1>Transaction Structures, Part II: Solana and Token-2022</h1><p class="meta">2026-11-02 · SOLANA · TRANSACTIONS · TOKEN EXTENSIONS</p><details class="note-toc"><summary>In this note</summary><nav><ol><li><a href="#en-section-1">Accounts, programs, instructions</a></li><li><a href="#en-section-2">Message structure and signatures</a></li><li><a href="#en-solana-json">Solana transaction JSON example</a></li><li><a href="#en-section-3">Signing, fees and confirmation</a></li><li><a href="#en-section-4">Mint, token account, ATA</a></li><li><a href="#en-section-5">Token-2022 extensions</a></li><li><a href="#en-section-6">Worked transfer: Alice sends 100 tokens</a></li><li><a href="#en-section-7">Acceptance and market risk</a></li><li><a href="#en-section-8">Primary sources</a></li></ol></nav></details><h2 id="en-section-1">Accounts, programs, instructions</h2><p>Following <a href="./transaction-structures.html">Ethereum transaction structures</a>, this article explains common Solana legacy/v0 messages. <a href="./cosmos-transactions-ibc.html">Cosmos and IBC are covered in Part III</a>. Other versions require their own cluster and SDK specifications. Transactions contain signatures and a message; Token-2022 is a token program, not a signature or envelope type.</p><p>Programs execute logic; accounts hold state. Instructions specify a program, accounts and data. Several instructions can form one transaction. Program-to-program calls are CPIs.</p><h2 id="en-section-2">Message structure and signatures</h2><pre><code>Transaction
+├─ signatures[]: 64-byte Ed25519 signatures
+└─ message
+   ├─ header
+   ├─ accountKeys[]
+   ├─ recentBlockhash
+   └─ instructions[]: programIdIndex, account indexes, data
+v0 also includes addressTableLookups[]</code></pre><p>Legacy/v0 signers occupy the required prefix of static keys. The first key is the signing fee payer; its signature is the usual transaction ID, unlike Ethereum's hash of the signed transaction. All signers sign the same serialized message. Changing blockhash, accounts or instructions requires new signatures.</p><p>V0 address lookup tables compress address references, not permissions. Loaded addresses cannot be transaction signers. Resolve the complete account list when decoding instruction indexes. Limits differ by version and cluster.</p><h3 id="en-solana-json">What does a Solana transaction JSON object look like?</h3>
+<p>This simplified getTransaction-style RPC JSON shows a legacy message with one illustrative System Program instruction. Signature, blockhash, user addresses and instruction data are placeholders. It cannot be sent to sendTransaction, which takes encoded serialized signed bytes.</p>
+<pre><code>{
+  "slot": 123456789,
+  "transaction": {
+    "signatures": ["EXAMPLE_BASE58_SIGNATURE"],
+    "message": {
+      "header": {
+        "numRequiredSignatures": 1,
+        "numReadonlySignedAccounts": 0,
+        "numReadonlyUnsignedAccounts": 1
+      },
+      "accountKeys": [
+        "EXAMPLE_ALICE_PUBLIC_KEY",
+        "EXAMPLE_BOB_PUBLIC_KEY",
+        "11111111111111111111111111111111"
+      ],
+      "recentBlockhash": "EXAMPLE_RECENT_BLOCKHASH",
+      "instructions": [{
+        "programIdIndex": 2,
+        "accounts": [0, 1],
+        "data": "EXAMPLE_BASE58_INSTRUCTION_DATA"
+      }]
+    }
+  },
+  "meta": {
+    "err": null,
+    "fee": 5000,
+    "preBalances": [1000000000, 0, 1],
+    "postBalances": [999995000, 0, 1],
+    "logMessages": ["EXAMPLE_PROGRAM_LOG"]
+  },
+  "version": "legacy"
+}</code></pre>
+<p>accountKeys[0] is Alice, fee payer and sole signer; [1] is Bob; [2] is the System Program. The instruction indexes refer to these keys. The balances show only a 5,000 lamport fee, <strong>not an actual SOL transfer</strong>; a real transfer needs valid encoded instruction data and matching post-balances. This prevents mistaking the placeholder for an executable transaction.</p>
+<p>In an actual RPC json response, meta.err null indicates no execution error; inspect balance changes as well. Balance arrays align with account key indexes and use lamports. jsonParsed changes instruction representation; v0 may add addressTableLookups and meta.loadedAddresses. These RPC views are not the signed wire format.</p>
+<p>Token-2022 transfers use the same transaction envelope with a different program ID, token accounts and any extension-required accounts and data. Inspect preTokenBalances, postTokenBalances, logs and net receipt. See <a href="https://solana.com/docs/rpc/json-structures">Solana RPC JSON structures</a>.</p>
+<h2 id="en-section-3">Signing, fees and confirmation</h2><ol><li>Build instructions and signer/writable metadata; choose payer.</li><li>Fetch blockhash and lastValidBlockHeight; configure compute budget where needed.</li><li>Simulate, inspect effects and collect signatures.</li><li>Submit signed bytes; track signature status, meta.err and commitment.</li><li>Before rebuilding an expired transaction, check whether it already executed. Durable nonce transactions use a separate lifecycle.</li></ol><p>Ordinary Solana transactions do not use Ethereum's per-sender sequential nonce model. Track validity height rather than a fixed timer. Failed transactions can still charge fees while business state rolls back. Priority fees depend on requested compute limit and price; ATA rent-exempt funding is separate. Inspect logs, inner instructions and actual balance changes.</p><h2 id="en-section-4">Mint, token account, ATA</h2><p>A mint defines the token, decimals, supply and authorities. A token account holds one mint's balance and its authority. An ATA is the conventional account derived from wallet authority, token program ID and mint; other token accounts may exist. The account's outer program owner differs from its token-holder authority.</p><p>Native SOL uses lamports and the System Program; token transfers use the applicable token program and source/destination token accounts. Identify assets by cluster, mint and mint program owner, not ticker.</p><h2 id="en-section-5">Token-2022 extensions</h2><p>Token-2022 is a distinct program with optional mint and account extensions. Not every mint charges fees or uses a hook. The same ATA Program supports both token programs, with the correct token program included in derivation.</p><ul><li>TransferFeeConfig: net received amount can be lower; track withheld fees, current configuration and authorities.</li><li>TransferHook: external CPI, extra accounts and possible rejection; inspect dependencies and upgrade authority.</li><li>PermanentDelegate: designated authority can transfer or burn tokens across accounts of that mint.</li><li>NonTransferable / DefaultAccountState: transfers or new accounts may be restricted or frozen.</li><li>MemoTransfer / CpiGuard: account-level conditions can change transfer and CPI compatibility.</li><li>InterestBearing / Scaled UI Amount: distinguish display conversion from raw balances and actual asset yield.</li></ul><p>Some extensions are incompatible, and many require planning before initialization. Use extension-aware decoders rather than fixed-size assumptions; do not assume features can always be added later.</p><h2 id="en-section-6">Worked transfer: Alice sends 100 tokens</h2><pre><code>Inspect mint owner, decimals and extensions
+  → resolve source and destination; create ATA if needed
+  → build checked / extension-aware transfer
+  → add required memo and hook accounts
+  → simulate, sign, submit, inspect net balances</code></pre><p>With a 1% active fee, a non-binding cap and no rounding ambiguity, sending 100 credits 99 spendable tokens and withholds 1. This is separate from SOL fees and is not necessarily an immediate payment to a fee wallet. Apply actual integer rounding rules.</p><p>A vault issuing shares for 100 after receiving 99 creates an accounting gap. Model each fee-bearing swap leg and reject unsupported extensions. This is an integration sketch, not a runnable SDK project.</p><h2 id="en-section-7">Acceptance and market risk</h2><ul><li>Test wrong mint/program, missing signer, writable flags, ATA derivation, expiry and message mutation after partial signing.</li><li>Test fee caps, rounding, configuration changes and net accounting.</li><li>Test missing hook accounts, hook rejection and authority changes.</li><li>Test frozen accounts, delegates, memo/CPI restrictions, missing ATA and retry ambiguity.</li><li>Maintain separate support matrices for wallets, DEXs, lending, custody, bridges and exits.</li></ul><p>Token-2022 support does not imply support for every extension. Transfer policy, mutable authority and hook availability can impair liquidity or exits. Monitor configuration rather than relying on token display or branding.</p><h2 id="en-section-8">Primary sources</h2><ul><li><a href="https://solana.com/docs/core/transactions">Transactions</a> · <a href="https://solana.com/docs/rpc/json-structures">RPC structures</a></li><li><a href="https://solana.com/docs/tokens">Tokens and accounts</a></li><li><a href="https://www.solana-program.com/docs/token-2022">Token-2022 program</a></li><li><a href="https://solana.com/docs/tokens/extensions">Extensions</a></li><li><a href="https://solana.com/docs/tokens/extensions/transfer-hook">Transfer hooks</a></li></ul></div></main>
+
+  <footer>
+    <a class="footer-brand" href="../index.html">NOTES / 筆記</a>
+    <p>
+      <span data-l="zh">純靜態 · 無追蹤 · 中英雙語</span>
+      <span data-l="en">Static · Tracking-free · Bilingual</span>
+    </p>
+    <a class="to-top" href="#" aria-label="Back to top">↑</a>
+  </footer>
+
+</div>
+<script src="../assets/app.js?v=20261019-enrich"></script>
+</body>
+</html>
